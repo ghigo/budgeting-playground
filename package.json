@@ -1,0 +1,27 @@
+{
+  "name": "expense-tracker",
+  "version": "1.0.0",
+  "description": "Self-hosted expense tracker with Plaid + Google Sheets",
+  "main": "src/cli.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/cli.js",
+    "sync": "node src/cli.js sync",
+    "link": "node src/cli.js link",
+    "accounts": "node src/cli.js accounts",
+    "transactions": "node src/cli.js transactions",
+    "setup": "node src/setup-sheets.js"
+  },
+  "keywords": ["expense", "tracker", "plaid", "google-sheets"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "plaid": "^27.0.0",
+    "googleapis": "^131.0.0",
+    "commander": "^12.0.0",
+    "dotenv": "^16.4.0",
+    "chalk": "^5.3.0",
+    "cli-table3": "^0.6.3",
+    "inquirer": "^9.2.0"
+  }
+}
