@@ -57,6 +57,7 @@ export const plaidEnvironment = isProduction ? 'production' : 'sandbox';
  */
 export async function createLinkToken(userId = 'user-1') {
   try {
+    console.log(`Creating link token for environment: ${plaidEnvironment}`);
     const response = await plaidClient.linkTokenCreate({
       user: { client_user_id: userId },
       client_name: 'Expense Tracker',
@@ -66,8 +67,18 @@ export async function createLinkToken(userId = 'user-1') {
     });
     return response.data.link_token;
   } catch (error) {
-    console.error('Error creating link token:', error.response?.data || error.message);
-    throw error;
+    const errorData = error.response?.data || {};
+    console.error('❌ Error creating link token:');
+    console.error('   Status:', error.response?.status);
+    console.error('   Error Code:', errorData.error_code);
+    console.error('   Error Type:', errorData.error_type);
+    console.error('   Error Message:', errorData.error_message);
+    console.error('   Display Message:', errorData.display_message);
+    console.error('   Environment:', plaidEnvironment);
+
+    // Throw more descriptive error
+    const message = errorData.error_message || errorData.display_message || error.message;
+    throw new Error(`Plaid error (${plaidEnvironment}): ${message}`);
   }
 }
 
