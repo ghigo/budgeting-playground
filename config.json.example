@@ -1,6 +1,12 @@
 {
   "google_sheet_id": "",
-  "plaid_client_id": "",
-  "plaid_secret": "",
-  "plaid_env": "sandbox"
+  "plaid": {
+    "client_id": "",
+    "sandbox": {
+      "secret": ""
+    },
+    "production": {
+      "secret": ""
+    }
+  }
 }

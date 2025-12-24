@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { initializeSheets, setupSpreadsheet } from './sheets.js';
 import * as plaidClient from './plaid.js';
+import { plaidEnvironment } from './plaid.js';
 import * as sync from './sync.js';
 import * as sheets from './sheets.js';
 
@@ -36,23 +37,11 @@ app.get('/api/health', (req, res) => {
 });
 
 // Get environment info
-app.get('/api/environment', async (req, res) => {
-  try {
-    const fs = await import('fs');
-    const configPath = join(__dirname, '../config.json');
-    let config = { plaid_env: 'sandbox' };
-
-    if (fs.existsSync(configPath)) {
-      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    }
-
-    res.json({
-      environment: config.plaid_env || 'sandbox',
-      isProduction: config.plaid_env === 'production'
-    });
-  } catch (error) {
-    res.json({ environment: 'sandbox', isProduction: false });
-  }
+app.get('/api/environment', (req, res) => {
+  res.json({
+    environment: plaidEnvironment,
+    isProduction: plaidEnvironment === 'production'
+  });
 });
 
 // Create Plaid Link token
@@ -167,8 +156,12 @@ app.get('*', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
+  const envEmoji = plaidEnvironment === 'production' ? '🟢' : '🟡';
+  const envLabel = plaidEnvironment.toUpperCase();
+
   console.log(`\n🚀 Expense Tracker running at http://localhost:${PORT}\n`);
-  console.log('📊 Dashboard: http://localhost:${PORT}');
-  console.log('🔗 Link Account: http://localhost:${PORT}/link');
+  console.log(`${envEmoji} Environment: ${envLabel}`);
+  console.log(`📊 Dashboard: http://localhost:${PORT}`);
+  console.log(`🔗 Link Account: http://localhost:${PORT}/link`);
   console.log('\nPress Ctrl+C to stop\n');
 });

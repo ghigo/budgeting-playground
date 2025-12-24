@@ -14,18 +14,43 @@ if (fs.existsSync(configPath)) {
   config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 }
 
+// Determine environment: use MODE env var, fallback to NODE_ENV, default to sandbox
+const environment = (process.env.MODE || process.env.NODE_ENV || 'sandbox').toLowerCase();
+const isProduction = environment === 'production';
+
+// Get credentials based on environment
+let clientId, secret;
+
+// Support both old and new config formats
+if (config.plaid) {
+  // New format: separate credentials per environment
+  clientId = config.plaid.client_id || process.env.PLAID_CLIENT_ID;
+  if (isProduction && config.plaid.production) {
+    secret = config.plaid.production.secret || process.env.PLAID_SECRET;
+  } else if (config.plaid.sandbox) {
+    secret = config.plaid.sandbox.secret || process.env.PLAID_SECRET;
+  }
+} else {
+  // Old format: backward compatibility
+  clientId = config.plaid_client_id || process.env.PLAID_CLIENT_ID;
+  secret = config.plaid_secret || process.env.PLAID_SECRET;
+}
+
 // Initialize Plaid client
 const configuration = new Configuration({
-  basePath: PlaidEnvironments[config.plaid_env || 'sandbox'],
+  basePath: PlaidEnvironments[isProduction ? 'production' : 'sandbox'],
   baseOptions: {
     headers: {
-      'PLAID-CLIENT-ID': config.plaid_client_id || process.env.PLAID_CLIENT_ID,
-      'PLAID-SECRET': config.plaid_secret || process.env.PLAID_SECRET,
+      'PLAID-CLIENT-ID': clientId,
+      'PLAID-SECRET': secret,
     },
   },
 });
 
 const plaidClient = new PlaidApi(configuration);
+
+// Export environment info
+export const plaidEnvironment = isProduction ? 'production' : 'sandbox';
 
 /**
  * Create a Link token for connecting a bank account

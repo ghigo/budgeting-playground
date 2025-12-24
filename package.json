@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
+    "start:prod": "MODE=production node src/server.js",
+    "start:sandbox": "MODE=sandbox node src/server.js",
     "dev": "node --watch src/server.js",
+    "dev:prod": "MODE=production node --watch src/server.js",
     "cli": "node src/cli.js",
     "sync": "node src/cli.js sync",
     "link": "node src/cli.js link",
