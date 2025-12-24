@@ -52,6 +52,16 @@ const plaidClient = new PlaidApi(configuration);
 // Export environment info
 export const plaidEnvironment = isProduction ? 'production' : 'sandbox';
 
+// Validate credentials on startup
+if (!clientId || !secret) {
+  console.warn('\n⚠️  WARNING: Plaid credentials not configured properly!');
+  console.warn(`   Environment: ${plaidEnvironment}`);
+  console.warn(`   Client ID: ${clientId ? '✓ Set' : '✗ Missing'}`);
+  console.warn(`   Secret: ${secret ? '✓ Set' : '✗ Missing'}`);
+  console.warn('\n   Please update your config.json with the correct credentials.');
+  console.warn('   See ENVIRONMENT.md for configuration details.\n');
+}
+
 /**
  * Create a Link token for connecting a bank account
  */
