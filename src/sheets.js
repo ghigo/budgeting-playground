@@ -61,34 +61,54 @@ export async function initializeSheets() {
  */
 export async function setupSpreadsheet() {
   try {
-    // Create headers for each sheet
+    // First, get existing sheets
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+    const existingSheets = spreadsheet.data.sheets.map(s => s.properties.title);
+
+    console.log('Existing sheets:', existingSheets.join(', '));
+
+    // Create missing sheets
+    const requiredSheets = [
+      SHEETS.ACCOUNTS,
+      SHEETS.TRANSACTIONS,
+      SHEETS.CATEGORIES,
+      SHEETS.PLAID_ITEMS
+    ];
+
     const requests = [];
-
-    // Accounts sheet
-    requests.push({
-      updateCells: {
-        range: { sheetId: 0, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 10 },
-        rows: [{
-          values: [
-            { userEnteredValue: { stringValue: 'Account ID' }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: 'Item ID' }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: 'Institution' }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: 'Account Name' }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: 'Type' }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: 'Subtype' }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: 'Mask' }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: 'Current Balance' }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: 'Available Balance' }, userEnteredFormat: { textFormat: { bold: true } } },
-            { userEnteredValue: { stringValue: 'Last Updated' }, userEnteredFormat: { textFormat: { bold: true } } }
-          ]
-        }],
-        fields: 'userEnteredValue,userEnteredFormat.textFormat.bold'
+    for (const sheetName of requiredSheets) {
+      if (!existingSheets.includes(sheetName)) {
+        console.log(`Creating sheet: ${sheetName}`);
+        requests.push({
+          addSheet: {
+            properties: {
+              title: sheetName
+            }
+          }
+        });
       }
-    });
+    }
 
-    await sheets.spreadsheets.batchUpdate({
+    // Execute sheet creation if needed
+    if (requests.length > 0) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        resource: { requests }
+      });
+      console.log('✓ Sheets created');
+    }
+
+    // Set up Accounts sheet headers
+    await sheets.spreadsheets.values.update({
       spreadsheetId,
-      resource: { requests }
+      range: `${SHEETS.ACCOUNTS}!A1:J1`,
+      valueInputOption: 'RAW',
+      resource: {
+        values: [[
+          'Account ID', 'Item ID', 'Institution', 'Account Name', 'Type',
+          'Subtype', 'Mask', 'Current Balance', 'Available Balance', 'Last Updated'
+        ]]
+      }
     });
 
     // Set up Transactions sheet headers
