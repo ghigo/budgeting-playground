@@ -8,8 +8,12 @@
     "start": "node src/cli.js",
     "sync": "node src/cli.js sync",
     "link": "node src/cli.js link",
+    "exchange": "node src/cli.js exchange",
     "accounts": "node src/cli.js accounts",
     "transactions": "node src/cli.js transactions",
+    "open": "node src/cli.js open",
+    "stats": "node src/cli.js stats",
+    "categories": "node src/cli.js categories",
     "setup": "node src/setup-sheets.js"
   },
   "keywords": ["expense", "tracker", "plaid", "google-sheets"],
