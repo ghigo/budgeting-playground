@@ -3,7 +3,8 @@
 import chalk from 'chalk';
 import { initializeSheets, setupSpreadsheet } from './sheets.js';
 
-console.log(chalk.blue.bold('\n📊 Initializing Spreadsheet Structure\n'));
+const environment = (process.env.MODE || process.env.NODE_ENV || 'sandbox').toLowerCase();
+console.log(chalk.blue.bold(`\n📊 Initializing Spreadsheet Structure (${environment} environment)\n`));
 
 async function main() {
   try {

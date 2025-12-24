@@ -4,11 +4,18 @@ This guide explains how to configure and switch between Sandbox and Production e
 
 ## 📝 Configuration File Structure
 
-Your `config.json` stores credentials for both environments:
+Your `config.json` stores credentials and separate spreadsheet IDs for both environments:
 
 ```json
 {
-  "google_sheet_id": "your-spreadsheet-id",
+  "google_sheets": {
+    "sandbox": {
+      "sheet_id": "your-sandbox-spreadsheet-id"
+    },
+    "production": {
+      "sheet_id": "your-production-spreadsheet-id"
+    }
+  },
   "plaid": {
     "client_id": "your-plaid-client-id",
     "sandbox": {
@@ -47,7 +54,14 @@ Edit `config.json` and fill in your credentials:
 
 ```json
 {
-  "google_sheet_id": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
+  "google_sheets": {
+    "sandbox": {
+      "sheet_id": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+    },
+    "production": {
+      "sheet_id": "1AbcDEF123456789xyz_ProductionSheetID"
+    }
+  },
   "plaid": {
     "client_id": "60a1234567890abcdef12345",
     "sandbox": {
@@ -60,7 +74,10 @@ Edit `config.json` and fill in your credentials:
 }
 ```
 
-**Note:** Both secrets are stored in the same file - no more editing config when switching!
+**Note:**
+- Create **two separate Google Sheets** - one for test data (sandbox) and one for real data (production)
+- Both configurations are stored in the same file - no more editing config when switching!
+- The system automatically uses the correct sheet based on the environment
 
 ## 🚀 Running the Server
 
@@ -179,19 +196,25 @@ Each environment is completely separate:
 - Sandbox accounts ≠ Production accounts
 - Sandbox transactions ≠ Production transactions
 - They use different API endpoints and credentials
+- **Each environment uses its own Google Sheet**
 
 ### Google Sheets
-Both environments share the **same Google Sheet** by default. If you want separate sheets:
+Each environment now uses a **separate Google Sheet**:
+- **Sandbox** → Test data spreadsheet (fake transactions, test banks)
+- **Production** → Real data spreadsheet (actual bank transactions)
 
-```json
-{
-  "google_sheet_id_sandbox": "spreadsheet-for-testing",
-  "google_sheet_id_production": "spreadsheet-for-real-data",
-  "plaid": { ... }
-}
-```
+**Why separate sheets?**
+- Prevents mixing test data with real financial data
+- Keeps your actual finances clean and organized
+- Allows you to experiment in sandbox without affecting production
 
-(You'll need to update the code to support this)
+**Setting up separate sheets:**
+1. Create two new Google Sheets (or use existing ones)
+2. Share both with your service account email
+3. Copy each sheet's ID from the URL
+4. Add both IDs to `config.json` as shown above
+
+**Backward compatibility:** If you have an old config with `google_sheet_id`, it will still work but both environments will share the same sheet.
 
 ## 🐛 Troubleshooting
 
@@ -221,6 +244,22 @@ Both environments share the **same Google Sheet** by default. If you want separa
 - Sandbox and production have **different secrets**
 - Go to Plaid Dashboard → Team Settings → Keys
 - Copy the correct secret for each environment
+
+### "Google Sheet ID not configured" error
+
+**Problem:** Missing or incorrect sheet ID for the current environment
+
+**Solution:**
+1. Check which environment you're running (🟡 SANDBOX or 🟢 PRODUCTION)
+2. Verify `config.json` has a `sheet_id` for that environment:
+   ```json
+   "google_sheets": {
+     "sandbox": { "sheet_id": "..." },
+     "production": { "sheet_id": "..." }
+   }
+   ```
+3. Make sure you've shared both sheets with your service account email
+4. Run `node src/init-spreadsheet.js` (for sandbox) or `MODE=production node src/init-spreadsheet.js` (for production) to initialize the sheet
 
 ## 🎯 Best Practices
 

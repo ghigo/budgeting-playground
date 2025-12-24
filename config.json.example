@@ -1,5 +1,12 @@
 {
-  "google_sheet_id": "",
+  "google_sheets": {
+    "sandbox": {
+      "sheet_id": ""
+    },
+    "production": {
+      "sheet_id": ""
+    }
+  },
   "plaid": {
     "client_id": "",
     "sandbox": {

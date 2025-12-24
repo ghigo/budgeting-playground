@@ -26,17 +26,33 @@ export async function initializeSheets() {
     // Load credentials
     const credentialsPath = join(__dirname, '../credentials/google-credentials.json');
     const configPath = join(__dirname, '../config.json');
-    
+
     if (!fs.existsSync(credentialsPath)) {
       throw new Error('Google credentials file not found. Run npm run setup first.');
     }
 
     const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    spreadsheetId = config.google_sheet_id;
+
+    // Detect environment
+    const environment = (process.env.MODE || process.env.NODE_ENV || 'sandbox').toLowerCase();
+    const isProduction = environment === 'production';
+
+    // Get sheet ID based on environment (with backward compatibility)
+    if (config.google_sheets) {
+      // New format with separate sheets
+      if (isProduction && config.google_sheets.production) {
+        spreadsheetId = config.google_sheets.production.sheet_id;
+      } else if (config.google_sheets.sandbox) {
+        spreadsheetId = config.google_sheets.sandbox.sheet_id;
+      }
+    } else if (config.google_sheet_id) {
+      // Old format (backward compatibility)
+      spreadsheetId = config.google_sheet_id;
+    }
 
     if (!spreadsheetId) {
-      throw new Error('Google Sheet ID not configured. Run npm run setup first.');
+      throw new Error(`Google Sheet ID not configured for ${environment} environment. Check config.json.`);
     }
 
     // Authenticate
@@ -48,7 +64,8 @@ export async function initializeSheets() {
     const authClient = await auth.getClient();
     sheets = google.sheets({ version: 'v4', auth: authClient });
 
-    console.log('✓ Connected to Google Sheets');
+    console.log(`✓ Connected to Google Sheets (${environment} environment)`);
+    console.log(`  Sheet ID: ${spreadsheetId}`);
     return true;
   } catch (error) {
     console.error('Failed to initialize Google Sheets:', error.message);
