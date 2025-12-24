@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expense Tracker</title>
+    <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <h1>💰 Expense Tracker</h1>
+            </div>
+            <nav class="nav">
+                <a href="#" class="nav-item active" data-page="dashboard">
+                    <span class="icon">📊</span>
+                    Dashboard
+                </a>
+                <a href="#" class="nav-item" data-page="accounts">
+                    <span class="icon">🏦</span>
+                    Accounts
+                </a>
+                <a href="#" class="nav-item" data-page="transactions">
+                    <span class="icon">💳</span>
+                    Transactions
+                </a>
+                <a href="#" class="nav-item" data-page="link">
+                    <span class="icon">🔗</span>
+                    Link Account
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <button id="syncBtn" class="btn btn-primary">
+                    <span class="icon">🔄</span>
+                    Sync Transactions
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Page -->
+            <div class="page active" id="dashboard-page">
+                <div class="page-header">
+                    <h2>Dashboard</h2>
+                    <p>Overview of your finances</p>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Total Balance</div>
+                        <div class="stat-value" id="totalBalance">$0.00</div>
+                        <div class="stat-change positive">+0%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Income (30 days)</div>
+                        <div class="stat-value positive" id="totalIncome">$0.00</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Expenses (30 days)</div>
+                        <div class="stat-value negative" id="totalExpenses">$0.00</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Net (30 days)</div>
+                        <div class="stat-value" id="netIncome">$0.00</div>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <h3>Recent Transactions</h3>
+                        <div id="recentTransactions" class="transactions-list"></div>
+                    </div>
+                    <div class="card">
+                        <h3>Spending by Category</h3>
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Accounts Page -->
+            <div class="page" id="accounts-page">
+                <div class="page-header">
+                    <h2>Accounts</h2>
+                    <p>Your connected bank accounts</p>
+                </div>
+                <div id="accountsList" class="accounts-grid"></div>
+            </div>
+
+            <!-- Transactions Page -->
+            <div class="page" id="transactions-page">
+                <div class="page-header">
+                    <h2>Transactions</h2>
+                    <p>All your transactions</p>
+                </div>
+                <div class="card">
+                    <div class="table-container">
+                        <table class="transactions-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Description</th>
+                                    <th>Category</th>
+                                    <th>Account</th>
+                                    <th>Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transactionsTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Link Account Page -->
+            <div class="page" id="link-page">
+                <div class="page-header">
+                    <h2>Link Bank Account</h2>
+                    <p>Connect your bank account via Plaid</p>
+                </div>
+                <div class="card centered">
+                    <div class="link-account-content">
+                        <div class="icon-large">🏦</div>
+                        <h3>Connect Your Bank</h3>
+                        <p>Link your bank account securely through Plaid to automatically track your transactions.</p>
+                        <button id="linkAccountBtn" class="btn btn-primary btn-large">
+                            <span class="icon">🔗</span>
+                            Link Bank Account
+                        </button>
+                        <div id="linkStatus" class="status-message"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <div class="loader"></div>
+        <p>Loading...</p>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="/app.js"></script>
+</body>
+</html>
