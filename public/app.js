@@ -249,15 +249,17 @@ async function initiatePlaidLink() {
         plaidHandler = Plaid.create({
             token: link_token,
             onSuccess: async (public_token, metadata) => {
+                console.log('✅ Plaid Link success!', { public_token, metadata });
                 statusEl.textContent = 'Connecting account...';
                 statusEl.className = 'status-message success';
 
                 try {
-                    await fetchAPI('/api/plaid/exchange-token', {
+                    const result = await fetchAPI('/api/plaid/exchange-token', {
                         method: 'POST',
                         body: JSON.stringify({ public_token })
                     });
 
+                    console.log('✅ Account linked!', result);
                     showToast('Account linked successfully!', 'success');
                     statusEl.textContent = '✓ Account linked successfully! Redirecting to dashboard...';
 
@@ -265,21 +267,29 @@ async function initiatePlaidLink() {
                         navigateTo('dashboard');
                     }, 2000);
                 } catch (error) {
+                    console.error('❌ Exchange failed:', error);
                     statusEl.textContent = '✗ Failed to link account: ' + error.message;
                     statusEl.className = 'status-message error';
                     showToast('Failed to link account', 'error');
                 }
             },
             onExit: (err, metadata) => {
+                console.log('Plaid Link exit', { err, metadata });
                 if (err) {
-                    statusEl.textContent = 'Error: ' + err.display_message;
+                    const errorMessage = err.display_message || err.error_message || err.message || JSON.stringify(err);
+                    console.error('❌ Plaid Link error:', err);
+                    statusEl.textContent = 'Error: ' + errorMessage;
                     statusEl.className = 'status-message error';
+                    showToast('Link error: ' + errorMessage, 'error');
                 } else {
                     statusEl.textContent = 'Link process cancelled';
                     statusEl.className = 'status-message';
                 }
                 btn.disabled = false;
                 btn.innerHTML = '<span class="icon">🔗</span> Link Bank Account';
+            },
+            onEvent: (eventName, metadata) => {
+                console.log('Plaid Link event:', eventName, metadata);
             }
         });
 
