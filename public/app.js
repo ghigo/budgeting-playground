@@ -9,6 +9,7 @@ let currentPage = 'dashboard';
 document.addEventListener('DOMContentLoaded', () => {
     setupNavigation();
     setupEventListeners();
+    checkEnvironment();
     loadDashboard();
 });
 
@@ -372,6 +373,23 @@ function showLoading() {
 
 function hideLoading() {
     document.getElementById('loadingOverlay').classList.add('hidden');
+}
+
+// Check and display environment
+async function checkEnvironment() {
+    try {
+        const envInfo = await fetchAPI('/api/environment');
+        const envBadge = document.getElementById('envBadge');
+
+        if (envBadge) {
+            const envName = envInfo.environment.toUpperCase();
+            const badgeClass = envInfo.isProduction ? 'env-production' : 'env-sandbox';
+            envBadge.textContent = envName;
+            envBadge.className = `env-badge ${badgeClass}`;
+        }
+    } catch (error) {
+        console.error('Failed to check environment:', error);
+    }
 }
 
 function showToast(message, type = 'info') {

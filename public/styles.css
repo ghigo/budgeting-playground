@@ -89,6 +89,37 @@ body {
     border-top: 1px solid var(--border);
 }
 
+.env-indicator {
+    margin-top: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+}
+
+.env-label {
+    color: var(--text-secondary);
+}
+
+.env-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.7rem;
+    letter-spacing: 0.5px;
+}
+
+.env-sandbox {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.env-production {
+    background: #d4edda;
+    color: #155724;
+}
+
 /* Main Content */
 .main-content {
     flex: 1;

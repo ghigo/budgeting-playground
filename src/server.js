@@ -35,6 +35,26 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', sheetsInitialized });
 });
 
+// Get environment info
+app.get('/api/environment', async (req, res) => {
+  try {
+    const fs = await import('fs');
+    const configPath = join(__dirname, '../config.json');
+    let config = { plaid_env: 'sandbox' };
+
+    if (fs.existsSync(configPath)) {
+      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+
+    res.json({
+      environment: config.plaid_env || 'sandbox',
+      isProduction: config.plaid_env === 'production'
+    });
+  } catch (error) {
+    res.json({ environment: 'sandbox', isProduction: false });
+  }
+});
+
 // Create Plaid Link token
 app.post('/api/plaid/create-link-token', async (req, res) => {
   try {
