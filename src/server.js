@@ -66,11 +66,17 @@ app.post('/api/plaid/exchange-token', async (req, res) => {
       return res.status(400).json({ error: 'public_token is required' });
     }
 
+    console.log('🔄 Exchanging public token...');
     const result = await sync.linkAccount(public_token);
+    console.log('✅ Account linked successfully!', result);
     res.json(result);
   } catch (error) {
-    console.error('Error exchanging token:', error);
-    res.status(500).json({ error: error.message });
+    console.error('❌ Error exchanging token:', error);
+    console.error('   Error details:', error.response?.data || error.message);
+    res.status(500).json({
+      error: error.message || 'Failed to link account',
+      details: error.response?.data
+    });
   }
 });
 
