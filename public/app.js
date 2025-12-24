@@ -60,6 +60,7 @@ function navigateTo(page) {
 function setupEventListeners() {
     document.getElementById('linkAccountBtn').addEventListener('click', initiatePlaidLink);
     document.getElementById('syncBtn').addEventListener('click', syncTransactions);
+    document.getElementById('backfillBtn').addEventListener('click', backfillHistoricalTransactions);
 }
 
 // Dashboard
@@ -328,6 +329,41 @@ async function syncTransactions() {
         }
     } catch (error) {
         showToast('Sync failed: ' + error.message, 'error');
+        console.error(error);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+    }
+}
+
+async function backfillHistoricalTransactions() {
+    const btn = document.getElementById('backfillBtn');
+    const originalHTML = btn.innerHTML;
+
+    // Confirm before starting (this can take a while)
+    if (!confirm('This will fetch up to 2 years of historical transactions for all linked accounts. This may take several minutes. Continue?')) {
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="icon">⏳</span> Backfilling...';
+
+    showToast('Starting historical backfill... This may take a few minutes.', 'info');
+
+    try {
+        const result = await fetchAPI('/api/backfill', { method: 'POST' });
+        showToast(`Backfill complete! ${result.totalTransactions || 0} new transactions added`, 'success');
+
+        // Reload current page data
+        if (currentPage === 'dashboard') {
+            loadDashboard();
+        } else if (currentPage === 'transactions') {
+            loadTransactions();
+        } else if (currentPage === 'accounts') {
+            loadAccounts();
+        }
+    } catch (error) {
+        showToast('Backfill failed: ' + error.message, 'error');
         console.error(error);
     } finally {
         btn.disabled = false;

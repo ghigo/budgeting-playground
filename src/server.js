@@ -143,6 +143,19 @@ app.post('/api/sync', async (req, res) => {
   }
 });
 
+// Backfill historical transactions (up to 2 years)
+app.post('/api/backfill', async (req, res) => {
+  try {
+    await ensureSheets();
+    console.log('🔄 Starting historical backfill...');
+    const result = await sync.backfillHistoricalTransactions();
+    res.json(result);
+  } catch (error) {
+    console.error('Error backfilling transactions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Initialize spreadsheet structure
 app.post('/api/init-spreadsheet', async (req, res) => {
   try {

@@ -20,10 +20,10 @@ export async function syncAllAccounts() {
   for (const item of items) {
     try {
       console.log(`\n📊 Syncing ${item.institution_name}...`);
-      
-      // Get transactions from the last 30 days
+
+      // Get transactions from the last 90 days (3 months) for regular syncs
       const endDate = new Date().toISOString().split('T')[0];
-      const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       
       const result = await plaid.getTransactions(item.access_token, startDate, endDate);
       
@@ -154,11 +154,11 @@ export async function linkAccount(publicToken) {
     }
     console.log(`  ✓ Added ${accounts.length} account(s)`);
     
-    // Initial transaction sync (last 30 days)
+    // Initial transaction sync (last 2 years - Plaid's maximum for most institutions)
     const endDate = new Date().toISOString().split('T')[0];
-    const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    
-    console.log(`  📥 Fetching initial transactions...`);
+    const startDate = new Date(Date.now() - 730 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    console.log(`  📥 Fetching historical transactions (up to 2 years)...`);
     const result = await plaid.getTransactions(accessToken, startDate, endDate);
     
     const accountsMap = {};
@@ -183,12 +183,82 @@ export async function linkAccount(publicToken) {
 }
 
 /**
+ * Backfill historical transactions (up to 2 years)
+ * Useful for accounts that were linked before this feature
+ */
+export async function backfillHistoricalTransactions() {
+  const items = await sheets.getPlaidItems();
+
+  if (items.length === 0) {
+    console.log('No bank accounts linked.');
+    return { success: false, error: 'No linked accounts' };
+  }
+
+  console.log(`\n📜 Backfilling historical transactions (up to 2 years)...`);
+  console.log('⚠️  This may take a while for accounts with lots of transactions.\n');
+
+  let totalTransactions = 0;
+  const errors = [];
+
+  // Fetch last 2 years (730 days)
+  const endDate = new Date().toISOString().split('T')[0];
+  const startDate = new Date(Date.now() - 730 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  for (const item of items) {
+    try {
+      console.log(`📊 Backfilling ${item.institution_name}...`);
+      console.log(`   Date range: ${startDate} to ${endDate}`);
+
+      const result = await plaid.getTransactions(item.access_token, startDate, endDate);
+
+      // Update accounts
+      for (const account of result.accounts) {
+        account.item_id = item.item_id;
+        await sheets.saveAccount(account, item.institution_name);
+      }
+
+      // Create account name map
+      const accountsMap = {};
+      for (const account of result.accounts) {
+        accountsMap[account.account_id] = account.name;
+      }
+
+      // Save transactions
+      const count = await sheets.saveTransactions(result.transactions, accountsMap);
+      totalTransactions += count;
+      console.log(`  ✓ Added ${count} new transaction(s)\n`);
+
+      await sheets.updatePlaidItemSyncTime(item.item_id);
+
+    } catch (error) {
+      const errorMsg = `Failed to backfill ${item.institution_name}: ${error.message}`;
+      console.error(`  ✗ ${errorMsg}\n`);
+      errors.push(errorMsg);
+    }
+  }
+
+  console.log(`✅ Backfill complete: ${totalTransactions} new transactions added`);
+  console.log(`\n📊 View your data: ${sheets.getSpreadsheetUrl()}`);
+
+  if (errors.length > 0) {
+    console.log('\n⚠️  Some accounts failed:');
+    errors.forEach(err => console.log(`  - ${err}`));
+  }
+
+  return {
+    success: errors.length === 0,
+    totalTransactions,
+    errors
+  };
+}
+
+/**
  * Get account summary
  */
 export async function getAccountSummary() {
   const accounts = await sheets.getAccounts();
   const items = await sheets.getPlaidItems();
-  
+
   return {
     institutions: items.length,
     accounts: accounts.length,

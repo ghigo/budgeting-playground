@@ -406,6 +406,16 @@ body {
     background: var(--primary-dark);
 }
 
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+    width: 100%;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+}
+
 .btn-large {
     padding: 1rem 2rem;
     font-size: 1.125rem;
