@@ -68,21 +68,13 @@ if (!clientId || !secret) {
 export async function createLinkToken(userId = 'user-1') {
   try {
     console.log(`Creating link token for environment: ${plaidEnvironment}`);
-
-    const request = {
+    const response = await plaidClient.linkTokenCreate({
       user: { client_user_id: userId },
       client_name: 'Expense Tracker',
       products: ['transactions'],
       country_codes: ['US'],
       language: 'en',
-    };
-
-    // Add consumer_report_permissible_purpose for production
-    if (isProduction) {
-      request.consumer_report_permissible_purpose = 'ACCOUNT_MONITORING';
-    }
-
-    const response = await plaidClient.linkTokenCreate(request);
+    });
     return response.data.link_token;
   } catch (error) {
     const errorData = error.response?.data || {};
