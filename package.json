@@ -14,7 +14,8 @@
     "open": "node src/cli.js open",
     "stats": "node src/cli.js stats",
     "categories": "node src/cli.js categories",
-    "setup": "node src/setup-sheets.js"
+    "setup": "node src/setup-sheets.js",
+    "init-sheets": "node src/init-spreadsheet.js"
   },
   "keywords": ["expense", "tracker", "plaid", "google-sheets"],
   "author": "",
