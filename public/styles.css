@@ -275,6 +275,52 @@ body {
     color: var(--text-secondary);
 }
 
+/* Institutions */
+.institution-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.institution-item:last-child {
+    border-bottom: none;
+}
+
+.institution-info {
+    flex: 1;
+}
+
+.institution-name {
+    font-weight: 600;
+    font-size: 1.125rem;
+    margin-bottom: 0.25rem;
+}
+
+.institution-meta {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.btn-icon {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+.btn-icon:hover {
+    background: var(--bg-hover);
+}
+
+.btn-danger:hover {
+    background: #fee;
+}
+
 /* Transactions */
 .transactions-list {
     max-height: 400px;

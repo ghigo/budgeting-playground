@@ -159,7 +159,11 @@ function updateCategoryChart(stats) {
 async function loadAccounts() {
     showLoading();
     try {
-        const accounts = await fetchAPI('/api/accounts');
+        const [accounts, institutions] = await Promise.all([
+            fetchAPI('/api/accounts'),
+            fetchAPI('/api/institutions')
+        ]);
+        displayInstitutions(institutions);
         displayAccounts(accounts);
     } catch (error) {
         showToast('Failed to load accounts', 'error');
@@ -167,6 +171,27 @@ async function loadAccounts() {
     } finally {
         hideLoading();
     }
+}
+
+function displayInstitutions(institutions) {
+    const container = document.getElementById('institutionsList');
+
+    if (!institutions || institutions.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 1rem;">No institutions connected yet.</p>';
+        return;
+    }
+
+    container.innerHTML = institutions.map(inst => `
+        <div class="institution-item">
+            <div class="institution-info">
+                <div class="institution-name">🏦 ${escapeHtml(inst.institution_name)}</div>
+                <div class="institution-meta">Last synced: ${inst.last_synced_at ? formatDate(inst.last_synced_at) : 'Never'}</div>
+            </div>
+            <button class="btn-icon btn-danger" onclick="removeInstitution('${inst.item_id}', '${escapeHtml(inst.institution_name)}')" title="Remove institution">
+                🗑️
+            </button>
+        </div>
+    `).join('');
 }
 
 function displayAccounts(accounts) {
@@ -193,10 +218,34 @@ function displayAccounts(accounts) {
             </div>
             <div class="account-balance">${formatCurrency(acc.current_balance || 0)}</div>
             <div class="account-institution">
-                ${escapeHtml(acc.institution)} ${acc.mask ? `••${acc.mask}` : ''}
+                ${escapeHtml(acc.institution_name || acc.institution)} ${acc.mask ? `••${acc.mask}` : ''}
             </div>
         </div>
     `).join('');
+}
+
+async function removeInstitution(itemId, institutionName) {
+    if (!confirm(`Are you sure you want to remove ${institutionName}?\n\nThis will permanently delete:\n• The institution\n• All associated accounts\n• All associated transactions\n\nThis action cannot be undone.`)) {
+        return;
+    }
+
+    showLoading();
+
+    try {
+        const result = await fetchAPI(`/api/institutions/${itemId}`, {
+            method: 'DELETE'
+        });
+
+        showToast(`${result.institution} removed successfully! Deleted ${result.accountsRemoved} account(s) and ${result.transactionsRemoved} transaction(s).`, 'success');
+
+        // Reload the accounts page
+        loadAccounts();
+    } catch (error) {
+        showToast('Failed to remove institution: ' + error.message, 'error');
+        console.error(error);
+    } finally {
+        hideLoading();
+    }
 }
 
 // Transactions

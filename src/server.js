@@ -130,6 +130,42 @@ app.get('/api/categories', async (req, res) => {
   }
 });
 
+// Get all institutions (Plaid items)
+app.get('/api/institutions', async (req, res) => {
+  try {
+    await ensureSheets();
+    const items = await sheets.getPlaidItems();
+    res.json(items);
+  } catch (error) {
+    console.error('Error fetching institutions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remove an institution and all its data
+app.delete('/api/institutions/:itemId', async (req, res) => {
+  try {
+    await ensureSheets();
+    const { itemId } = req.params;
+
+    if (!itemId) {
+      return res.status(400).json({ error: 'itemId is required' });
+    }
+
+    console.log(`🗑️  Removing institution ${itemId}...`);
+    const result = await sync.removeInstitution(itemId);
+
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(500).json({ error: result.error });
+    }
+  } catch (error) {
+    console.error('❌ Error removing institution:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Sync all accounts
 app.post('/api/sync', async (req, res) => {
   try {

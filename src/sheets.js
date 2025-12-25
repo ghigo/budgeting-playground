@@ -228,6 +228,48 @@ async function findRowIndex(sheetName, searchValue) {
   return rows.findIndex(row => row[0] === searchValue);
 }
 
+/**
+ * Delete rows from a sheet by row indices (0-based data indices, will be converted to 1-based sheet indices)
+ */
+async function deleteRows(sheetName, rowIndices) {
+  if (rowIndices.length === 0) return;
+
+  // Get sheet ID from sheet name
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
+
+  if (!sheet) {
+    throw new Error(`Sheet ${sheetName} not found`);
+  }
+
+  const sheetId = sheet.properties.sheetId;
+
+  // Sort indices in descending order to delete from bottom to top
+  // This prevents index shifting issues
+  const sortedIndices = [...rowIndices].sort((a, b) => b - a);
+
+  // Create delete requests for each row
+  const requests = sortedIndices.map(dataIndex => {
+    // Convert 0-based data index to actual sheet row index (add 2 for header + 0-based to 1-based)
+    const sheetRowIndex = dataIndex + 2;
+    return {
+      deleteDimension: {
+        range: {
+          sheetId: sheetId,
+          dimension: 'ROWS',
+          startIndex: sheetRowIndex - 1, // Google API uses 0-based indices
+          endIndex: sheetRowIndex // endIndex is exclusive
+        }
+      }
+    };
+  });
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    resource: { requests }
+  });
+}
+
 // Plaid Items operations
 export async function savePlaidItem(itemId, accessToken, institutionId, institutionName) {
   const rows = await getRows(SHEETS.PLAID_ITEMS);
@@ -262,6 +304,55 @@ export async function updatePlaidItemSyncTime(itemId) {
     row[4] = new Date().toISOString();
     await updateRow(SHEETS.PLAID_ITEMS, index + 2, row);
   }
+}
+
+export async function removePlaidItem(itemId) {
+  // Get all accounts for this item
+  const accountRows = await getRows(SHEETS.ACCOUNTS);
+  const accountsToRemove = [];
+  const accountNamesToRemove = [];
+
+  accountRows.forEach((row, index) => {
+    if (row[1] === itemId) { // row[1] is item_id
+      accountsToRemove.push(index);
+      accountNamesToRemove.push(row[3]); // row[3] is account name
+    }
+  });
+
+  // Get all transactions for these accounts
+  const transactionRows = await getRows(SHEETS.TRANSACTIONS);
+  const transactionsToRemove = [];
+
+  transactionRows.forEach((row, index) => {
+    if (accountNamesToRemove.includes(row[4])) { // row[4] is account_name
+      transactionsToRemove.push(index);
+    }
+  });
+
+  // Find the plaid item row
+  const itemRows = await getRows(SHEETS.PLAID_ITEMS);
+  const itemIndex = itemRows.findIndex(row => row[0] === itemId);
+
+  if (itemIndex < 0) {
+    throw new Error(`Plaid item ${itemId} not found`);
+  }
+
+  // Delete in order: transactions, accounts, then item
+  if (transactionsToRemove.length > 0) {
+    await deleteRows(SHEETS.TRANSACTIONS, transactionsToRemove);
+  }
+
+  if (accountsToRemove.length > 0) {
+    await deleteRows(SHEETS.ACCOUNTS, accountsToRemove);
+  }
+
+  await deleteRows(SHEETS.PLAID_ITEMS, [itemIndex]);
+
+  return {
+    institution: itemRows[itemIndex][3], // institution name
+    accountsRemoved: accountsToRemove.length,
+    transactionsRemoved: transactionsToRemove.length
+  };
 }
 
 // Account operations

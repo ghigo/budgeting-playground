@@ -253,6 +253,33 @@ export async function backfillHistoricalTransactions() {
 }
 
 /**
+ * Remove an institution and all its accounts and transactions
+ */
+export async function removeInstitution(itemId) {
+  try {
+    console.log(`\n🗑️  Removing institution ${itemId}...`);
+
+    const result = await sheets.removePlaidItem(itemId);
+
+    console.log(`  ✓ Removed ${result.institution}`);
+    console.log(`  ✓ Deleted ${result.accountsRemoved} account(s)`);
+    console.log(`  ✓ Deleted ${result.transactionsRemoved} transaction(s)`);
+    console.log('\n✅ Institution removed successfully!');
+
+    return {
+      success: true,
+      ...result
+    };
+  } catch (error) {
+    console.error('\n✗ Failed to remove institution:', error.message);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
  * Get account summary
  */
 export async function getAccountSummary() {
