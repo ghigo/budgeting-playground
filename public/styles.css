@@ -664,6 +664,35 @@ body {
     cursor: pointer;
 }
 
+/* Verified category indication */
+.category-select.verified {
+    border-color: var(--success);
+    background: var(--success-light);
+}
+
+/* Verify button */
+.verify-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.verify-btn:hover {
+    background: var(--success-light);
+    border-color: var(--success);
+    color: var(--success);
+}
+
 /* Category Form */
 .category-form {
     display: grid;

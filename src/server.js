@@ -245,6 +245,20 @@ app.patch('/api/transactions/:transactionId/category', async (req, res) => {
   }
 });
 
+// Verify transaction category (confirm auto-assigned category is correct)
+app.post('/api/transactions/:transactionId/verify', async (req, res) => {
+  try {
+    await ensureSheets();
+    const { transactionId } = req.params;
+
+    const result = await sheets.verifyTransactionCategory(transactionId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error verifying transaction category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============================================================================
 // CATEGORY MAPPINGS & RULES
 // ============================================================================

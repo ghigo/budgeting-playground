@@ -137,12 +137,12 @@ export async function setupSpreadsheet() {
     // Set up Transactions sheet headers
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SHEETS.TRANSACTIONS}!A1:K1`,
+      range: `${SHEETS.TRANSACTIONS}!A1:L1`,
       valueInputOption: 'RAW',
       resource: {
         values: [[
-          'Transaction ID', 'Date', 'Description', 'Merchant', 'Account', 
-          'Amount', 'Category', 'Pending', 'Payment Channel', 'Notes', 'Created At'
+          'Transaction ID', 'Date', 'Description', 'Merchant', 'Account',
+          'Amount', 'Category', 'Verified', 'Pending', 'Payment Channel', 'Notes', 'Created At'
         ]]
       }
     });
@@ -476,6 +476,7 @@ export async function saveTransactions(transactions, accountsMap) {
       accountsMap[txn.account_id] || txn.account_id,
       txn.amount,
       category, // Auto-categorized
+      'No', // verified (auto-categorized, not manually confirmed)
       txn.pending ? 'Yes' : 'No',
       txn.payment_channel || '',
       '', // notes
@@ -505,10 +506,11 @@ export async function getTransactions(limit = 50) {
     account_name: row[4],
     amount: parseFloat(row[5]) || 0,
     category: row[6],
-    pending: row[7] === 'Yes',
-    payment_channel: row[8],
-    notes: row[9],
-    created_at: row[10]
+    verified: row[7] === 'Yes',
+    pending: row[8] === 'Yes',
+    payment_channel: row[9],
+    notes: row[10],
+    created_at: row[11]
   }));
 }
 
@@ -526,7 +528,7 @@ export async function getTransactionStats(startDate = null, endDate = null) {
   }
 
   // Filter out pending transactions
-  filtered = filtered.filter(row => row[7] !== 'Yes');
+  filtered = filtered.filter(row => row[8] !== 'Yes');
 
   const byCategory = {};
 
@@ -570,7 +572,7 @@ export async function getDailySpendingIncome(days = 30) {
   // Filter transactions within date range and exclude pending
   const filtered = rows.filter(row => {
     const txnDate = new Date(row[1]);
-    return txnDate >= startDate && txnDate <= endDate && row[7] !== 'Yes';
+    return txnDate >= startDate && txnDate <= endDate && row[8] !== 'Yes';
   });
 
   // Group by date
@@ -645,7 +647,7 @@ export async function getNetWorthOverTime(timeRange = '1m') {
   // Filter transactions within range
   const relevantTransactions = transactions.filter(row => {
     const txnDate = new Date(row[1]);
-    return txnDate >= startDate && txnDate <= endDate && row[7] !== 'Yes';
+    return txnDate >= startDate && txnDate <= endDate && row[8] !== 'Yes';
   });
 
   // Group transactions by date and calculate running balance
@@ -773,7 +775,7 @@ export async function getCategorySpending() {
   });
 
   transactions.forEach(row => {
-    if (row[7] === 'Yes') return; // Skip pending
+    if (row[8] === 'Yes') return; // Skip pending
 
     const category = row[6] || 'Uncategorized';
     const amount = parseFloat(row[5]) || 0;
@@ -831,9 +833,27 @@ export async function updateTransactionCategory(transactionId, newCategory) {
   }
 
   rows[index][6] = newCategory;
+  rows[index][7] = 'Yes'; // Mark as verified when manually changed
   await updateRow(SHEETS.TRANSACTIONS, index + 2, rows[index]);
 
   return { success: true };
+}
+
+/**
+ * Verify a transaction's auto-assigned category without changing it
+ */
+export async function verifyTransactionCategory(transactionId) {
+  const rows = await getRows(SHEETS.TRANSACTIONS);
+  const index = rows.findIndex(row => row[0] === transactionId);
+
+  if (index < 0) {
+    throw new Error('Transaction not found');
+  }
+
+  rows[index][7] = 'Yes'; // Mark as verified
+  await updateRow(SHEETS.TRANSACTIONS, index + 2, rows[index]);
+
+  return { success: true, category: rows[index][6] };
 }
 
 // ============================================================================

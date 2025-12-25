@@ -455,26 +455,41 @@ function displayTransactionsTable(transactions) {
         return;
     }
 
-    tbody.innerHTML = transactions.map(tx => `
+    tbody.innerHTML = transactions.map(tx => {
+        const isVerified = tx.verified;
+        const hasCategory = tx.category && tx.category.length > 0;
+
+        return `
         <tr>
             <td>${formatDate(tx.date)}</td>
             <td>${escapeHtml(tx.description || tx.name)}</td>
             <td>
-                <select class="category-select" data-transaction-id="${tx.transaction_id}" onchange="updateTransactionCategory(this)">
-                    <option value="">Uncategorized</option>
-                    ${allCategories.map(cat => `
-                        <option value="${escapeHtml(cat.name)}" ${cat.name === tx.category ? 'selected' : ''}>
-                            ${escapeHtml(cat.name)}${cat.parent_category ? ` (${cat.parent_category})` : ''}
-                        </option>
-                    `).join('')}
-                </select>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <select class="category-select ${isVerified ? 'verified' : ''}"
+                            data-transaction-id="${tx.transaction_id}"
+                            onchange="updateTransactionCategory(this)">
+                        <option value="">Uncategorized</option>
+                        ${allCategories.map(cat => `
+                            <option value="${escapeHtml(cat.name)}" ${cat.name === tx.category ? 'selected' : ''}>
+                                ${escapeHtml(cat.name)}${cat.parent_category ? ` (${cat.parent_category})` : ''}
+                            </option>
+                        `).join('')}
+                    </select>
+                    ${isVerified ?
+                        '<span style="color: var(--success); font-size: 1.2rem;" title="Verified">✓</span>' :
+                        (hasCategory ?
+                            `<button class="verify-btn" onclick="verifyCategory('${tx.transaction_id}')" title="Verify auto-assigned category">✓</button>` :
+                            '')
+                    }
+                </div>
             </td>
             <td>${escapeHtml(tx.account_name || 'Unknown')}</td>
             <td class="amount-cell ${parseFloat(tx.amount) > 0 ? 'positive' : 'negative'}">
                 ${formatCurrency(tx.amount)}
             </td>
         </tr>
-    `).join('');
+        `;
+    }).join('');
 }
 
 async function updateTransactionCategory(selectElement) {
@@ -486,12 +501,26 @@ async function updateTransactionCategory(selectElement) {
             method: 'PATCH',
             body: JSON.stringify({ category: newCategory })
         });
-        showToast('Category updated successfully', 'success');
+        showToast('Category updated and verified', 'success');
+        loadTransactions(); // Reload to show verified status
     } catch (error) {
         showToast('Failed to update category: ' + error.message, 'error');
         console.error(error);
         // Revert the select on error
         loadTransactions();
+    }
+}
+
+async function verifyCategory(transactionId) {
+    try {
+        const result = await fetchAPI(`/api/transactions/${transactionId}/verify`, {
+            method: 'POST'
+        });
+        showToast(`Category "${result.category}" verified`, 'success');
+        loadTransactions(); // Reload to show verified status
+    } catch (error) {
+        showToast('Failed to verify category: ' + error.message, 'error');
+        console.error(error);
     }
 }
 
