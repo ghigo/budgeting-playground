@@ -32,6 +32,10 @@
                     <span class="icon">🏷️</span>
                     Categories
                 </a>
+                <a href="#" class="nav-item" data-page="mappings">
+                    <span class="icon">🤖</span>
+                    Auto-Categorization
+                </a>
                 <a href="#" class="nav-item" data-page="link">
                     <span class="icon">🔗</span>
                     Link Account
@@ -189,6 +193,56 @@
                 <div class="card">
                     <h3>All Categories</h3>
                     <div id="categoriesList"></div>
+                </div>
+            </div>
+
+            <!-- Auto-Categorization Mappings Page -->
+            <div class="page" id="mappings-page">
+                <div class="page-header">
+                    <h2>Auto-Categorization</h2>
+                    <p>View and understand how transactions are automatically categorized</p>
+                </div>
+
+                <!-- How It Works -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>How Auto-Categorization Works</h3>
+                    <p style="margin-bottom: 1rem;">Transactions are categorized automatically using a 4-step hybrid approach:</p>
+                    <ol style="margin-left: 1.5rem; line-height: 1.8;">
+                        <li><strong>Merchant Lookup:</strong> Exact and fuzzy matching against known merchants</li>
+                        <li><strong>Pattern Rules:</strong> Regex patterns for common merchant types (Walmart, Amazon, gas stations, etc.)</li>
+                        <li><strong>Plaid Categories:</strong> Mapping Plaid's built-in categories to your categories</li>
+                        <li><strong>Manual:</strong> Uncategorized transactions can be manually assigned</li>
+                    </ol>
+                    <p style="margin-top: 1rem; color: var(--text-secondary); font-size: 0.9rem;">
+                        💡 The system learns from your manual categorizations and builds the merchant mappings automatically!
+                    </p>
+                </div>
+
+                <!-- Merchant Mappings -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>Merchant Mappings</h3>
+                    <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                        Merchants that have been automatically categorized. The system builds this list as you sync transactions.
+                    </p>
+                    <div id="merchantMappingsList"></div>
+                </div>
+
+                <!-- Category Rules -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>Pattern Rules</h3>
+                    <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                        Regex patterns used to match and categorize merchants automatically.
+                    </p>
+                    <div id="categoryRulesList"></div>
+                </div>
+
+                <!-- Plaid Category Mappings -->
+                <div class="card">
+                    <h3>Plaid Category Mappings</h3>
+                    <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                        Mappings from Plaid's categories to your custom categories. Auto-created as transactions are synced.
+                    </p>
+                    <div id="plaidMappingsList"></div>
                 </div>
             </div>
 

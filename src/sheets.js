@@ -15,7 +15,10 @@ const SHEETS = {
   TRANSACTIONS: 'Transactions',
   CATEGORIES: 'Categories',
   PLAID_ITEMS: 'PlaidItems',
-  CONFIG: 'Config'
+  CONFIG: 'Config',
+  PLAID_CATEGORY_MAPPINGS: 'PlaidCategoryMappings',
+  MERCHANT_MAPPINGS: 'MerchantMappings',
+  CATEGORY_RULES: 'CategoryRules'
 };
 
 /**
@@ -89,7 +92,10 @@ export async function setupSpreadsheet() {
       SHEETS.ACCOUNTS,
       SHEETS.TRANSACTIONS,
       SHEETS.CATEGORIES,
-      SHEETS.PLAID_ITEMS
+      SHEETS.PLAID_ITEMS,
+      SHEETS.PLAID_CATEGORY_MAPPINGS,
+      SHEETS.MERCHANT_MAPPINGS,
+      SHEETS.CATEGORY_RULES
     ];
 
     const requests = [];
@@ -174,6 +180,52 @@ export async function setupSpreadsheet() {
       resource: {
         values: [['Item ID', 'Access Token', 'Institution ID', 'Institution Name', 'Last Synced']]
       }
+    });
+
+    // Set up PlaidCategoryMappings sheet
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SHEETS.PLAID_CATEGORY_MAPPINGS}!A1:C1`,
+      valueInputOption: 'RAW',
+      resource: {
+        values: [['Plaid Category', 'User Category', 'Auto-created']]
+      }
+    });
+
+    // Set up MerchantMappings sheet
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SHEETS.MERCHANT_MAPPINGS}!A1:D1`,
+      valueInputOption: 'RAW',
+      resource: {
+        values: [['Merchant Name', 'Category', 'Match Count', 'Last Used']]
+      }
+    });
+
+    // Set up CategoryRules sheet
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SHEETS.CATEGORY_RULES}!A1:D1`,
+      valueInputOption: 'RAW',
+      resource: {
+        values: [['Rule Name', 'Pattern', 'Category', 'Enabled']]
+      }
+    });
+
+    // Add default category rules
+    const defaultRules = [
+      ['Walmart Pattern', 'walmart|wal-mart', 'Groceries', 'Yes'],
+      ['Amazon Pattern', 'amazon|amzn', 'Shopping', 'Yes'],
+      ['Gas Stations', 'shell|chevron|exxon|bp |mobil', 'Gas', 'Yes'],
+      ['Utilities', 'electric|water|gas company|utility', 'Bills & Utilities', 'Yes'],
+      ['Fast Food', 'mcdonalds|burger king|taco bell|kfc|subway', 'Restaurants', 'Yes']
+    ];
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${SHEETS.CATEGORY_RULES}!A2`,
+      valueInputOption: 'RAW',
+      resource: { values: defaultRules }
     });
 
     console.log('✓ Spreadsheet structure created');
@@ -411,19 +463,25 @@ export async function saveTransactions(transactions, accountsMap) {
   if (newTransactions.length === 0) return 0;
 
   const now = new Date().toISOString();
-  const values = newTransactions.map(txn => [
-    txn.transaction_id,
-    txn.date,
-    txn.name,
-    txn.merchant_name || '',
-    accountsMap[txn.account_id] || txn.account_id,
-    txn.amount,
-    '', // category (to be filled manually)
-    txn.pending ? 'Yes' : 'No',
-    txn.payment_channel || '',
-    '', // notes
-    now
-  ]);
+
+  // Auto-categorize each transaction
+  const values = await Promise.all(newTransactions.map(async (txn) => {
+    const category = await autoCategorizeTransaction(txn);
+
+    return [
+      txn.transaction_id,
+      txn.date,
+      txn.name,
+      txn.merchant_name || '',
+      accountsMap[txn.account_id] || txn.account_id,
+      txn.amount,
+      category, // Auto-categorized
+      txn.pending ? 'Yes' : 'No',
+      txn.payment_channel || '',
+      '', // notes
+      now
+    ];
+  }));
 
   await appendRows(SHEETS.TRANSACTIONS, values);
   return newTransactions.length;
@@ -776,6 +834,303 @@ export async function updateTransactionCategory(transactionId, newCategory) {
   await updateRow(SHEETS.TRANSACTIONS, index + 2, rows[index]);
 
   return { success: true };
+}
+
+// ============================================================================
+// AUTO-CATEGORIZATION ENGINE
+// ============================================================================
+
+/**
+ * Calculate Levenshtein distance for fuzzy string matching
+ */
+function levenshteinDistance(str1, str2) {
+  const s1 = str1.toLowerCase();
+  const s2 = str2.toLowerCase();
+  const matrix = [];
+
+  for (let i = 0; i <= s2.length; i++) {
+    matrix[i] = [i];
+  }
+
+  for (let j = 0; j <= s1.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= s2.length; i++) {
+    for (let j = 1; j <= s1.length; j++) {
+      if (s2.charAt(i - 1) === s1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+
+  return matrix[s2.length][s1.length];
+}
+
+/**
+ * Check if two strings are similar enough (fuzzy match)
+ */
+function isFuzzyMatch(str1, str2, threshold = 0.8) {
+  const distance = levenshteinDistance(str1, str2);
+  const maxLength = Math.max(str1.length, str2.length);
+  const similarity = 1 - (distance / maxLength);
+  return similarity >= threshold;
+}
+
+/**
+ * Get Plaid category mappings
+ */
+export async function getPlaidCategoryMappings() {
+  const rows = await getRows(SHEETS.PLAID_CATEGORY_MAPPINGS);
+  return rows.map(row => ({
+    plaid_category: row[0],
+    user_category: row[1],
+    auto_created: row[2] === 'Yes'
+  }));
+}
+
+/**
+ * Get merchant mappings
+ */
+export async function getMerchantMappings() {
+  const rows = await getRows(SHEETS.MERCHANT_MAPPINGS);
+  return rows.map((row, index) => ({
+    merchant_name: row[0],
+    category: row[1],
+    match_count: parseInt(row[2]) || 0,
+    last_used: row[3],
+    rowIndex: index + 2 // For updating
+  }));
+}
+
+/**
+ * Get category rules (all rules, not just enabled)
+ */
+export async function getCategoryRules() {
+  const rows = await getRows(SHEETS.CATEGORY_RULES);
+  return rows.map((row, index) => ({
+    name: row[0],
+    pattern: row[1],
+    category: row[2],
+    enabled: row[3] === 'Yes',
+    rowIndex: index + 2
+  }));
+}
+
+/**
+ * Get only enabled category rules (for auto-categorization)
+ */
+async function getEnabledCategoryRules() {
+  const rules = await getCategoryRules();
+  return rules.filter(rule => rule.enabled);
+}
+
+/**
+ * Save or update Plaid category mapping
+ */
+async function savePlaidCategoryMapping(plaidCategory, userCategory) {
+  const rows = await getRows(SHEETS.PLAID_CATEGORY_MAPPINGS);
+  const existingIndex = rows.findIndex(row => row[0] === plaidCategory);
+
+  const values = [plaidCategory, userCategory, 'Yes'];
+
+  if (existingIndex >= 0) {
+    await updateRow(SHEETS.PLAID_CATEGORY_MAPPINGS, existingIndex + 2, values);
+  } else {
+    await appendRows(SHEETS.PLAID_CATEGORY_MAPPINGS, [values]);
+  }
+}
+
+/**
+ * Save or update merchant mapping
+ */
+async function saveMerchantMapping(merchantName, category) {
+  const rows = await getRows(SHEETS.MERCHANT_MAPPINGS);
+  const existingIndex = rows.findIndex(row => row[0].toLowerCase() === merchantName.toLowerCase());
+
+  const now = new Date().toISOString();
+
+  if (existingIndex >= 0) {
+    // Update existing mapping
+    const matchCount = (parseInt(rows[existingIndex][2]) || 0) + 1;
+    const values = [merchantName, category, matchCount, now];
+    await updateRow(SHEETS.MERCHANT_MAPPINGS, existingIndex + 2, values);
+  } else {
+    // Create new mapping
+    const values = [merchantName, category, 1, now];
+    await appendRows(SHEETS.MERCHANT_MAPPINGS, [values]);
+  }
+}
+
+/**
+ * Auto-categorize a transaction using the hybrid approach:
+ * 1. Merchant lookup (exact + fuzzy)
+ * 2. Pattern matching
+ * 3. Plaid category mapping
+ * 4. Fallback to empty (for manual categorization or future LLM)
+ */
+export async function autoCategorizeTransaction(transaction) {
+  try {
+    const merchantName = transaction.merchant_name || transaction.name || '';
+    const description = transaction.name || '';
+
+    // Get all mappings and rules
+    const [merchantMappings, categoryRules, plaidMappings] = await Promise.all([
+      getMerchantMappings(),
+      getEnabledCategoryRules(),
+      getPlaidCategoryMappings()
+    ]);
+
+    // STEP 1: Exact merchant lookup
+    const exactMatch = merchantMappings.find(
+      m => m.merchant_name.toLowerCase() === merchantName.toLowerCase()
+    );
+    if (exactMatch) {
+      // Update usage stats
+      await saveMerchantMapping(merchantName, exactMatch.category);
+      return exactMatch.category;
+    }
+
+    // STEP 2: Pattern matching (regex rules)
+    for (const rule of categoryRules) {
+      try {
+        const regex = new RegExp(rule.pattern, 'i');
+        if (regex.test(merchantName) || regex.test(description)) {
+          // Save this as a merchant mapping for future use
+          if (merchantName) {
+            await saveMerchantMapping(merchantName, rule.category);
+          }
+          return rule.category;
+        }
+      } catch (e) {
+        console.warn(`Invalid regex pattern in rule "${rule.name}": ${rule.pattern}`);
+      }
+    }
+
+    // STEP 3: Fuzzy merchant matching (80% similarity)
+    if (merchantName) {
+      for (const mapping of merchantMappings) {
+        if (isFuzzyMatch(merchantName, mapping.merchant_name, 0.8)) {
+          // Save exact merchant name for future
+          await saveMerchantMapping(merchantName, mapping.category);
+          return mapping.category;
+        }
+      }
+    }
+
+    // STEP 4: Plaid category mapping
+    if (transaction.category && transaction.category.length > 0) {
+      // Try to match the most specific category first (last in array)
+      for (let i = transaction.category.length - 1; i >= 0; i--) {
+        const plaidCat = transaction.category[i];
+        const mapping = plaidMappings.find(m => m.plaid_category === plaidCat);
+        if (mapping) {
+          return mapping.user_category;
+        }
+      }
+
+      // No mapping exists - try to auto-create one based on Plaid's category
+      const plaidCategory = transaction.category[transaction.category.length - 1];
+      const suggestedCategory = mapPlaidCategoryToDefault(plaidCategory);
+      if (suggestedCategory) {
+        await savePlaidCategoryMapping(plaidCategory, suggestedCategory);
+        return suggestedCategory;
+      }
+    }
+
+    // STEP 5: Check personal_finance_category (newer Plaid format)
+    if (transaction.personal_finance_category) {
+      const pfc = transaction.personal_finance_category;
+      const pfcString = pfc.detailed || pfc.primary;
+
+      const mapping = plaidMappings.find(m => m.plaid_category === pfcString);
+      if (mapping) {
+        return mapping.user_category;
+      }
+
+      // Auto-create mapping
+      const suggestedCategory = mapPlaidCategoryToDefault(pfcString);
+      if (suggestedCategory) {
+        await savePlaidCategoryMapping(pfcString, suggestedCategory);
+        return suggestedCategory;
+      }
+    }
+
+    // STEP 6: Fallback - return empty for manual categorization or future LLM
+    return '';
+
+  } catch (error) {
+    console.error('Error in autoCategorizeTransaction:', error.message);
+    return ''; // Fallback to uncategorized on error
+  }
+}
+
+/**
+ * Map Plaid's category to our default categories (heuristic)
+ */
+function mapPlaidCategoryToDefault(plaidCategory) {
+  const cat = plaidCategory.toLowerCase();
+
+  // Food & Dining
+  if (cat.includes('restaurant') || cat.includes('food') || cat.includes('coffee')) {
+    return 'Restaurants';
+  }
+  if (cat.includes('groceries') || cat.includes('supermarket')) {
+    return 'Groceries';
+  }
+
+  // Transportation
+  if (cat.includes('gas') || cat.includes('fuel')) {
+    return 'Gas';
+  }
+  if (cat.includes('transportation') || cat.includes('taxi') || cat.includes('uber') || cat.includes('parking')) {
+    return 'Transportation';
+  }
+
+  // Shopping
+  if (cat.includes('shop') || cat.includes('retail') || cat.includes('store')) {
+    return 'Shopping';
+  }
+
+  // Entertainment
+  if (cat.includes('entertainment') || cat.includes('recreation') || cat.includes('movie')) {
+    return 'Entertainment';
+  }
+
+  // Bills & Utilities
+  if (cat.includes('utility') || cat.includes('utilities') || cat.includes('bill') ||
+      cat.includes('electric') || cat.includes('water') || cat.includes('internet')) {
+    return 'Bills & Utilities';
+  }
+
+  // Healthcare
+  if (cat.includes('health') || cat.includes('medical') || cat.includes('pharmacy')) {
+    return 'Healthcare';
+  }
+
+  // Travel
+  if (cat.includes('travel') || cat.includes('hotel') || cat.includes('airline')) {
+    return 'Travel';
+  }
+
+  // Income
+  if (cat.includes('income') || cat.includes('payroll') || cat.includes('deposit')) {
+    return 'Income';
+  }
+
+  // Transfer
+  if (cat.includes('transfer') || cat.includes('payment')) {
+    return 'Transfer';
+  }
+
+  // Default fallback
+  return 'Other';
 }
 
 // Get spreadsheet URL

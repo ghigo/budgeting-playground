@@ -245,6 +245,46 @@ app.patch('/api/transactions/:transactionId/category', async (req, res) => {
   }
 });
 
+// ============================================================================
+// CATEGORY MAPPINGS & RULES
+// ============================================================================
+
+// Get Plaid category mappings
+app.get('/api/category-mappings/plaid', async (req, res) => {
+  try {
+    await ensureSheets();
+    const mappings = await sheets.getPlaidCategoryMappings();
+    res.json(mappings);
+  } catch (error) {
+    console.error('Error fetching Plaid category mappings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get merchant mappings
+app.get('/api/category-mappings/merchant', async (req, res) => {
+  try {
+    await ensureSheets();
+    const mappings = await sheets.getMerchantMappings();
+    res.json(mappings);
+  } catch (error) {
+    console.error('Error fetching merchant mappings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get category rules
+app.get('/api/category-mappings/rules', async (req, res) => {
+  try {
+    await ensureSheets();
+    const rules = await sheets.getCategoryRules();
+    res.json(rules);
+  } catch (error) {
+    console.error('Error fetching category rules:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get all institutions (Plaid items)
 app.get('/api/institutions', async (req, res) => {
   try {
