@@ -485,6 +485,136 @@ export async function getTransactionStats(startDate = null, endDate = null) {
   return stats;
 }
 
+export async function getDailySpendingIncome(days = 30) {
+  const rows = await getRows(SHEETS.TRANSACTIONS);
+
+  // Calculate start date
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+
+  // Filter transactions within date range and exclude pending
+  const filtered = rows.filter(row => {
+    const txnDate = new Date(row[1]);
+    return txnDate >= startDate && txnDate <= endDate && row[7] !== 'Yes';
+  });
+
+  // Group by date
+  const dailyData = {};
+
+  filtered.forEach(row => {
+    const date = row[1]; // YYYY-MM-DD format
+    const amount = parseFloat(row[5]) || 0;
+
+    if (!dailyData[date]) {
+      dailyData[date] = { date, income: 0, expenses: 0 };
+    }
+
+    if (amount < 0) {
+      dailyData[date].expenses += Math.abs(amount);
+    } else {
+      dailyData[date].income += amount;
+    }
+  });
+
+  // Convert to array and sort by date
+  const result = Object.values(dailyData).sort((a, b) =>
+    new Date(a.date) - new Date(b.date)
+  );
+
+  return result;
+}
+
+export async function getNetWorthOverTime(timeRange = '1m') {
+  const accounts = await getAccounts();
+  const transactions = await getRows(SHEETS.TRANSACTIONS);
+
+  // Calculate current total balance
+  const currentBalance = accounts.reduce((sum, acc) =>
+    sum + (parseFloat(acc.current_balance) || 0), 0
+  );
+
+  // Determine date range
+  const endDate = new Date();
+  const startDate = new Date();
+
+  switch(timeRange) {
+    case '1w':
+      startDate.setDate(startDate.getDate() - 7);
+      break;
+    case '1m':
+      startDate.setMonth(startDate.getMonth() - 1);
+      break;
+    case '3m':
+      startDate.setMonth(startDate.getMonth() - 3);
+      break;
+    case 'ytd':
+      startDate.setMonth(0, 1); // January 1st of current year
+      break;
+    case '1y':
+      startDate.setFullYear(startDate.getFullYear() - 1);
+      break;
+    case 'all':
+      // Find earliest transaction date
+      if (transactions.length > 0) {
+        const dates = transactions.map(row => new Date(row[1]));
+        startDate.setTime(Math.min(...dates));
+      } else {
+        startDate.setMonth(startDate.getMonth() - 12); // Default to 1 year
+      }
+      break;
+    default:
+      startDate.setMonth(startDate.getMonth() - 1);
+  }
+
+  // Filter transactions within range
+  const relevantTransactions = transactions.filter(row => {
+    const txnDate = new Date(row[1]);
+    return txnDate >= startDate && txnDate <= endDate && row[7] !== 'Yes';
+  });
+
+  // Group transactions by date and calculate running balance
+  const dailyChanges = {};
+
+  relevantTransactions.forEach(row => {
+    const date = row[1];
+    const amount = parseFloat(row[5]) || 0;
+
+    if (!dailyChanges[date]) {
+      dailyChanges[date] = 0;
+    }
+    dailyChanges[date] += amount;
+  });
+
+  // Build time series working backwards from current balance
+  const dates = Object.keys(dailyChanges).sort();
+  const timeSeries = [];
+
+  // Add today with current balance
+  const today = endDate.toISOString().split('T')[0];
+  timeSeries.push({ date: today, balance: currentBalance });
+
+  // Work backwards
+  let runningBalance = currentBalance;
+  for (let i = dates.length - 1; i >= 0; i--) {
+    const date = dates[i];
+    if (date < today) {
+      runningBalance -= dailyChanges[date];
+      timeSeries.unshift({ date, balance: runningBalance });
+    }
+  }
+
+  // Add start date if not present
+  if (timeSeries.length === 0 || timeSeries[0].date > startDate.toISOString().split('T')[0]) {
+    timeSeries.unshift({
+      date: startDate.toISOString().split('T')[0],
+      balance: runningBalance
+    });
+  }
+
+  return timeSeries;
+}
+
 // Category operations
 export async function getCategories() {
   const rows = await getRows(SHEETS.CATEGORIES);

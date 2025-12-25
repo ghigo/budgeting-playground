@@ -64,6 +64,11 @@ function setupEventListeners() {
 }
 
 // Dashboard
+let netWorthChartInstance = null;
+let dailySpendingChartInstance = null;
+let categoryChartInstance = null;
+let currentTimeRange = '1w';
+
 async function loadDashboard() {
     showLoading();
     try {
@@ -76,6 +81,13 @@ async function loadDashboard() {
         updateDashboardStats(accounts, stats);
         displayRecentTransactions(transactions);
         updateCategoryChart(stats);
+
+        // Load new charts
+        await loadNetWorthChart(currentTimeRange);
+        await loadDailySpendingChart();
+
+        // Set up time range selector listeners
+        setupTimeRangeSelector();
     } catch (error) {
         showToast('Failed to load dashboard', 'error');
         console.error(error);
@@ -131,7 +143,12 @@ function updateCategoryChart(stats) {
     const categories = Object.keys(stats.byCategory);
     const amounts = Object.values(stats.byCategory).map(Math.abs);
 
-    new Chart(ctx, {
+    // Destroy existing chart if it exists
+    if (categoryChartInstance) {
+        categoryChartInstance.destroy();
+    }
+
+    categoryChartInstance = new Chart(ctx, {
         type: 'doughnut',
         data: {
             labels: categories,
@@ -152,6 +169,161 @@ function updateCategoryChart(stats) {
                 }
             }
         }
+    });
+}
+
+async function loadNetWorthChart(timeRange = '1w') {
+    try {
+        const data = await fetchAPI(`/api/charts/net-worth?range=${timeRange}`);
+
+        if (!data || data.length === 0) {
+            return;
+        }
+
+        const ctx = document.getElementById('netWorthChart');
+        if (!ctx) return;
+
+        // Destroy existing chart
+        if (netWorthChartInstance) {
+            netWorthChartInstance.destroy();
+        }
+
+        const labels = data.map(d => formatDate(d.date));
+        const balances = data.map(d => d.balance);
+
+        netWorthChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Net Worth',
+                    data: balances,
+                    borderColor: '#4CAF50',
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Net Worth: ' + formatCurrency(context.parsed.y);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        ticks: {
+                            callback: function(value) {
+                                return formatCurrency(value);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error loading net worth chart:', error);
+    }
+}
+
+async function loadDailySpendingChart() {
+    try {
+        const data = await fetchAPI('/api/charts/daily-spending-income?days=30');
+
+        if (!data || data.length === 0) {
+            return;
+        }
+
+        const ctx = document.getElementById('dailySpendingChart');
+        if (!ctx) return;
+
+        // Destroy existing chart
+        if (dailySpendingChartInstance) {
+            dailySpendingChartInstance.destroy();
+        }
+
+        const labels = data.map(d => formatDate(d.date));
+        const income = data.map(d => d.income);
+        const expenses = data.map(d => d.expenses);
+
+        dailySpendingChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Income',
+                        data: income,
+                        backgroundColor: '#4CAF50',
+                        borderRadius: 4
+                    },
+                    {
+                        label: 'Expenses',
+                        data: expenses,
+                        backgroundColor: '#FF5722',
+                        borderRadius: 4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + formatCurrency(context.parsed.y);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return formatCurrency(value);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error loading daily spending chart:', error);
+    }
+}
+
+function setupTimeRangeSelector() {
+    const buttons = document.querySelectorAll('.time-range-btn');
+    buttons.forEach(btn => {
+        btn.addEventListener('click', async function() {
+            // Remove active class from all buttons
+            buttons.forEach(b => b.classList.remove('active'));
+
+            // Add active class to clicked button
+            this.classList.add('active');
+
+            // Get the time range
+            const range = this.getAttribute('data-range');
+            currentTimeRange = range;
+
+            // Reload the net worth chart
+            await loadNetWorthChart(range);
+        });
     });
 }
 

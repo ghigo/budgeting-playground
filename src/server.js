@@ -118,6 +118,32 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
+// Get daily spending and income data
+app.get('/api/charts/daily-spending-income', async (req, res) => {
+  try {
+    await ensureSheets();
+    const days = req.query.days ? parseInt(req.query.days) : 30;
+    const data = await sheets.getDailySpendingIncome(days);
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching daily spending/income:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get net worth over time
+app.get('/api/charts/net-worth', async (req, res) => {
+  try {
+    await ensureSheets();
+    const timeRange = req.query.range || '1m';
+    const data = await sheets.getNetWorthOverTime(timeRange);
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching net worth data:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get categories
 app.get('/api/categories', async (req, res) => {
   try {

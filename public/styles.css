@@ -176,6 +176,49 @@ body {
     margin: 2rem auto;
 }
 
+/* Chart Header */
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.chart-header h3 {
+    margin-bottom: 0;
+}
+
+/* Time Range Selector */
+.time-range-selector {
+    display: flex;
+    gap: 0.25rem;
+    background: var(--bg-primary);
+    padding: 0.25rem;
+    border-radius: 8px;
+}
+
+.time-range-btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.time-range-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.time-range-btn.active {
+    background: var(--primary);
+    color: white;
+}
+
 /* Stats Grid */
 .stats-grid {
     display: grid;

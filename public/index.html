@@ -78,6 +78,28 @@
                     </div>
                 </div>
 
+                <!-- Net Worth Chart with Time Range Selector -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <div class="chart-header">
+                        <h3>Net Worth Over Time</h3>
+                        <div class="time-range-selector">
+                            <button class="time-range-btn active" data-range="1w">1W</button>
+                            <button class="time-range-btn" data-range="1m">1M</button>
+                            <button class="time-range-btn" data-range="3m">3M</button>
+                            <button class="time-range-btn" data-range="ytd">YTD</button>
+                            <button class="time-range-btn" data-range="1y">1Y</button>
+                            <button class="time-range-btn" data-range="all">ALL</button>
+                        </div>
+                    </div>
+                    <canvas id="netWorthChart"></canvas>
+                </div>
+
+                <!-- Daily Spending/Income Chart -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>Daily Spending & Income (Last 30 Days)</h3>
+                    <canvas id="dailySpendingChart"></canvas>
+                </div>
+
                 <div class="dashboard-grid">
                     <div class="card">
                         <h3>Recent Transactions</h3>
