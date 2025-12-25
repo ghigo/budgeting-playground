@@ -18,10 +18,13 @@ async function main() {
 
     console.log(chalk.green.bold('\n✅ Spreadsheet initialized successfully!\n'));
     console.log(chalk.blue('Your spreadsheet now has these sheets:'));
-    console.log('  - Accounts      (for bank account information)');
-    console.log('  - Transactions  (for all your transactions)');
-    console.log('  - Categories    (for expense categories)');
-    console.log('  - PlaidItems    (for bank connections)\n');
+    console.log('  - Accounts                (for bank account information)');
+    console.log('  - Transactions            (for all your transactions)');
+    console.log('  - Categories              (for expense categories)');
+    console.log('  - PlaidItems              (for bank connections)');
+    console.log('  - PlaidCategoryMappings   (for auto-categorization)');
+    console.log('  - MerchantMappings        (for auto-categorization)');
+    console.log('  - CategoryRules           (for auto-categorization)\n');
     console.log(chalk.blue('Next steps:'));
     console.log('  1. Link your bank: npm run exchange -- --token YOUR_TOKEN');
     console.log('  2. Sync transactions: npm run sync');
