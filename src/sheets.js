@@ -456,7 +456,7 @@ export async function getTransactions(limit = 50) {
 
 export async function getTransactionStats(startDate = null, endDate = null) {
   const rows = await getRows(SHEETS.TRANSACTIONS);
-  
+
   let filtered = rows;
   if (startDate || endDate) {
     filtered = rows.filter(row => {
@@ -470,18 +470,33 @@ export async function getTransactionStats(startDate = null, endDate = null) {
   // Filter out pending transactions
   filtered = filtered.filter(row => row[7] !== 'Yes');
 
+  const byCategory = {};
+
   const stats = filtered.reduce((acc, row) => {
     const amount = parseFloat(row[5]) || 0;
+    const category = row[6] || 'Uncategorized';
+
     acc.total_count++;
+
     // Plaid convention: positive = expense (debit), negative = income (credit)
     if (amount > 0) {
       acc.total_spent += amount;
+
+      // Track spending by category (only expenses)
+      if (!byCategory[category]) {
+        byCategory[category] = 0;
+      }
+      byCategory[category] += amount;
     } else if (amount < 0) {
       acc.total_income += Math.abs(amount);
     }
     acc.net += amount;
     return acc;
   }, { total_count: 0, total_spent: 0, total_income: 0, net: 0 });
+
+  stats.byCategory = byCategory;
+  stats.income = stats.total_income;
+  stats.expenses = -stats.total_spent; // Return as negative for consistency
 
   return stats;
 }
