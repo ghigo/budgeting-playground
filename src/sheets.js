@@ -473,10 +473,11 @@ export async function getTransactionStats(startDate = null, endDate = null) {
   const stats = filtered.reduce((acc, row) => {
     const amount = parseFloat(row[5]) || 0;
     acc.total_count++;
-    if (amount < 0) {
+    // Plaid convention: positive = expense (debit), negative = income (credit)
+    if (amount > 0) {
       acc.total_spent += amount;
-    } else {
-      acc.total_income += amount;
+    } else if (amount < 0) {
+      acc.total_income += Math.abs(amount);
     }
     acc.net += amount;
     return acc;
@@ -510,10 +511,11 @@ export async function getDailySpendingIncome(days = 30) {
       dailyData[date] = { date, income: 0, expenses: 0 };
     }
 
-    if (amount < 0) {
-      dailyData[date].expenses += Math.abs(amount);
-    } else {
-      dailyData[date].income += amount;
+    // Plaid convention: positive = expense (debit), negative = income (credit)
+    if (amount > 0) {
+      dailyData[date].expenses += amount;
+    } else if (amount < 0) {
+      dailyData[date].income += Math.abs(amount);
     }
   });
 
