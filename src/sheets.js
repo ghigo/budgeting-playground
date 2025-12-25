@@ -627,6 +627,142 @@ export async function getCategories() {
   }));
 }
 
+export async function addCategory(name, parentCategory = null) {
+  // Check if category already exists
+  const existing = await getCategories();
+  if (existing.some(cat => cat.name.toLowerCase() === name.toLowerCase())) {
+    throw new Error('Category already exists');
+  }
+
+  await appendRows(SHEETS.CATEGORIES, [[name, parentCategory || '']]);
+  return { success: true, name, parent_category: parentCategory };
+}
+
+export async function updateCategory(categoryName, newName, newParentCategory = null) {
+  const rows = await getRows(SHEETS.CATEGORIES);
+  const index = rows.findIndex(row => row[0] === categoryName);
+
+  if (index < 0) {
+    throw new Error('Category not found');
+  }
+
+  const values = [newName, newParentCategory || ''];
+  await updateRow(SHEETS.CATEGORIES, index + 2, values);
+
+  // Update all transactions that use this category
+  const transactions = await getRows(SHEETS.TRANSACTIONS);
+  for (let i = 0; i < transactions.length; i++) {
+    if (transactions[i][6] === categoryName) {
+      transactions[i][6] = newName;
+      await updateRow(SHEETS.TRANSACTIONS, i + 2, transactions[i]);
+    }
+  }
+
+  return { success: true };
+}
+
+export async function removeCategory(categoryName) {
+  const rows = await getRows(SHEETS.CATEGORIES);
+  const index = rows.findIndex(row => row[0] === categoryName);
+
+  if (index < 0) {
+    throw new Error('Category not found');
+  }
+
+  // Check if any transactions use this category
+  const transactions = await getRows(SHEETS.TRANSACTIONS);
+  const transactionsUsingCategory = transactions.filter(row => row[6] === categoryName).length;
+
+  if (transactionsUsingCategory > 0) {
+    throw new Error(`Cannot delete category: ${transactionsUsingCategory} transaction(s) are using it`);
+  }
+
+  await deleteRows(SHEETS.CATEGORIES, [index]);
+  return { success: true };
+}
+
+export async function getCategorySpending() {
+  const transactions = await getRows(SHEETS.TRANSACTIONS);
+  const categories = await getCategories();
+
+  // Filter out pending transactions and calculate spending per category
+  const categorySpending = {};
+  const categoryMap = {};
+
+  categories.forEach(cat => {
+    categorySpending[cat.name] = {
+      name: cat.name,
+      parent_category: cat.parent_category,
+      total: 0,
+      count: 0
+    };
+    categoryMap[cat.name] = cat;
+  });
+
+  transactions.forEach(row => {
+    if (row[7] === 'Yes') return; // Skip pending
+
+    const category = row[6] || 'Uncategorized';
+    const amount = parseFloat(row[5]) || 0;
+
+    // Initialize if not exists
+    if (!categorySpending[category]) {
+      categorySpending[category] = {
+        name: category,
+        parent_category: null,
+        total: 0,
+        count: 0
+      };
+    }
+
+    // Only count positive amounts (expenses) for spending
+    if (amount > 0) {
+      categorySpending[category].total += amount;
+      categorySpending[category].count++;
+    }
+  });
+
+  // Calculate parent category totals
+  const result = Object.values(categorySpending);
+  const parentTotals = {};
+
+  result.forEach(cat => {
+    if (cat.parent_category) {
+      if (!parentTotals[cat.parent_category]) {
+        parentTotals[cat.parent_category] = {
+          name: cat.parent_category,
+          parent_category: null,
+          total: 0,
+          count: 0,
+          children: []
+        };
+      }
+      parentTotals[cat.parent_category].total += cat.total;
+      parentTotals[cat.parent_category].count += cat.count;
+      parentTotals[cat.parent_category].children.push(cat);
+    }
+  });
+
+  return {
+    categories: result,
+    parentTotals: Object.values(parentTotals)
+  };
+}
+
+export async function updateTransactionCategory(transactionId, newCategory) {
+  const rows = await getRows(SHEETS.TRANSACTIONS);
+  const index = rows.findIndex(row => row[0] === transactionId);
+
+  if (index < 0) {
+    throw new Error('Transaction not found');
+  }
+
+  rows[index][6] = newCategory;
+  await updateRow(SHEETS.TRANSACTIONS, index + 2, rows[index]);
+
+  return { success: true };
+}
+
 // Get spreadsheet URL
 export function getSpreadsheetUrl() {
   return `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;

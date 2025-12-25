@@ -156,6 +156,87 @@ app.get('/api/categories', async (req, res) => {
   }
 });
 
+// Get category spending statistics
+app.get('/api/categories/spending', async (req, res) => {
+  try {
+    await ensureSheets();
+    const spending = await sheets.getCategorySpending();
+    res.json(spending);
+  } catch (error) {
+    console.error('Error fetching category spending:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add a new category
+app.post('/api/categories', async (req, res) => {
+  try {
+    await ensureSheets();
+    const { name, parent_category } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Category name is required' });
+    }
+
+    const result = await sheets.addCategory(name, parent_category);
+    res.json(result);
+  } catch (error) {
+    console.error('Error adding category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update a category
+app.put('/api/categories/:categoryName', async (req, res) => {
+  try {
+    await ensureSheets();
+    const { categoryName } = req.params;
+    const { new_name, parent_category } = req.body;
+
+    if (!new_name) {
+      return res.status(400).json({ error: 'New category name is required' });
+    }
+
+    const result = await sheets.updateCategory(categoryName, new_name, parent_category);
+    res.json(result);
+  } catch (error) {
+    console.error('Error updating category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a category
+app.delete('/api/categories/:categoryName', async (req, res) => {
+  try {
+    await ensureSheets();
+    const { categoryName } = req.params;
+    const result = await sheets.removeCategory(categoryName);
+    res.json(result);
+  } catch (error) {
+    console.error('Error deleting category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update transaction category
+app.patch('/api/transactions/:transactionId/category', async (req, res) => {
+  try {
+    await ensureSheets();
+    const { transactionId } = req.params;
+    const { category } = req.body;
+
+    if (!category && category !== '') {
+      return res.status(400).json({ error: 'Category is required' });
+    }
+
+    const result = await sheets.updateTransactionCategory(transactionId, category);
+    res.json(result);
+  } catch (error) {
+    console.error('Error updating transaction category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get all institutions (Plaid items)
 app.get('/api/institutions', async (req, res) => {
   try {

@@ -28,6 +28,10 @@
                     <span class="icon">💳</span>
                     Transactions
                 </a>
+                <a href="#" class="nav-item" data-page="categories">
+                    <span class="icon">🏷️</span>
+                    Categories
+                </a>
                 <a href="#" class="nav-item" data-page="link">
                     <span class="icon">🔗</span>
                     Link Account
@@ -151,6 +155,40 @@
                             <tbody id="transactionsTableBody"></tbody>
                         </table>
                     </div>
+                </div>
+            </div>
+
+            <!-- Categories Page -->
+            <div class="page" id="categories-page">
+                <div class="page-header">
+                    <h2>Categories</h2>
+                    <p>Manage your spending categories</p>
+                </div>
+
+                <!-- Add Category Form -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>Add New Category</h3>
+                    <div class="category-form">
+                        <input type="text" id="newCategoryName" placeholder="Category name" class="form-input" />
+                        <select id="newCategoryParent" class="form-select">
+                            <option value="">No parent (top-level category)</option>
+                        </select>
+                        <button id="addCategoryBtn" class="btn btn-primary">Add Category</button>
+                    </div>
+                </div>
+
+                <!-- Category Spending Visualization -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>Spending by Category</h3>
+                    <div id="categorySpendingChart">
+                        <canvas id="categorySpendingCanvas"></canvas>
+                    </div>
+                </div>
+
+                <!-- Categories List -->
+                <div class="card">
+                    <h3>All Categories</h3>
+                    <div id="categoriesList"></div>
                 </div>
             </div>
 

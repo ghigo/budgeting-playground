@@ -53,6 +53,9 @@ function navigateTo(page) {
         case 'transactions':
             loadTransactions();
             break;
+        case 'categories':
+            loadCategories();
+            break;
     }
 }
 
@@ -61,6 +64,7 @@ function setupEventListeners() {
     document.getElementById('linkAccountBtn').addEventListener('click', initiatePlaidLink);
     document.getElementById('syncBtn').addEventListener('click', syncTransactions);
     document.getElementById('backfillBtn').addEventListener('click', backfillHistoricalTransactions);
+    document.getElementById('addCategoryBtn').addEventListener('click', addCategory);
 }
 
 // Dashboard
@@ -421,10 +425,16 @@ async function removeInstitution(itemId, institutionName) {
 }
 
 // Transactions
+let allCategories = [];
+
 async function loadTransactions() {
     showLoading();
     try {
-        const transactions = await fetchAPI('/api/transactions?limit=100');
+        const [transactions, categories] = await Promise.all([
+            fetchAPI('/api/transactions?limit=100'),
+            fetchAPI('/api/categories')
+        ]);
+        allCategories = categories;
         displayTransactionsTable(transactions);
     } catch (error) {
         showToast('Failed to load transactions', 'error');
@@ -446,13 +456,264 @@ function displayTransactionsTable(transactions) {
         <tr>
             <td>${formatDate(tx.date)}</td>
             <td>${escapeHtml(tx.description || tx.name)}</td>
-            <td><span class="category-badge">${escapeHtml(tx.category || 'Uncategorized')}</span></td>
+            <td>
+                <select class="category-select" data-transaction-id="${tx.transaction_id}" onchange="updateTransactionCategory(this)">
+                    <option value="">Uncategorized</option>
+                    ${allCategories.map(cat => `
+                        <option value="${escapeHtml(cat.name)}" ${cat.name === tx.category ? 'selected' : ''}>
+                            ${escapeHtml(cat.name)}${cat.parent_category ? ` (${cat.parent_category})` : ''}
+                        </option>
+                    `).join('')}
+                </select>
+            </td>
             <td>${escapeHtml(tx.account_name || 'Unknown')}</td>
             <td class="amount-cell ${parseFloat(tx.amount) > 0 ? 'positive' : 'negative'}">
                 ${formatCurrency(tx.amount)}
             </td>
         </tr>
     `).join('');
+}
+
+async function updateTransactionCategory(selectElement) {
+    const transactionId = selectElement.getAttribute('data-transaction-id');
+    const newCategory = selectElement.value;
+
+    try {
+        await fetchAPI(`/api/transactions/${transactionId}/category`, {
+            method: 'PATCH',
+            body: JSON.stringify({ category: newCategory })
+        });
+        showToast('Category updated successfully', 'success');
+    } catch (error) {
+        showToast('Failed to update category: ' + error.message, 'error');
+        console.error(error);
+        // Revert the select on error
+        loadTransactions();
+    }
+}
+
+// Categories
+let categorySpendingChartInstance = null;
+
+async function loadCategories() {
+    showLoading();
+    try {
+        const [categories, spending] = await Promise.all([
+            fetchAPI('/api/categories'),
+            fetchAPI('/api/categories/spending')
+        ]);
+
+        populateCategoryParentDropdown(categories);
+        displayCategories(categories, spending);
+        displayCategorySpendingChart(spending);
+    } catch (error) {
+        showToast('Failed to load categories', 'error');
+        console.error(error);
+    } finally {
+        hideLoading();
+    }
+}
+
+function populateCategoryParentDropdown(categories) {
+    const select = document.getElementById('newCategoryParent');
+    const topLevelCategories = categories.filter(cat => !cat.parent_category);
+
+    select.innerHTML = '<option value="">No parent (top-level category)</option>' +
+        topLevelCategories.map(cat => `
+            <option value="${escapeHtml(cat.name)}">${escapeHtml(cat.name)}</option>
+        `).join('');
+}
+
+function displayCategories(categories, spending) {
+    const container = document.getElementById('categoriesList');
+
+    if (!categories || categories.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 1rem;">No categories yet. Add one above!</p>';
+        return;
+    }
+
+    // Group by parent category
+    const topLevel = categories.filter(cat => !cat.parent_category);
+    const children = categories.filter(cat => cat.parent_category);
+
+    const spendingMap = {};
+    spending.categories.forEach(cat => {
+        spendingMap[cat.name] = cat;
+    });
+
+    let html = '<div class="categories-tree">';
+
+    topLevel.forEach(cat => {
+        const catSpending = spendingMap[cat.name] || { total: 0, count: 0 };
+        const childCats = children.filter(c => c.parent_category === cat.name);
+
+        html += `
+            <div class="category-item ${childCats.length > 0 ? 'has-children' : ''}">
+                <div class="category-row">
+                    <div class="category-info">
+                        <span class="category-name">${escapeHtml(cat.name)}</span>
+                        <span class="category-stats">${catSpending.count} transactions · ${formatCurrency(catSpending.total)}</span>
+                    </div>
+                    <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(cat.name)}')" title="Delete category">🗑️</button>
+                </div>
+        `;
+
+        if (childCats.length > 0) {
+            html += '<div class="category-children">';
+            childCats.forEach(child => {
+                const childSpending = spendingMap[child.name] || { total: 0, count: 0 };
+                html += `
+                    <div class="category-item child">
+                        <div class="category-row">
+                            <div class="category-info">
+                                <span class="category-name">↳ ${escapeHtml(child.name)}</span>
+                                <span class="category-stats">${childSpending.count} transactions · ${formatCurrency(childSpending.total)}</span>
+                            </div>
+                            <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(child.name)}')" title="Delete category">🗑️</button>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+        }
+
+        html += '</div>';
+    });
+
+    // Show orphaned children (those whose parent doesn't exist)
+    const orphans = children.filter(c => !topLevel.some(p => p.name === c.parent_category));
+    if (orphans.length > 0) {
+        orphans.forEach(orphan => {
+            const orphanSpending = spendingMap[orphan.name] || { total: 0, count: 0 };
+            html += `
+                <div class="category-item">
+                    <div class="category-row">
+                        <div class="category-info">
+                            <span class="category-name">${escapeHtml(orphan.name)} <span style="color: var(--text-secondary); font-size: 0.875rem;">(orphaned)</span></span>
+                            <span class="category-stats">${orphanSpending.count} transactions · ${formatCurrency(orphanSpending.total)}</span>
+                        </div>
+                        <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(orphan.name)}')" title="Delete category">🗑️</button>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function displayCategorySpendingChart(spending) {
+    const ctx = document.getElementById('categorySpendingCanvas');
+    if (!ctx) return;
+
+    // Destroy existing chart
+    if (categorySpendingChartInstance) {
+        categorySpendingChartInstance.destroy();
+    }
+
+    // Get top 10 categories by spending
+    const sortedCategories = spending.categories
+        .filter(cat => cat.total > 0)
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10);
+
+    if (sortedCategories.length === 0) {
+        ctx.parentElement.innerHTML = '<p style="color: var(--text-secondary); padding: 1rem; text-align: center;">No spending data yet</p>';
+        return;
+    }
+
+    const labels = sortedCategories.map(cat => cat.name);
+    const data = sortedCategories.map(cat => cat.total);
+
+    categorySpendingChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Spending',
+                data: data,
+                backgroundColor: '#FF5722',
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            indexAxis: 'y',
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return 'Spending: ' + formatCurrency(context.parsed.x);
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return formatCurrency(value);
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+async function addCategory() {
+    const nameInput = document.getElementById('newCategoryName');
+    const parentSelect = document.getElementById('newCategoryParent');
+
+    const name = nameInput.value.trim();
+    const parent = parentSelect.value;
+
+    if (!name) {
+        showToast('Please enter a category name', 'error');
+        return;
+    }
+
+    try {
+        await fetchAPI('/api/categories', {
+            method: 'POST',
+            body: JSON.stringify({
+                name: name,
+                parent_category: parent || null
+            })
+        });
+
+        showToast('Category added successfully', 'success');
+        nameInput.value = '';
+        parentSelect.value = '';
+        loadCategories();
+    } catch (error) {
+        showToast('Failed to add category: ' + error.message, 'error');
+        console.error(error);
+    }
+}
+
+async function deleteCategory(categoryName) {
+    if (!confirm(`Are you sure you want to delete the category "${categoryName}"?\n\nThis will fail if any transactions are using this category.`)) {
+        return;
+    }
+
+    try {
+        await fetchAPI(`/api/categories/${encodeURIComponent(categoryName)}`, {
+            method: 'DELETE'
+        });
+
+        showToast('Category deleted successfully', 'success');
+        loadCategories();
+    } catch (error) {
+        showToast('Failed to delete category: ' + error.message, 'error');
+        console.error(error);
+    }
 }
 
 // Plaid Link
