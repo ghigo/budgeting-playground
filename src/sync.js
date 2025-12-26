@@ -263,35 +263,59 @@ export async function backfillHistoricalTransactions() {
   const startDate = new Date(Date.now() - 730 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   for (const item of items) {
-    try {
-      console.log(`📊 Backfilling ${item.institution_name}...`);
-      console.log(`   Date range: ${startDate} to ${endDate}`);
+    let backfillSuccessful = false;
+    const maxRetries = 4;
+    const retryDelays = [5000, 10000, 15000, 20000]; // 5s, 10s, 15s, 20s
 
-      const result = await plaid.getTransactions(item.access_token, startDate, endDate);
+    for (let attempt = 0; attempt < maxRetries && !backfillSuccessful; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.log(`   ⏳ Waiting before retry... (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, retryDelays[attempt - 1]));
+        }
 
-      // Update accounts
-      for (const account of result.accounts) {
-        account.item_id = item.item_id;
-        database.saveAccount(account, item.institution_name);
+        console.log(`📊 Backfilling ${item.institution_name}...`);
+        console.log(`   Date range: ${startDate} to ${endDate}`);
+
+        const result = await plaid.getTransactions(item.access_token, startDate, endDate);
+
+        // Update accounts
+        for (const account of result.accounts) {
+          account.item_id = item.item_id;
+          database.saveAccount(account, item.institution_name);
+        }
+
+        // Add account_name to transactions
+        for (const transaction of result.transactions) {
+          const account = result.accounts.find(acc => acc.account_id === transaction.account_id);
+          transaction.account_name = account ? account.name : transaction.account_id;
+        }
+
+        // Save transactions
+        const count = database.saveTransactions(result.transactions, null);
+        totalTransactions += count;
+        console.log(`  ✓ Added ${count} new transaction(s)\n`);
+
+        database.updatePlaidItemLastSynced(item.item_id);
+        backfillSuccessful = true;
+
+      } catch (error) {
+        // Check if this is a PRODUCT_NOT_READY error
+        const errorCode = error.response?.data?.error_code;
+        const errorMessage = error.response?.data?.error_message || error.message;
+
+        if (errorCode === 'PRODUCT_NOT_READY' && attempt < maxRetries - 1) {
+          // Retry for PRODUCT_NOT_READY
+          console.log(`  ⏳ ${item.institution_name}: Transactions not ready yet, will retry...`);
+          continue;
+        } else {
+          // Non-retryable error or max retries reached
+          const errorMsg = `Failed to backfill ${item.institution_name}: ${errorMessage}`;
+          console.error(`  ✗ ${errorMsg}\n`);
+          errors.push(errorMsg);
+          break; // Stop retrying this item
+        }
       }
-
-      // Add account_name to transactions
-      for (const transaction of result.transactions) {
-        const account = result.accounts.find(acc => acc.account_id === transaction.account_id);
-        transaction.account_name = account ? account.name : transaction.account_id;
-      }
-
-      // Save transactions
-      const count = database.saveTransactions(result.transactions, null);
-      totalTransactions += count;
-      console.log(`  ✓ Added ${count} new transaction(s)\n`);
-
-      database.updatePlaidItemLastSynced(item.item_id);
-
-    } catch (error) {
-      const errorMsg = `Failed to backfill ${item.institution_name}: ${error.message}`;
-      console.error(`  ✗ ${errorMsg}\n`);
-      errors.push(errorMsg);
     }
   }
 
