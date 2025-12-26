@@ -27,6 +27,8 @@ export async function syncAllAccounts() {
 
       const result = await plaid.getTransactions(item.access_token, startDate, endDate);
 
+      console.log(`  📥 Received ${result.transactions.length} transaction(s) from Plaid`);
+
       // Update accounts
       for (const account of result.accounts) {
         account.item_id = item.item_id;
@@ -43,7 +45,6 @@ export async function syncAllAccounts() {
       // Save transactions
       const count = database.saveTransactions(result.transactions, null);
       totalTransactions += count;
-      console.log(`  ✓ Synced ${count} new transaction(s)`);
 
       // Update last sync time
       database.updatePlaidItemLastSynced(item.item_id);
@@ -88,6 +89,8 @@ export async function syncSingleAccount(itemId) {
     const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     const result = await plaid.getTransactions(item.access_token, startDate, endDate);
+
+    console.log(`  📥 Received ${result.transactions.length} transaction(s) from Plaid`);
 
     // Update accounts
     for (const account of result.accounts) {
@@ -151,6 +154,8 @@ export async function syncDateRange(startDate, endDate) {
 
       const result = await plaid.getTransactions(item.access_token, startDate, endDate);
 
+      console.log(`  📥 Received ${result.transactions.length} transaction(s) from Plaid`);
+
       // Update accounts
       for (const account of result.accounts) {
         account.item_id = item.item_id;
@@ -166,7 +171,6 @@ export async function syncDateRange(startDate, endDate) {
       // Save transactions
       const count = database.saveTransactions(result.transactions, null);
       totalTransactions += count;
-      console.log(`  ✓ Synced ${count} new transaction(s)`);
 
       database.updatePlaidItemLastSynced(item.item_id);
 
@@ -279,6 +283,9 @@ export async function backfillHistoricalTransactions() {
 
         const result = await plaid.getTransactions(item.access_token, startDate, endDate);
 
+        console.log(`  📥 Received ${result.transactions.length} transaction(s) from Plaid`);
+        console.log(`  📥 Received ${result.accounts.length} account(s) from Plaid`);
+
         // Update accounts
         for (const account of result.accounts) {
           account.item_id = item.item_id;
@@ -294,7 +301,7 @@ export async function backfillHistoricalTransactions() {
         // Save transactions
         const count = database.saveTransactions(result.transactions, null);
         totalTransactions += count;
-        console.log(`  ✓ Added ${count} new transaction(s)\n`);
+        console.log(`  ✅ Result: ${count} new transaction(s) added\n`);
 
         database.updatePlaidItemLastSynced(item.item_id);
         backfillSuccessful = true;

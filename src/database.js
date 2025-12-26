@@ -320,6 +320,8 @@ export function getTransactions(limit = 50, filters = {}) {
 export function saveTransactions(transactions, categorizationData) {
   if (transactions.length === 0) return 0;
 
+  console.log(`  📝 Processing ${transactions.length} transaction(s) from Plaid...`);
+
   // Get categorization data if not provided
   if (!categorizationData) {
     categorizationData = {
@@ -337,6 +339,7 @@ export function saveTransactions(transactions, categorizationData) {
   `);
 
   let inserted = 0;
+  let duplicates = 0;
   const insertMany = db.transaction((txns) => {
     for (const tx of txns) {
       // Auto-categorize if not already categorized
@@ -364,11 +367,18 @@ export function saveTransactions(transactions, categorizationData) {
         ''
       );
 
-      if (info.changes > 0) inserted++;
+      if (info.changes > 0) {
+        inserted++;
+      } else {
+        duplicates++;
+      }
     }
   });
 
   insertMany(transactions);
+
+  console.log(`  ✓ Inserted ${inserted} new, skipped ${duplicates} duplicates`);
+
   return inserted;
 }
 
