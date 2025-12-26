@@ -456,6 +456,7 @@ async function removeInstitution(itemId, institutionName) {
 
 // Transactions
 let allCategories = [];
+let allTransactions = []; // Store all transactions for client-side search/filter
 
 async function loadTransactions(filters = {}) {
     showLoading();
@@ -485,6 +486,7 @@ async function loadTransactions(filters = {}) {
         });
 
         allCategories = uniqueCategories;
+        allTransactions = transactions; // Store for searching
         displayTransactionsTable(transactions);
         updateTransactionFilters(transactions);
     } catch (error) {
@@ -601,6 +603,34 @@ async function updateTransactionCategoryFromInput(inputElement) {
     }
 }
 
+function searchTransactions() {
+    const searchInput = document.getElementById('transactionSearch');
+    const searchTerm = searchInput?.value?.toLowerCase() || '';
+
+    if (!searchTerm) {
+        // No search term - show all transactions
+        displayTransactionsTable(allTransactions);
+        return;
+    }
+
+    // Filter transactions based on search term
+    const filtered = allTransactions.filter(tx => {
+        const description = (tx.description || tx.name || '').toLowerCase();
+        const merchant = (tx.merchant_name || '').toLowerCase();
+        const amount = (tx.amount || '').toString();
+        const category = (tx.category || '').toLowerCase();
+        const account = (tx.account_name || '').toLowerCase();
+
+        return description.includes(searchTerm) ||
+               merchant.includes(searchTerm) ||
+               amount.includes(searchTerm) ||
+               category.includes(searchTerm) ||
+               account.includes(searchTerm);
+    });
+
+    displayTransactionsTable(filtered);
+}
+
 function applyTransactionFilters() {
     const filters = {
         category: document.getElementById('filterCategory')?.value || '',
@@ -609,10 +639,16 @@ function applyTransactionFilters() {
         endDate: document.getElementById('filterEndDate')?.value || ''
     };
 
+    // Clear search when applying filters
+    const searchInput = document.getElementById('transactionSearch');
+    if (searchInput) searchInput.value = '';
+
     loadTransactions(filters);
 }
 
 function clearTransactionFilters() {
+    const searchInput = document.getElementById('transactionSearch');
+    if (searchInput) searchInput.value = '';
     if (document.getElementById('filterCategory')) document.getElementById('filterCategory').value = '';
     if (document.getElementById('filterAccount')) document.getElementById('filterAccount').value = '';
     if (document.getElementById('filterStartDate')) document.getElementById('filterStartDate').value = '';

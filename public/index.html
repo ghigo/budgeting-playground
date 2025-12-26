@@ -147,7 +147,19 @@
 
                 <!-- Transaction Filters -->
                 <div class="card" style="margin-bottom: 1.5rem;">
-                    <h3 style="margin-bottom: 1rem;">Filters</h3>
+                    <h3 style="margin-bottom: 1rem;">Search & Filters</h3>
+
+                    <!-- Search Bar -->
+                    <div style="margin-bottom: 1.5rem;">
+                        <input type="text"
+                               id="transactionSearch"
+                               class="form-input"
+                               placeholder="Search transactions (description, merchant, amount)..."
+                               onkeyup="searchTransactions()"
+                               style="width: 100%;">
+                    </div>
+
+                    <!-- Filters -->
                     <div class="filter-grid">
                         <div class="filter-item">
                             <label for="filterCategory">Category</label>
@@ -172,7 +184,7 @@
                     </div>
                     <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
                         <button onclick="applyTransactionFilters()" class="btn btn-primary">Apply Filters</button>
-                        <button onclick="clearTransactionFilters()" class="btn btn-secondary">Clear Filters</button>
+                        <button onclick="clearTransactionFilters()" class="btn btn-secondary">Clear All</button>
                     </div>
                 </div>
 
