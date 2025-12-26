@@ -315,6 +315,28 @@ async function updateRow(sheetName, rowIndex, values) {
 }
 
 /**
+ * Batch update multiple rows at once to avoid API quota limits
+ * @param {string} sheetName - Name of the sheet
+ * @param {Array} updates - Array of {rowIndex, values} objects
+ */
+async function batchUpdateRows(sheetName, updates) {
+  if (updates.length === 0) return;
+
+  const data = updates.map(update => ({
+    range: `${sheetName}!A${update.rowIndex}`,
+    values: [update.values]
+  }));
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    resource: {
+      valueInputOption: 'RAW',
+      data: data
+    }
+  });
+}
+
+/**
  * Find row index by matching first column value
  */
 async function findRowIndex(sheetName, searchValue) {
@@ -947,8 +969,8 @@ export async function recategorizeExistingTransactions(onlyUncategorized = true)
   const categorizationData = await getCategorizationData();
 
   let processed = 0;
-  let updated = 0;
   let skipped = 0;
+  const batchUpdates = []; // Collect all updates for batch processing
 
   // Process each transaction
   for (let i = 0; i < rows.length; i++) {
@@ -986,20 +1008,27 @@ export async function recategorizeExistingTransactions(onlyUncategorized = true)
     // Try to get suggested category
     const suggestedCategory = await autoCategorizeTransaction(transaction, categorizationData);
 
-    // Only update if we got a different category
+    // Only add to batch if we got a different category
     if (suggestedCategory && suggestedCategory !== currentCategory) {
       row[6] = suggestedCategory;
       row[7] = 'No'; // Mark as not verified (auto-categorized)
-      await updateRow(SHEETS.TRANSACTIONS, i + 2, row);
-      updated++;
+      batchUpdates.push({
+        rowIndex: i + 2, // +2 because: +1 for header, +1 for 0-based to 1-based
+        values: row
+      });
     }
+  }
+
+  // Perform batch update if there are changes
+  if (batchUpdates.length > 0) {
+    await batchUpdateRows(SHEETS.TRANSACTIONS, batchUpdates);
   }
 
   return {
     success: true,
     total: rows.length,
     processed,
-    updated,
+    updated: batchUpdates.length,
     skipped
   };
 }
