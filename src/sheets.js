@@ -1476,6 +1476,11 @@ export function getSpreadsheetUrl() {
 export async function syncToGoogleSheets(database) {
   try {
     console.log('Starting sync: SQLite → Google Sheets');
+
+    // Ensure spreadsheet has all required sheets
+    console.log('Setting up spreadsheet structure...');
+    await setupSpreadsheet();
+
     const syncResults = {
       success: true,
       synced: {},
