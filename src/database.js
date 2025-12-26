@@ -730,7 +730,8 @@ export function getCategorySpending(startDate = null, endDate = null) {
     SELECT
       c.name,
       c.parent_category,
-      COALESCE(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END), 0) as total
+      COALESCE(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END), 0) as total,
+      COUNT(CASE WHEN t.amount < 0 THEN 1 END) as count
     FROM categories c
     LEFT JOIN transactions t ON c.name = t.category
   `;
@@ -751,11 +752,36 @@ export function getCategorySpending(startDate = null, endDate = null) {
   sql += ' GROUP BY c.name, c.parent_category ORDER BY total DESC';
 
   const results = db.prepare(sql).all(...params);
-  return results.map(r => ({
+  const categories = results.map(r => ({
     name: r.name,
     parent_category: r.parent_category,
-    total: parseFloat(r.total)
+    total: parseFloat(r.total),
+    count: r.count
   }));
+
+  // Calculate parent category totals
+  const parentTotals = {};
+  categories.forEach(cat => {
+    if (cat.parent_category) {
+      if (!parentTotals[cat.parent_category]) {
+        parentTotals[cat.parent_category] = {
+          name: cat.parent_category,
+          parent_category: null,
+          total: 0,
+          count: 0,
+          children: []
+        };
+      }
+      parentTotals[cat.parent_category].total += cat.total;
+      parentTotals[cat.parent_category].count += cat.count;
+      parentTotals[cat.parent_category].children.push(cat);
+    }
+  });
+
+  return {
+    categories,
+    parentTotals: Object.values(parentTotals)
+  };
 }
 
 // ============================================================================
