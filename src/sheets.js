@@ -163,7 +163,7 @@ export async function migrateAddConfidenceColumn() {
 /**
  * Initialize Google Sheets API
  */
-export async function initializeSheets() {
+export async function initializeSheets(database = null) {
   try {
     // Load credentials
     const credentialsPath = join(__dirname, '../credentials/google-credentials.json');
@@ -174,27 +174,34 @@ export async function initializeSheets() {
     }
 
     const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
-    // Detect environment
-    const environment = (process.env.MODE || process.env.NODE_ENV || 'sandbox').toLowerCase();
-    const isProduction = environment === 'production';
+    // Try to get sheet ID from database first (if available)
+    if (database && database.getConfig) {
+      spreadsheetId = database.getConfig('google_sheet_id');
+    }
 
-    // Get sheet ID based on environment (with backward compatibility)
-    if (config.google_sheets) {
-      // New format with separate sheets
-      if (isProduction && config.google_sheets.production) {
-        spreadsheetId = config.google_sheets.production.sheet_id;
-      } else if (config.google_sheets.sandbox) {
-        spreadsheetId = config.google_sheets.sandbox.sheet_id;
+    // If not in database, try config.json (backward compatibility)
+    if (!spreadsheetId && fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const environment = (process.env.MODE || process.env.NODE_ENV || 'sandbox').toLowerCase();
+      const isProduction = environment === 'production';
+
+      // Get sheet ID based on environment (with backward compatibility)
+      if (config.google_sheets) {
+        // New format with separate sheets
+        if (isProduction && config.google_sheets.production) {
+          spreadsheetId = config.google_sheets.production.sheet_id;
+        } else if (config.google_sheets.sandbox) {
+          spreadsheetId = config.google_sheets.sandbox.sheet_id;
+        }
+      } else if (config.google_sheet_id) {
+        // Old format (backward compatibility)
+        spreadsheetId = config.google_sheet_id;
       }
-    } else if (config.google_sheet_id) {
-      // Old format (backward compatibility)
-      spreadsheetId = config.google_sheet_id;
     }
 
     if (!spreadsheetId) {
-      throw new Error(`Google Sheet ID not configured for ${environment} environment. Check config.json.`);
+      throw new Error('Google Sheet ID not configured. Configure it through the UI or config.json.');
     }
 
     // Authenticate
@@ -1459,6 +1466,295 @@ function mapPlaidCategoryToDefault(plaidCategory) {
 // Get spreadsheet URL
 export function getSpreadsheetUrl() {
   return `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+}
+
+/**
+ * Sync all data from SQLite database to Google Sheets
+ * This is a one-way sync: SQLite -> Google Sheets
+ * SQLite is the source of truth
+ */
+export async function syncToGoogleSheets(database) {
+  try {
+    console.log('Starting sync: SQLite → Google Sheets');
+    const syncResults = {
+      success: true,
+      synced: {},
+      errors: []
+    };
+
+    // Step 1: Sync Plaid Items
+    try {
+      const plaidItems = database.getPlaidItems();
+      if (plaidItems.length > 0) {
+        const rows = plaidItems.map(item => [
+          item.item_id,
+          item.access_token,
+          item.institution_id,
+          item.institution_name,
+          item.last_synced || ''
+        ]);
+
+        // Clear existing data and write new data
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId,
+          range: `${SHEETS.PLAID_ITEMS}!A2:E`
+        });
+
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${SHEETS.PLAID_ITEMS}!A2`,
+          valueInputOption: 'RAW',
+          resource: { values: rows }
+        });
+
+        syncResults.synced.plaidItems = plaidItems.length;
+        console.log(`✓ Synced ${plaidItems.length} Plaid items`);
+      } else {
+        syncResults.synced.plaidItems = 0;
+      }
+    } catch (error) {
+      syncResults.errors.push(`Plaid Items: ${error.message}`);
+      console.error('Error syncing Plaid items:', error);
+    }
+
+    // Step 2: Sync Accounts
+    try {
+      const accounts = database.getAccounts();
+      if (accounts.length > 0) {
+        const rows = accounts.map(account => [
+          account.account_id,
+          account.item_id,
+          account.institution_name,
+          account.name,
+          account.type,
+          account.subtype || '',
+          account.mask || '',
+          account.current_balance || 0,
+          account.available_balance || 0,
+          account.updated_at || ''
+        ]);
+
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId,
+          range: `${SHEETS.ACCOUNTS}!A2:J`
+        });
+
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${SHEETS.ACCOUNTS}!A2`,
+          valueInputOption: 'RAW',
+          resource: { values: rows }
+        });
+
+        syncResults.synced.accounts = accounts.length;
+        console.log(`✓ Synced ${accounts.length} accounts`);
+      } else {
+        syncResults.synced.accounts = 0;
+      }
+    } catch (error) {
+      syncResults.errors.push(`Accounts: ${error.message}`);
+      console.error('Error syncing accounts:', error);
+    }
+
+    // Step 3: Sync Transactions
+    try {
+      const transactions = database.getTransactions(999999); // Get all transactions
+      if (transactions.length > 0) {
+        const rows = transactions.map(tx => [
+          tx.transaction_id,
+          tx.date,
+          tx.description,
+          tx.merchant_name || '',
+          tx.account_name,
+          tx.amount,
+          tx.category || '',
+          tx.confidence || 0,
+          tx.verified ? 'TRUE' : 'FALSE',
+          tx.pending ? 'TRUE' : 'FALSE',
+          tx.payment_channel || '',
+          tx.notes || '',
+          tx.created_at || ''
+        ]);
+
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId,
+          range: `${SHEETS.TRANSACTIONS}!A2:M`
+        });
+
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${SHEETS.TRANSACTIONS}!A2`,
+          valueInputOption: 'RAW',
+          resource: { values: rows }
+        });
+
+        syncResults.synced.transactions = transactions.length;
+        console.log(`✓ Synced ${transactions.length} transactions`);
+      } else {
+        syncResults.synced.transactions = 0;
+      }
+    } catch (error) {
+      syncResults.errors.push(`Transactions: ${error.message}`);
+      console.error('Error syncing transactions:', error);
+    }
+
+    // Step 4: Sync Categories
+    try {
+      const categories = database.getCategories();
+      if (categories.length > 0) {
+        const rows = categories.map(cat => [
+          cat.name,
+          cat.parent_category || ''
+        ]);
+
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId,
+          range: `${SHEETS.CATEGORIES}!A2:B`
+        });
+
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${SHEETS.CATEGORIES}!A2`,
+          valueInputOption: 'RAW',
+          resource: { values: rows }
+        });
+
+        syncResults.synced.categories = categories.length;
+        console.log(`✓ Synced ${categories.length} categories`);
+      } else {
+        syncResults.synced.categories = 0;
+      }
+    } catch (error) {
+      syncResults.errors.push(`Categories: ${error.message}`);
+      console.error('Error syncing categories:', error);
+    }
+
+    // Step 5: Sync Plaid Category Mappings
+    try {
+      const plaidMappings = database.getPlaidCategoryMappings();
+      if (plaidMappings.length > 0) {
+        const rows = plaidMappings.map(mapping => [
+          mapping.plaid_category,
+          mapping.user_category,
+          mapping.auto_created ? 'TRUE' : 'FALSE'
+        ]);
+
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId,
+          range: `${SHEETS.PLAID_CATEGORY_MAPPINGS}!A2:C`
+        });
+
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${SHEETS.PLAID_CATEGORY_MAPPINGS}!A2`,
+          valueInputOption: 'RAW',
+          resource: { values: rows }
+        });
+
+        syncResults.synced.plaidMappings = plaidMappings.length;
+        console.log(`✓ Synced ${plaidMappings.length} Plaid category mappings`);
+      } else {
+        syncResults.synced.plaidMappings = 0;
+      }
+    } catch (error) {
+      syncResults.errors.push(`Plaid Mappings: ${error.message}`);
+      console.error('Error syncing Plaid mappings:', error);
+    }
+
+    // Step 6: Sync Merchant Mappings
+    try {
+      const merchantMappings = database.getMerchantMappings();
+      if (merchantMappings.length > 0) {
+        const rows = merchantMappings.map(mapping => [
+          mapping.merchant_name,
+          mapping.category,
+          mapping.match_count || 0,
+          mapping.last_used || ''
+        ]);
+
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId,
+          range: `${SHEETS.MERCHANT_MAPPINGS}!A2:D`
+        });
+
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${SHEETS.MERCHANT_MAPPINGS}!A2`,
+          valueInputOption: 'RAW',
+          resource: { values: rows }
+        });
+
+        syncResults.synced.merchantMappings = merchantMappings.length;
+        console.log(`✓ Synced ${merchantMappings.length} merchant mappings`);
+      } else {
+        syncResults.synced.merchantMappings = 0;
+      }
+    } catch (error) {
+      syncResults.errors.push(`Merchant Mappings: ${error.message}`);
+      console.error('Error syncing merchant mappings:', error);
+    }
+
+    // Step 7: Sync Category Rules
+    try {
+      const categoryRules = database.getCategoryRules();
+      if (categoryRules.length > 0) {
+        const rows = categoryRules.map(rule => [
+          rule.name,
+          rule.pattern,
+          rule.category,
+          rule.enabled ? 'TRUE' : 'FALSE'
+        ]);
+
+        await sheets.spreadsheets.values.clear({
+          spreadsheetId,
+          range: `${SHEETS.CATEGORY_RULES}!A2:D`
+        });
+
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${SHEETS.CATEGORY_RULES}!A2`,
+          valueInputOption: 'RAW',
+          resource: { values: rows }
+        });
+
+        syncResults.synced.categoryRules = categoryRules.length;
+        console.log(`✓ Synced ${categoryRules.length} category rules`);
+      } else {
+        syncResults.synced.categoryRules = 0;
+      }
+    } catch (error) {
+      syncResults.errors.push(`Category Rules: ${error.message}`);
+      console.error('Error syncing category rules:', error);
+    }
+
+    // Calculate totals
+    const totalSynced = Object.values(syncResults.synced).reduce((sum, count) => sum + count, 0);
+
+    console.log(`✓ Sync complete! Synced ${totalSynced} total records to Google Sheets`);
+
+    if (syncResults.errors.length > 0) {
+      syncResults.success = false;
+      console.error('Sync completed with errors:', syncResults.errors);
+    }
+
+    return syncResults;
+
+  } catch (error) {
+    console.error('Sync failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      synced: {},
+      errors: [error.message]
+    };
+  }
+}
+
+/**
+ * Check if Google Sheets is configured and accessible
+ */
+export function isGoogleSheetsConfigured() {
+  return sheets !== null && spreadsheetId !== null;
 }
 
 export { SHEETS };

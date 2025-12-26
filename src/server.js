@@ -44,7 +44,7 @@ let sheetsInitialized = false;
 async function ensureSheets() {
   if (!sheetsInitialized) {
     try {
-      await initializeSheets();
+      await initializeSheets(database);
       sheetsInitialized = true;
     } catch (error) {
       console.warn('Google Sheets not configured (optional):', error.message);
@@ -355,6 +355,95 @@ app.delete('/api/institutions/:itemId', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ============================================================================
+// Google Sheets Sync Endpoints
+// ============================================================================
+
+// Check if Google Sheets is configured
+app.get('/api/sheets/status', async (req, res) => {
+  try {
+    // Check if sheet ID is configured in database
+    const sheetId = database.getConfig('google_sheet_id');
+    const isConfigured = sheetId !== null;
+
+    res.json({
+      configured: isConfigured,
+      initialized: sheetsInitialized,
+      sheetId: isConfigured ? sheetId : null,
+      url: isConfigured && sheetsInitialized ? sheets.getSpreadsheetUrl() : null
+    });
+  } catch (error) {
+    console.error('Error checking sheets status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Sync SQLite data to Google Sheets
+app.post('/api/sheets/sync', async (req, res) => {
+  try {
+    // Ensure sheets are initialized
+    await ensureSheets();
+
+    if (!sheetsInitialized) {
+      return res.status(400).json({
+        success: false,
+        error: 'Google Sheets not configured. Please configure a sheet first.'
+      });
+    }
+
+    // Perform sync
+    const result = await sheets.syncToGoogleSheets(database);
+    res.json(result);
+  } catch (error) {
+    console.error('Error syncing to Google Sheets:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Configure Google Sheet ID
+app.post('/api/sheets/configure', async (req, res) => {
+  try {
+    const { sheetId } = req.body;
+
+    if (!sheetId || typeof sheetId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid sheet ID is required'
+      });
+    }
+
+    // Save to database config
+    database.setConfig('google_sheet_id', sheetId);
+
+    // Reset initialization flag so it will reinitialize on next request
+    sheetsInitialized = false;
+
+    // Try to initialize sheets with new ID
+    await ensureSheets();
+
+    res.json({
+      success: true,
+      configured: sheetsInitialized,
+      message: sheetsInitialized
+        ? 'Google Sheets configured successfully'
+        : 'Sheet ID saved, but initialization failed. Check credentials and sheet ID.'
+    });
+  } catch (error) {
+    console.error('Error configuring Google Sheets:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ============================================================================
+// Plaid Sync Endpoints
+// ============================================================================
 
 // Sync all accounts
 app.post('/api/sync', async (req, res) => {

@@ -1362,3 +1362,149 @@ function showToast(message, type = 'info') {
         toast.remove();
     });
 }
+
+// ============================================================================
+// Google Sheets Sync Functions
+// ============================================================================
+
+/**
+ * Check Google Sheets configuration status and update UI
+ */
+async function checkSheetsStatus() {
+    try {
+        const response = await fetchAPI('/api/sheets/status');
+
+        const card = document.getElementById('sheetsSyncCard');
+        const syncBtn = document.getElementById('sheetsSyncBtn');
+        const configBtn = document.getElementById('sheetsConfigBtn');
+        const description = document.getElementById('sheetsSyncDescription');
+
+        if (!card || !syncBtn || !configBtn || !description) {
+            return;
+        }
+
+        // Show the card
+        card.style.display = 'block';
+
+        if (response.configured && response.initialized) {
+            // Sheets configured and working - show sync button
+            syncBtn.style.display = 'block';
+            configBtn.style.display = 'none';
+            description.textContent = 'Sync your local SQLite data to Google Sheets for backup and analysis';
+        } else {
+            // Not configured - show config button
+            syncBtn.style.display = 'none';
+            configBtn.style.display = 'block';
+            description.textContent = 'Link a Google Sheet to backup your data and access it from anywhere';
+        }
+    } catch (error) {
+        console.error('Error checking sheets status:', error);
+        // Hide the card on error
+        const card = document.getElementById('sheetsSyncCard');
+        if (card) {
+            card.style.display = 'none';
+        }
+    }
+}
+
+/**
+ * Sync data to Google Sheets
+ */
+async function syncToGoogleSheets() {
+    if (!confirm('This will sync all your local data to Google Sheets. This may take a moment. Continue?')) {
+        return;
+    }
+
+    try {
+        showToast('Starting sync to Google Sheets...', 'info');
+
+        const result = await fetchAPI('/api/sheets/sync', {
+            method: 'POST'
+        });
+
+        if (result.success) {
+            const total = Object.values(result.synced || {}).reduce((sum, count) => sum + count, 0);
+            showToast(`✓ Successfully synced ${total} records to Google Sheets!\n\n` +
+                `Breakdown:\n` +
+                `• ${result.synced.transactions || 0} transactions\n` +
+                `• ${result.synced.accounts || 0} accounts\n` +
+                `• ${result.synced.categories || 0} categories\n` +
+                `• ${result.synced.plaidItems || 0} institutions`, 'success');
+        } else {
+            showToast(`Sync failed: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error syncing to Google Sheets:', error);
+        showToast(`Sync error: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Show Google Sheets configuration modal
+ */
+function showSheetsConfigModal() {
+    const modal = document.getElementById('sheetsConfigModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+/**
+ * Close Google Sheets configuration modal
+ */
+function closeSheetsConfigModal() {
+    const modal = document.getElementById('sheetsConfigModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+/**
+ * Save Google Sheet configuration
+ */
+async function saveSheetConfig() {
+    const input = document.getElementById('sheetIdInput');
+    const sheetId = input?.value?.trim();
+
+    if (!sheetId) {
+        showToast('Please enter a valid Google Sheet ID', 'error');
+        return;
+    }
+
+    try {
+        showToast('Saving configuration...', 'info');
+
+        const result = await fetchAPI('/api/sheets/configure', {
+            method: 'POST',
+            body: JSON.stringify({ sheetId })
+        });
+
+        if (result.success) {
+            showToast(result.message, 'success');
+            closeSheetsConfigModal();
+
+            // Clear input
+            if (input) {
+                input.value = '';
+            }
+
+            // Refresh sheets status
+            await checkSheetsStatus();
+
+            // Optionally, ask user if they want to sync now
+            if (result.configured && confirm('Configuration saved! Would you like to sync your data to Google Sheets now?')) {
+                await syncToGoogleSheets();
+            }
+        } else {
+            showToast(`Configuration failed: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error saving sheet configuration:', error);
+        showToast(`Configuration error: ${error.message}`, 'error');
+    }
+}
+
+// Check sheets status when dashboard loads
+document.addEventListener('DOMContentLoaded', () => {
+    checkSheetsStatus();
+});
