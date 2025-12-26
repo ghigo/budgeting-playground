@@ -1026,35 +1026,50 @@ async function initiatePlaidLink() {
                     showToast('Account linked successfully!', 'success');
                     statusEl.textContent = '✓ Account linked! Syncing transactions...';
 
-                    // Auto-sync transactions for the newly linked account
+                    // Auto-sync transactions with retry logic for newly linked accounts
+                    const maxRetries = 4;
+                    const retryDelays = [5000, 10000, 15000, 20000]; // 5s, 10s, 15s, 20s
                     let syncSuccessful = false;
-                    try {
-                        const syncResult = await fetchAPI(`/api/sync/${result.item_id}`, {
-                            method: 'POST'
-                        });
 
-                        if (syncResult.success) {
-                            showToast(`Synced ${syncResult.transactionsSynced} transaction(s)!`, 'success');
-                            statusEl.textContent = '✓ Account linked and synced! Redirecting...';
-                            syncSuccessful = true;
-                        } else if (syncResult.errorCode === 'PRODUCT_NOT_READY') {
-                            // Transactions aren't ready yet - this is normal for newly linked accounts
-                            showToast('Account linked! Transactions are being prepared by your bank. Please click the sync button (🔄) in a few moments.', 'info');
-                            statusEl.textContent = '✓ Account linked! Transactions pending... Redirecting...';
-                        } else {
-                            showToast('Account linked! Use the sync button (🔄) from the Accounts page to fetch transactions.', 'info');
-                            statusEl.textContent = '✓ Account linked! Redirecting...';
+                    for (let attempt = 0; attempt < maxRetries && !syncSuccessful; attempt++) {
+                        try {
+                            if (attempt > 0) {
+                                // Wait before retrying
+                                statusEl.textContent = `⏳ Waiting for transactions... (attempt ${attempt + 1}/${maxRetries})`;
+                                await new Promise(resolve => setTimeout(resolve, retryDelays[attempt - 1]));
+                                statusEl.textContent = `🔄 Syncing transactions... (attempt ${attempt + 1}/${maxRetries})`;
+                            }
+
+                            const syncResult = await fetchAPI(`/api/sync/${result.item_id}`, {
+                                method: 'POST'
+                            });
+
+                            if (syncResult.success) {
+                                showToast(`Synced ${syncResult.transactionsSynced} transaction(s)!`, 'success');
+                                statusEl.textContent = '✓ Account linked and synced! Redirecting...';
+                                syncSuccessful = true;
+                                break;
+                            } else if (syncResult.errorCode !== 'PRODUCT_NOT_READY') {
+                                // Some other error - stop retrying
+                                console.warn('Sync failed with non-retryable error:', syncResult.error);
+                                break;
+                            }
+                            // If PRODUCT_NOT_READY, continue to next retry
+                        } catch (syncError) {
+                            console.error(`Sync attempt ${attempt + 1} failed:`, syncError);
+                            // Continue to next retry
                         }
-                    } catch (syncError) {
-                        console.error('Failed to auto-sync:', syncError);
-                        // Account is still linked successfully, just couldn't sync yet
-                        showToast('Account linked! Transactions will sync shortly. You can also sync manually from the Accounts page.', 'info');
-                        statusEl.textContent = '✓ Account linked! Redirecting...';
+                    }
+
+                    if (!syncSuccessful) {
+                        // All retries exhausted
+                        showToast('Account linked! Transactions are still being prepared. Use the sync button (🔄) from the Accounts page shortly.', 'info');
+                        statusEl.textContent = '✓ Account linked! Manual sync may be needed. Redirecting...';
                     }
 
                     setTimeout(() => {
-                        navigateTo('accounts'); // Go to accounts page instead of dashboard
-                    }, 3000); // Give them time to read the message
+                        navigateTo('accounts');
+                    }, 3000);
                 } catch (error) {
                     console.error('❌ Exchange failed:', error);
                     statusEl.textContent = '✗ Failed to link account: ' + error.message;
