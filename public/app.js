@@ -1027,6 +1027,7 @@ async function initiatePlaidLink() {
                     statusEl.textContent = '✓ Account linked! Syncing transactions...';
 
                     // Auto-sync transactions for the newly linked account
+                    let syncSuccessful = false;
                     try {
                         const syncResult = await fetchAPI(`/api/sync/${result.item_id}`, {
                             method: 'POST'
@@ -1034,17 +1035,26 @@ async function initiatePlaidLink() {
 
                         if (syncResult.success) {
                             showToast(`Synced ${syncResult.transactionsSynced} transaction(s)!`, 'success');
+                            statusEl.textContent = '✓ Account linked and synced! Redirecting...';
+                            syncSuccessful = true;
+                        } else if (syncResult.errorCode === 'PRODUCT_NOT_READY') {
+                            // Transactions aren't ready yet - this is normal for newly linked accounts
+                            showToast('Account linked! Transactions are being prepared by your bank. Please click the sync button (🔄) in a few moments.', 'info');
+                            statusEl.textContent = '✓ Account linked! Transactions pending... Redirecting...';
+                        } else {
+                            showToast('Account linked! Use the sync button (🔄) from the Accounts page to fetch transactions.', 'info');
+                            statusEl.textContent = '✓ Account linked! Redirecting...';
                         }
                     } catch (syncError) {
                         console.error('Failed to auto-sync:', syncError);
-                        // Don't fail the whole process if sync fails
+                        // Account is still linked successfully, just couldn't sync yet
+                        showToast('Account linked! Transactions will sync shortly. You can also sync manually from the Accounts page.', 'info');
+                        statusEl.textContent = '✓ Account linked! Redirecting...';
                     }
 
-                    statusEl.textContent = '✓ Account linked and synced! Redirecting...';
-
                     setTimeout(() => {
-                        navigateTo('dashboard');
-                    }, 2000);
+                        navigateTo('accounts'); // Go to accounts page instead of dashboard
+                    }, 3000); // Give them time to read the message
                 } catch (error) {
                     console.error('❌ Exchange failed:', error);
                     statusEl.textContent = '✗ Failed to link account: ' + error.message;

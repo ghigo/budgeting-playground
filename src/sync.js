@@ -116,9 +116,15 @@ export async function syncSingleAccount(itemId) {
     };
   } catch (error) {
     console.error(`Error syncing ${item.institution_name}:`, error.message);
+
+    // Check if this is a Plaid API error with error_code
+    const errorCode = error.response?.data?.error_code;
+    const errorMessage = error.response?.data?.error_message || error.message;
+
     return {
       success: false,
-      error: error.message,
+      error: errorCode ? `${errorCode}: ${errorMessage}` : errorMessage,
+      errorCode: errorCode,
       institution: item.institution_name
     };
   }
