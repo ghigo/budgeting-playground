@@ -179,12 +179,12 @@ export async function setupSpreadsheet() {
     // Set up Transactions sheet headers
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SHEETS.TRANSACTIONS}!A1:L1`,
+      range: `${SHEETS.TRANSACTIONS}!A1:M1`,
       valueInputOption: 'RAW',
       resource: {
         values: [[
           'Transaction ID', 'Date', 'Description', 'Merchant', 'Account',
-          'Amount', 'Category', 'Verified', 'Pending', 'Payment Channel', 'Notes', 'Created At'
+          'Amount', 'Category', 'Confidence', 'Verified', 'Pending', 'Payment Channel', 'Notes', 'Created At'
         ]]
       }
     });
@@ -533,7 +533,7 @@ export async function saveTransactions(transactions, accountsMap) {
 
   // Auto-categorize each transaction
   const values = await Promise.all(newTransactions.map(async (txn) => {
-    const category = await autoCategorizeTransaction(txn, categorizationData);
+    const { category, confidence } = await autoCategorizeTransaction(txn, categorizationData);
 
     return [
       txn.transaction_id,
@@ -543,6 +543,7 @@ export async function saveTransactions(transactions, accountsMap) {
       accountsMap[txn.account_id] || txn.account_id,
       txn.amount,
       category, // Auto-categorized
+      confidence, // Confidence % (0-100)
       'No', // verified (auto-categorized, not manually confirmed)
       txn.pending ? 'Yes' : 'No',
       txn.payment_channel || '',
@@ -592,11 +593,12 @@ export async function getTransactions(limit = 50, filters = {}) {
     account_name: row[4],
     amount: parseFloat(row[5]) || 0,
     category: row[6],
-    verified: row[7] === 'Yes',
-    pending: row[8] === 'Yes',
-    payment_channel: row[9],
-    notes: row[10],
-    created_at: row[11]
+    confidence: parseInt(row[7]) || 0, // Confidence % (0-100)
+    verified: row[8] === 'Yes',
+    pending: row[9] === 'Yes',
+    payment_channel: row[10],
+    notes: row[11],
+    created_at: row[12]
   }));
 }
 
@@ -933,8 +935,9 @@ export async function updateTransactionCategory(transactionId, newCategory) {
     throw new Error('Transaction not found');
   }
 
-  rows[index][6] = newCategory;
-  rows[index][7] = 'Yes'; // Mark as verified when manually changed
+  rows[index][6] = newCategory; // Category
+  rows[index][7] = 100; // Confidence (100% when manually set)
+  rows[index][8] = 'Yes'; // Mark as verified when manually changed
   await updateRow(SHEETS.TRANSACTIONS, index + 2, rows[index]);
 
   return { success: true };
@@ -951,7 +954,8 @@ export async function verifyTransactionCategory(transactionId) {
     throw new Error('Transaction not found');
   }
 
-  rows[index][7] = 'Yes'; // Mark as verified
+  rows[index][7] = 100; // Confidence (100% when verified)
+  rows[index][8] = 'Yes'; // Mark as verified
   await updateRow(SHEETS.TRANSACTIONS, index + 2, rows[index]);
 
   return { success: true, category: rows[index][6] };
@@ -977,7 +981,7 @@ export async function recategorizeExistingTransactions(onlyUncategorized = true)
     const row = rows[i];
     const transactionId = row[0];
     const currentCategory = row[6] || '';
-    const isVerified = row[7] === 'Yes';
+    const isVerified = row[8] === 'Yes'; // Verified column is now at index 8
 
     // Skip verified transactions (manually set by user)
     if (isVerified) {
@@ -1006,12 +1010,13 @@ export async function recategorizeExistingTransactions(onlyUncategorized = true)
     };
 
     // Try to get suggested category (skip saving mappings to avoid quota issues)
-    const suggestedCategory = await autoCategorizeTransaction(transaction, categorizationData, true);
+    const { category: suggestedCategory, confidence } = await autoCategorizeTransaction(transaction, categorizationData, true);
 
     // Only add to batch if we got a different category
     if (suggestedCategory && suggestedCategory !== currentCategory) {
-      row[6] = suggestedCategory;
-      row[7] = 'No'; // Mark as not verified (auto-categorized)
+      row[6] = suggestedCategory; // Category
+      row[7] = confidence; // Confidence
+      row[8] = 'No'; // Mark as not verified (auto-categorized)
       batchUpdates.push({
         rowIndex: i + 2, // +2 because: +1 for header, +1 for 0-based to 1-based
         values: row
@@ -1181,6 +1186,7 @@ async function saveMerchantMapping(merchantName, category) {
  * @param {Object} transaction - The transaction to categorize
  * @param {Object} categorizationData - Optional pre-loaded categorization data to avoid API quota
  * @param {boolean} skipSavingMappings - If true, skip saving new mappings (for batch operations to avoid quota)
+ * @returns {Object} - {category: string, confidence: number (0-100)}
  */
 export async function autoCategorizeTransaction(transaction, categorizationData = null, skipSavingMappings = false) {
   try {
@@ -1199,7 +1205,7 @@ export async function autoCategorizeTransaction(transaction, categorizationData 
       ({ merchantMappings, categoryRules, plaidMappings } = data);
     }
 
-    // STEP 1: Exact merchant lookup
+    // STEP 1: Exact merchant lookup - 95% confidence
     const exactMatch = merchantMappings.find(
       m => m.merchant_name.toLowerCase() === merchantName.toLowerCase()
     );
@@ -1208,10 +1214,10 @@ export async function autoCategorizeTransaction(transaction, categorizationData 
       if (!skipSavingMappings) {
         await saveMerchantMapping(merchantName, exactMatch.category);
       }
-      return exactMatch.category;
+      return { category: exactMatch.category, confidence: 95 };
     }
 
-    // STEP 2: Pattern matching (regex rules)
+    // STEP 2: Pattern matching (regex rules) - 85% confidence
     for (const rule of categoryRules) {
       try {
         const regex = new RegExp(rule.pattern, 'i');
@@ -1220,14 +1226,14 @@ export async function autoCategorizeTransaction(transaction, categorizationData 
           if (merchantName && !skipSavingMappings) {
             await saveMerchantMapping(merchantName, rule.category);
           }
-          return rule.category;
+          return { category: rule.category, confidence: 85 };
         }
       } catch (e) {
         console.warn(`Invalid regex pattern in rule "${rule.name}": ${rule.pattern}`);
       }
     }
 
-    // STEP 3: Fuzzy merchant matching (80% similarity)
+    // STEP 3: Fuzzy merchant matching (80% similarity) - 75% confidence
     if (merchantName) {
       for (const mapping of merchantMappings) {
         if (isFuzzyMatch(merchantName, mapping.merchant_name, 0.8)) {
@@ -1235,59 +1241,59 @@ export async function autoCategorizeTransaction(transaction, categorizationData 
           if (!skipSavingMappings) {
             await saveMerchantMapping(merchantName, mapping.category);
           }
-          return mapping.category;
+          return { category: mapping.category, confidence: 75 };
         }
       }
     }
 
-    // STEP 4: Plaid category mapping
+    // STEP 4: Plaid category mapping - 70% confidence
     if (transaction.category && transaction.category.length > 0) {
       // Try to match the most specific category first (last in array)
       for (let i = transaction.category.length - 1; i >= 0; i--) {
         const plaidCat = transaction.category[i];
         const mapping = plaidMappings.find(m => m.plaid_category === plaidCat);
         if (mapping) {
-          return mapping.user_category;
+          return { category: mapping.user_category, confidence: 70 };
         }
       }
 
-      // No mapping exists - try to auto-create one based on Plaid's category (skip during batch operations)
+      // No mapping exists - try to auto-create one based on Plaid's category (skip during batch operations) - 50% confidence
       if (!skipSavingMappings) {
         const plaidCategory = transaction.category[transaction.category.length - 1];
         const suggestedCategory = mapPlaidCategoryToDefault(plaidCategory);
         if (suggestedCategory) {
           await savePlaidCategoryMapping(plaidCategory, suggestedCategory);
-          return suggestedCategory;
+          return { category: suggestedCategory, confidence: 50 };
         }
       }
     }
 
-    // STEP 5: Check personal_finance_category (newer Plaid format)
+    // STEP 5: Check personal_finance_category (newer Plaid format) - 70% / 50% confidence
     if (transaction.personal_finance_category) {
       const pfc = transaction.personal_finance_category;
       const pfcString = pfc.detailed || pfc.primary;
 
       const mapping = plaidMappings.find(m => m.plaid_category === pfcString);
       if (mapping) {
-        return mapping.user_category;
+        return { category: mapping.user_category, confidence: 70 };
       }
 
-      // Auto-create mapping (skip during batch operations)
+      // Auto-create mapping (skip during batch operations) - 50% confidence
       if (!skipSavingMappings) {
         const suggestedCategory = mapPlaidCategoryToDefault(pfcString);
         if (suggestedCategory) {
           await savePlaidCategoryMapping(pfcString, suggestedCategory);
-          return suggestedCategory;
+          return { category: suggestedCategory, confidence: 50 };
         }
       }
     }
 
     // STEP 6: Fallback - return empty for manual categorization or future LLM
-    return '';
+    return { category: '', confidence: 0 };
 
   } catch (error) {
     console.error('Error in autoCategorizeTransaction:', error.message);
-    return ''; // Fallback to uncategorized on error
+    return { category: '', confidence: 0 }; // Fallback to uncategorized on error
   }
 }
 

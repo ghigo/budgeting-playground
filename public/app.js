@@ -526,6 +526,27 @@ function displayTransactionsTable(transactions) {
     tbody.innerHTML = transactions.map(tx => {
         const isVerified = tx.verified;
         const hasCategory = tx.category && tx.category.length > 0;
+        const confidence = tx.confidence || 0;
+
+        // Determine confidence badge color and style
+        let confidenceColor = '#666';
+        let confidenceBg = '#eee';
+        if (confidence === 100) {
+            confidenceColor = '#fff';
+            confidenceBg = '#2563eb'; // Blue for manually verified
+        } else if (confidence >= 85) {
+            confidenceColor = '#fff';
+            confidenceBg = '#16a34a'; // Green for high confidence
+        } else if (confidence >= 70) {
+            confidenceColor = '#fff';
+            confidenceBg = '#ca8a04'; // Yellow for medium confidence
+        } else if (confidence >= 50) {
+            confidenceColor = '#fff';
+            confidenceBg = '#ea580c'; // Orange for low confidence
+        } else if (confidence > 0) {
+            confidenceColor = '#fff';
+            confidenceBg = '#dc2626'; // Red for very low confidence
+        }
 
         return `
         <tr>
@@ -548,6 +569,19 @@ function displayTransactionsTable(transactions) {
                             </option>
                         `).join('')}
                     </datalist>
+                    ${hasCategory && confidence > 0 ?
+                        `<span style="
+                            display: inline-block;
+                            padding: 2px 6px;
+                            border-radius: 4px;
+                            font-size: 0.75rem;
+                            font-weight: 600;
+                            color: ${confidenceColor};
+                            background: ${confidenceBg};
+                            white-space: nowrap;
+                        " title="Confidence: ${confidence}%">${confidence}%</span>` :
+                        ''
+                    }
                     ${isVerified ?
                         '<span style="color: var(--success); font-size: 1.2rem;" title="Verified">✓</span>' :
                         (hasCategory ?
