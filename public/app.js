@@ -1346,10 +1346,19 @@ function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     toast.textContent = message;
+    toast.style.cursor = 'pointer';
+    toast.title = 'Click to dismiss';
 
     container.appendChild(toast);
 
-    setTimeout(() => {
+    // Auto-dismiss after 8 seconds
+    const timeoutId = setTimeout(() => {
         toast.remove();
-    }, 4000);
+    }, 8000);
+
+    // Click to dismiss immediately
+    toast.addEventListener('click', () => {
+        clearTimeout(timeoutId);
+        toast.remove();
+    });
 }
