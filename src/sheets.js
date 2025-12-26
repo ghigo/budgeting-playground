@@ -21,6 +21,48 @@ const SHEETS = {
   CATEGORY_RULES: 'CategoryRules'
 };
 
+// Cache for categorization data to avoid API quota limits
+const categorizationCache = {
+  data: null,
+  timestamp: null,
+  TTL: 5 * 60 * 1000 // 5 minutes
+};
+
+/**
+ * Load categorization data with caching to avoid API quota issues
+ */
+async function getCategorizationData() {
+  const now = Date.now();
+
+  // Return cached data if still valid
+  if (categorizationCache.data &&
+      categorizationCache.timestamp &&
+      (now - categorizationCache.timestamp) < categorizationCache.TTL) {
+    return categorizationCache.data;
+  }
+
+  // Fetch fresh data
+  const [merchantMappings, categoryRules, plaidMappings] = await Promise.all([
+    getMerchantMappings(),
+    getEnabledCategoryRules(),
+    getPlaidCategoryMappings()
+  ]);
+
+  // Update cache
+  categorizationCache.data = { merchantMappings, categoryRules, plaidMappings };
+  categorizationCache.timestamp = now;
+
+  return categorizationCache.data;
+}
+
+/**
+ * Clear categorization cache (call after updating mappings/rules)
+ */
+export function clearCategorizationCache() {
+  categorizationCache.data = null;
+  categorizationCache.timestamp = null;
+}
+
 /**
  * Initialize Google Sheets API
  */
@@ -216,7 +258,7 @@ export async function setupSpreadsheet() {
     const defaultRules = [
       ['Walmart Pattern', 'walmart|wal-mart', 'Groceries', 'Yes'],
       ['Amazon Pattern', 'amazon|amzn', 'Shopping', 'Yes'],
-      ['Gas Stations', 'shell|chevron|exxon|bp |mobil', 'Gas', 'Yes'],
+      ['Gas Stations', 'shell|chevron|exxon|bp|mobil', 'Gas', 'Yes'],
       ['Utilities', 'electric|water|gas company|utility', 'Bills & Utilities', 'Yes'],
       ['Fast Food', 'mcdonalds|burger king|taco bell|kfc|subway', 'Restaurants', 'Yes']
     ];
@@ -464,9 +506,12 @@ export async function saveTransactions(transactions, accountsMap) {
 
   const now = new Date().toISOString();
 
+  // Load categorization data ONCE (cached) to avoid API quota issues
+  const categorizationData = await getCategorizationData();
+
   // Auto-categorize each transaction
   const values = await Promise.all(newTransactions.map(async (txn) => {
-    const category = await autoCategorizeTransaction(txn);
+    const category = await autoCategorizeTransaction(txn, categorizationData);
 
     return [
       txn.transaction_id,
@@ -984,6 +1029,9 @@ async function savePlaidCategoryMapping(plaidCategory, userCategory) {
   } else {
     await appendRows(SHEETS.PLAID_CATEGORY_MAPPINGS, [values]);
   }
+
+  // Clear cache when mappings are updated
+  clearCategorizationCache();
 }
 
 /**
@@ -1005,6 +1053,9 @@ async function saveMerchantMapping(merchantName, category) {
     const values = [merchantName, category, 1, now];
     await appendRows(SHEETS.MERCHANT_MAPPINGS, [values]);
   }
+
+  // Clear cache when mappings are updated
+  clearCategorizationCache();
 }
 
 /**
@@ -1013,18 +1064,26 @@ async function saveMerchantMapping(merchantName, category) {
  * 2. Pattern matching
  * 3. Plaid category mapping
  * 4. Fallback to empty (for manual categorization or future LLM)
+ *
+ * @param {Object} transaction - The transaction to categorize
+ * @param {Object} categorizationData - Optional pre-loaded categorization data to avoid API quota
  */
-export async function autoCategorizeTransaction(transaction) {
+export async function autoCategorizeTransaction(transaction, categorizationData = null) {
   try {
     const merchantName = transaction.merchant_name || transaction.name || '';
     const description = transaction.name || '';
 
-    // Get all mappings and rules
-    const [merchantMappings, categoryRules, plaidMappings] = await Promise.all([
-      getMerchantMappings(),
-      getEnabledCategoryRules(),
-      getPlaidCategoryMappings()
-    ]);
+    // Get all mappings and rules (use cached data if provided)
+    let merchantMappings, categoryRules, plaidMappings;
+
+    if (categorizationData) {
+      // Use pre-loaded data
+      ({ merchantMappings, categoryRules, plaidMappings } = categorizationData);
+    } else {
+      // Fetch from API (backward compatibility)
+      const data = await getCategorizationData();
+      ({ merchantMappings, categoryRules, plaidMappings } = data);
+    }
 
     // STEP 1: Exact merchant lookup
     const exactMatch = merchantMappings.find(
