@@ -144,6 +144,38 @@
                     <h2>Transactions</h2>
                     <p>All your transactions</p>
                 </div>
+
+                <!-- Transaction Filters -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;">Filters</h3>
+                    <div class="filter-grid">
+                        <div class="filter-item">
+                            <label for="filterCategory">Category</label>
+                            <select id="filterCategory" class="form-select">
+                                <option value="">All Categories</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="filterAccount">Account</label>
+                            <select id="filterAccount" class="form-select">
+                                <option value="">All Accounts</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="filterStartDate">Start Date</label>
+                            <input type="date" id="filterStartDate" class="form-input">
+                        </div>
+                        <div class="filter-item">
+                            <label for="filterEndDate">End Date</label>
+                            <input type="date" id="filterEndDate" class="form-input">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+                        <button onclick="applyTransactionFilters()" class="btn btn-primary">Apply Filters</button>
+                        <button onclick="clearTransactionFilters()" class="btn btn-secondary">Clear Filters</button>
+                    </div>
+                </div>
+
                 <div class="card">
                     <div class="table-container">
                         <table class="transactions-table">

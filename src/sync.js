@@ -71,6 +71,60 @@ export async function syncAllAccounts() {
 }
 
 /**
+ * Sync transactions for a single account by item ID
+ */
+export async function syncSingleAccount(itemId) {
+  const items = await sheets.getPlaidItems();
+  const item = items.find(i => i.item_id === itemId);
+
+  if (!item) {
+    return { success: false, error: 'Account not found' };
+  }
+
+  try {
+    console.log(`\n📊 Syncing ${item.institution_name}...`);
+
+    // Get transactions from the last 90 days
+    const endDate = new Date().toISOString().split('T')[0];
+    const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const result = await plaid.getTransactions(item.access_token, startDate, endDate);
+
+    // Update accounts
+    for (const account of result.accounts) {
+      account.item_id = item.item_id;
+      await sheets.saveAccount(account, item.institution_name);
+    }
+
+    // Create account name map
+    const accountsMap = {};
+    for (const account of result.accounts) {
+      accountsMap[account.account_id] = account.name;
+    }
+
+    // Save transactions
+    const count = await sheets.saveTransactions(result.transactions, accountsMap);
+
+    // Update last sync time
+    await sheets.updatePlaidItemSyncTime(item.item_id);
+
+    return {
+      success: true,
+      institution: item.institution_name,
+      accountsUpdated: result.accounts.length,
+      transactionsSynced: count
+    };
+  } catch (error) {
+    console.error(`Error syncing ${item.institution_name}:`, error.message);
+    return {
+      success: false,
+      error: error.message,
+      institution: item.institution_name
+    };
+  }
+}
+
+/**
  * Sync a specific time range
  */
 export async function syncDateRange(startDate, endDate) {

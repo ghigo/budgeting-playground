@@ -664,10 +664,48 @@ body {
     cursor: pointer;
 }
 
+/* Category input (searchable) */
+.category-input {
+    width: auto;
+    min-width: 150px;
+    padding: 0.5rem;
+    font-size: 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    transition: border-color 0.2s;
+}
+
+.category-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
 /* Verified category indication */
-.category-select.verified {
+.category-select.verified,
+.category-input.verified {
     border-color: var(--success);
     background: var(--success-light);
+}
+
+/* Filter grid */
+.filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.filter-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.filter-item label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
 }
 
 /* Verify button */

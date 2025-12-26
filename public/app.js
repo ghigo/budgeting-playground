@@ -366,9 +366,14 @@ function displayInstitutions(institutions) {
                 <div class="institution-name">🏦 ${escapeHtml(inst.institution_name)}</div>
                 <div class="institution-meta">Last synced: ${inst.last_synced_at ? formatDate(inst.last_synced_at) : 'Never'}</div>
             </div>
-            <button class="btn-icon btn-danger" onclick="removeInstitution('${inst.item_id}', '${escapeHtml(inst.institution_name)}')" title="Remove institution">
-                🗑️
-            </button>
+            <div style="display: flex; gap: 0.5rem;">
+                <button class="btn-icon" onclick="syncInstitution('${inst.item_id}', '${escapeHtml(inst.institution_name)}')" title="Sync transactions">
+                    🔄
+                </button>
+                <button class="btn-icon btn-danger" onclick="removeInstitution('${inst.item_id}', '${escapeHtml(inst.institution_name)}')" title="Remove institution">
+                    🗑️
+                </button>
+            </div>
         </div>
     `).join('');
 }
@@ -403,6 +408,28 @@ function displayAccounts(accounts) {
     `).join('');
 }
 
+async function syncInstitution(itemId, institutionName) {
+    showLoading();
+
+    try {
+        const result = await fetchAPI(`/api/sync/${itemId}`, {
+            method: 'POST'
+        });
+
+        if (result.success) {
+            showToast(`${result.institution} synced successfully! ${result.transactionsSynced} new transaction(s) added.`, 'success');
+            loadAccounts(); // Reload to show updated sync time
+        } else {
+            showToast(`Failed to sync ${institutionName}: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        showToast('Failed to sync institution: ' + error.message, 'error');
+        console.error(error);
+    } finally {
+        hideLoading();
+    }
+}
+
 async function removeInstitution(itemId, institutionName) {
     if (!confirm(`Are you sure you want to remove ${institutionName}?\n\nThis will permanently delete:\n• The institution\n• All associated accounts\n• All associated transactions\n\nThis action cannot be undone.`)) {
         return;
@@ -430,20 +457,59 @@ async function removeInstitution(itemId, institutionName) {
 // Transactions
 let allCategories = [];
 
-async function loadTransactions() {
+async function loadTransactions(filters = {}) {
     showLoading();
     try {
+        let url = '/api/transactions?limit=500';
+
+        // Add filters to URL if provided
+        if (filters.category) url += `&category=${encodeURIComponent(filters.category)}`;
+        if (filters.account) url += `&account=${encodeURIComponent(filters.account)}`;
+        if (filters.startDate) url += `&startDate=${filters.startDate}`;
+        if (filters.endDate) url += `&endDate=${filters.endDate}`;
+
         const [transactions, categories] = await Promise.all([
-            fetchAPI('/api/transactions?limit=100'),
+            fetchAPI(url),
             fetchAPI('/api/categories')
         ]);
-        allCategories = categories;
+
+        // Deduplicate categories by name (case-insensitive)
+        const uniqueCategories = [];
+        const seenNames = new Set();
+        categories.forEach(cat => {
+            const lowerName = cat.name.toLowerCase();
+            if (!seenNames.has(lowerName)) {
+                seenNames.add(lowerName);
+                uniqueCategories.push(cat);
+            }
+        });
+
+        allCategories = uniqueCategories;
         displayTransactionsTable(transactions);
+        updateTransactionFilters(transactions);
     } catch (error) {
         showToast('Failed to load transactions', 'error');
         console.error(error);
     } finally {
         hideLoading();
+    }
+}
+
+function updateTransactionFilters(transactions) {
+    // Populate category filter
+    const categoryFilter = document.getElementById('filterCategory');
+    if (categoryFilter) {
+        const categories = [...new Set(transactions.map(t => t.category).filter(Boolean))];
+        categoryFilter.innerHTML = '<option value="">All Categories</option>' +
+            categories.map(cat => `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`).join('');
+    }
+
+    // Populate account filter
+    const accountFilter = document.getElementById('filterAccount');
+    if (accountFilter) {
+        const accounts = [...new Set(transactions.map(t => t.account_name).filter(Boolean))];
+        accountFilter.innerHTML = '<option value="">All Accounts</option>' +
+            accounts.map(acc => `<option value="${escapeHtml(acc)}">${escapeHtml(acc)}</option>`).join('');
     }
 }
 
@@ -465,16 +531,21 @@ function displayTransactionsTable(transactions) {
             <td>${escapeHtml(tx.description || tx.name)}</td>
             <td>
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <select class="category-select ${isVerified ? 'verified' : ''}"
-                            data-transaction-id="${tx.transaction_id}"
-                            onchange="updateTransactionCategory(this)">
-                        <option value="">Uncategorized</option>
+                    <input type="text"
+                           list="categories-${tx.transaction_id}"
+                           class="category-input ${isVerified ? 'verified' : ''}"
+                           data-transaction-id="${tx.transaction_id}"
+                           value="${escapeHtml(tx.category || '')}"
+                           placeholder="Select category..."
+                           onchange="updateTransactionCategoryFromInput(this)"
+                           autocomplete="off">
+                    <datalist id="categories-${tx.transaction_id}">
                         ${allCategories.map(cat => `
-                            <option value="${escapeHtml(cat.name)}" ${cat.name === tx.category ? 'selected' : ''}>
+                            <option value="${escapeHtml(cat.name)}">
                                 ${escapeHtml(cat.name)}${cat.parent_category ? ` (${cat.parent_category})` : ''}
                             </option>
                         `).join('')}
-                    </select>
+                    </datalist>
                     ${isVerified ?
                         '<span style="color: var(--success); font-size: 1.2rem;" title="Verified">✓</span>' :
                         (hasCategory ?
@@ -509,6 +580,44 @@ async function updateTransactionCategory(selectElement) {
         // Revert the select on error
         loadTransactions();
     }
+}
+
+async function updateTransactionCategoryFromInput(inputElement) {
+    const transactionId = inputElement.getAttribute('data-transaction-id');
+    const newCategory = inputElement.value.trim();
+
+    try {
+        await fetchAPI(`/api/transactions/${transactionId}/category`, {
+            method: 'PATCH',
+            body: JSON.stringify({ category: newCategory })
+        });
+        showToast('Category updated and verified', 'success');
+        loadTransactions(); // Reload to show verified status
+    } catch (error) {
+        showToast('Failed to update category: ' + error.message, 'error');
+        console.error(error);
+        // Revert on error
+        loadTransactions();
+    }
+}
+
+function applyTransactionFilters() {
+    const filters = {
+        category: document.getElementById('filterCategory')?.value || '',
+        account: document.getElementById('filterAccount')?.value || '',
+        startDate: document.getElementById('filterStartDate')?.value || '',
+        endDate: document.getElementById('filterEndDate')?.value || ''
+    };
+
+    loadTransactions(filters);
+}
+
+function clearTransactionFilters() {
+    if (document.getElementById('filterCategory')) document.getElementById('filterCategory').value = '';
+    if (document.getElementById('filterAccount')) document.getElementById('filterAccount').value = '';
+    if (document.getElementById('filterStartDate')) document.getElementById('filterStartDate').value = '';
+    if (document.getElementById('filterEndDate')) document.getElementById('filterEndDate').value = '';
+    loadTransactions();
 }
 
 async function verifyCategory(transactionId) {
@@ -915,7 +1024,23 @@ async function initiatePlaidLink() {
 
                     console.log('✅ Account linked!', result);
                     showToast('Account linked successfully!', 'success');
-                    statusEl.textContent = '✓ Account linked successfully! Redirecting to dashboard...';
+                    statusEl.textContent = '✓ Account linked! Syncing transactions...';
+
+                    // Auto-sync transactions for the newly linked account
+                    try {
+                        const syncResult = await fetchAPI(`/api/sync/${result.item_id}`, {
+                            method: 'POST'
+                        });
+
+                        if (syncResult.success) {
+                            showToast(`Synced ${syncResult.transactionsSynced} transaction(s)!`, 'success');
+                        }
+                    } catch (syncError) {
+                        console.error('Failed to auto-sync:', syncError);
+                        // Don't fail the whole process if sync fails
+                    }
+
+                    statusEl.textContent = '✓ Account linked and synced! Redirecting...';
 
                     setTimeout(() => {
                         navigateTo('dashboard');

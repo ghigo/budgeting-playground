@@ -488,11 +488,30 @@ export async function saveTransactions(transactions, accountsMap) {
   return newTransactions.length;
 }
 
-export async function getTransactions(limit = 50) {
+export async function getTransactions(limit = 50, filters = {}) {
   const rows = await getRows(SHEETS.TRANSACTIONS);
-  
+
+  // Apply filters
+  let filtered = rows;
+
+  if (filters.category) {
+    filtered = filtered.filter(row => row[6] === filters.category);
+  }
+
+  if (filters.account) {
+    filtered = filtered.filter(row => row[4] === filters.account);
+  }
+
+  if (filters.startDate) {
+    filtered = filtered.filter(row => row[1] >= filters.startDate);
+  }
+
+  if (filters.endDate) {
+    filtered = filtered.filter(row => row[1] <= filters.endDate);
+  }
+
   // Sort by date descending (most recent first)
-  const sorted = rows.sort((a, b) => {
+  const sorted = filtered.sort((a, b) => {
     const dateA = new Date(a[1]);
     const dateB = new Date(b[1]);
     return dateB - dateA;

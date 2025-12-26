@@ -105,7 +105,14 @@ app.get('/api/transactions', async (req, res) => {
   try {
     await ensureSheets();
     const limit = req.query.limit ? parseInt(req.query.limit) : 100;
-    const transactions = await sheets.getTransactions(limit);
+    const filters = {
+      category: req.query.category,
+      account: req.query.account,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate
+    };
+
+    const transactions = await sheets.getTransactions(limit, filters);
     res.json(transactions);
   } catch (error) {
     console.error('Error fetching transactions:', error);
@@ -344,6 +351,19 @@ app.post('/api/sync', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error syncing accounts:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Sync a single account by item ID
+app.post('/api/sync/:itemId', async (req, res) => {
+  try {
+    await ensureSheets();
+    const { itemId } = req.params;
+    const result = await sync.syncSingleAccount(itemId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error syncing account:', error);
     res.status(500).json({ error: error.message });
   }
 });
