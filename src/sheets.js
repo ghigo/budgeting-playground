@@ -1005,8 +1005,8 @@ export async function recategorizeExistingTransactions(onlyUncategorized = true)
       personal_finance_category: null
     };
 
-    // Try to get suggested category
-    const suggestedCategory = await autoCategorizeTransaction(transaction, categorizationData);
+    // Try to get suggested category (skip saving mappings to avoid quota issues)
+    const suggestedCategory = await autoCategorizeTransaction(transaction, categorizationData, true);
 
     // Only add to batch if we got a different category
     if (suggestedCategory && suggestedCategory !== currentCategory) {
@@ -1180,8 +1180,9 @@ async function saveMerchantMapping(merchantName, category) {
  *
  * @param {Object} transaction - The transaction to categorize
  * @param {Object} categorizationData - Optional pre-loaded categorization data to avoid API quota
+ * @param {boolean} skipSavingMappings - If true, skip saving new mappings (for batch operations to avoid quota)
  */
-export async function autoCategorizeTransaction(transaction, categorizationData = null) {
+export async function autoCategorizeTransaction(transaction, categorizationData = null, skipSavingMappings = false) {
   try {
     const merchantName = transaction.merchant_name || transaction.name || '';
     const description = transaction.name || '';
@@ -1203,8 +1204,10 @@ export async function autoCategorizeTransaction(transaction, categorizationData 
       m => m.merchant_name.toLowerCase() === merchantName.toLowerCase()
     );
     if (exactMatch) {
-      // Update usage stats
-      await saveMerchantMapping(merchantName, exactMatch.category);
+      // Update usage stats (skip during batch operations to avoid quota)
+      if (!skipSavingMappings) {
+        await saveMerchantMapping(merchantName, exactMatch.category);
+      }
       return exactMatch.category;
     }
 
@@ -1213,8 +1216,8 @@ export async function autoCategorizeTransaction(transaction, categorizationData 
       try {
         const regex = new RegExp(rule.pattern, 'i');
         if (regex.test(merchantName) || regex.test(description)) {
-          // Save this as a merchant mapping for future use
-          if (merchantName) {
+          // Save this as a merchant mapping for future use (skip during batch operations)
+          if (merchantName && !skipSavingMappings) {
             await saveMerchantMapping(merchantName, rule.category);
           }
           return rule.category;
@@ -1228,8 +1231,10 @@ export async function autoCategorizeTransaction(transaction, categorizationData 
     if (merchantName) {
       for (const mapping of merchantMappings) {
         if (isFuzzyMatch(merchantName, mapping.merchant_name, 0.8)) {
-          // Save exact merchant name for future
-          await saveMerchantMapping(merchantName, mapping.category);
+          // Save exact merchant name for future (skip during batch operations)
+          if (!skipSavingMappings) {
+            await saveMerchantMapping(merchantName, mapping.category);
+          }
           return mapping.category;
         }
       }
@@ -1246,12 +1251,14 @@ export async function autoCategorizeTransaction(transaction, categorizationData 
         }
       }
 
-      // No mapping exists - try to auto-create one based on Plaid's category
-      const plaidCategory = transaction.category[transaction.category.length - 1];
-      const suggestedCategory = mapPlaidCategoryToDefault(plaidCategory);
-      if (suggestedCategory) {
-        await savePlaidCategoryMapping(plaidCategory, suggestedCategory);
-        return suggestedCategory;
+      // No mapping exists - try to auto-create one based on Plaid's category (skip during batch operations)
+      if (!skipSavingMappings) {
+        const plaidCategory = transaction.category[transaction.category.length - 1];
+        const suggestedCategory = mapPlaidCategoryToDefault(plaidCategory);
+        if (suggestedCategory) {
+          await savePlaidCategoryMapping(plaidCategory, suggestedCategory);
+          return suggestedCategory;
+        }
       }
     }
 
@@ -1265,11 +1272,13 @@ export async function autoCategorizeTransaction(transaction, categorizationData 
         return mapping.user_category;
       }
 
-      // Auto-create mapping
-      const suggestedCategory = mapPlaidCategoryToDefault(pfcString);
-      if (suggestedCategory) {
-        await savePlaidCategoryMapping(pfcString, suggestedCategory);
-        return suggestedCategory;
+      // Auto-create mapping (skip during batch operations)
+      if (!skipSavingMappings) {
+        const suggestedCategory = mapPlaidCategoryToDefault(pfcString);
+        if (suggestedCategory) {
+          await savePlaidCategoryMapping(pfcString, suggestedCategory);
+          return suggestedCategory;
+        }
       }
     }
 
