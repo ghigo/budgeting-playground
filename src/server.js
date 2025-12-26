@@ -52,6 +52,21 @@ app.get('/api/environment', (req, res) => {
   });
 });
 
+// Run database migration to add Confidence column
+app.post('/api/migrate/add-confidence-column', async (req, res) => {
+  try {
+    await ensureSheets();
+    const result = await sheets.migrateAddConfidenceColumn();
+    res.json(result);
+  } catch (error) {
+    console.error('Migration error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Create Plaid Link token
 app.post('/api/plaid/create-link-token', async (req, res) => {
   try {

@@ -64,6 +64,103 @@ export function clearCategorizationCache() {
 }
 
 /**
+ * Migrate Transactions sheet to add Confidence column
+ * This adds column H (Confidence) between Category (G) and Verified (I)
+ */
+export async function migrateAddConfidenceColumn() {
+  try {
+    console.log('Starting migration: Add Confidence column to Transactions sheet');
+
+    // Step 1: Read header row to check if migration is needed
+    const headerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${SHEETS.TRANSACTIONS}!A1:Z1`
+    });
+
+    const headers = headerResponse.data.values?.[0] || [];
+    console.log('Current headers:', headers);
+
+    // Check if Confidence column already exists
+    if (headers[7] === 'Confidence') {
+      console.log('✓ Confidence column already exists. Migration not needed.');
+      return { success: true, message: 'Confidence column already exists' };
+    }
+
+    // Step 2: Read all transaction rows
+    const transactionsResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${SHEETS.TRANSACTIONS}!A2:Z`
+    });
+
+    const rows = transactionsResponse.data.values || [];
+    console.log(`Found ${rows.length} transaction rows to migrate`);
+
+    if (rows.length === 0) {
+      // No data to migrate, just update header
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${SHEETS.TRANSACTIONS}!A1:M1`,
+        valueInputOption: 'RAW',
+        resource: {
+          values: [[
+            'Transaction ID', 'Date', 'Description', 'Merchant', 'Account',
+            'Amount', 'Category', 'Confidence', 'Verified', 'Pending', 'Payment Channel', 'Notes', 'Created At'
+          ]]
+        }
+      });
+      console.log('✓ Header updated (no data rows to migrate)');
+      return { success: true, message: 'Header updated, no data to migrate' };
+    }
+
+    // Step 3: Insert Confidence column (default 0) at index 7
+    const migratedRows = rows.map(row => {
+      const newRow = [...row];
+      // Insert confidence (0) at index 7, between Category (6) and Verified (7)
+      newRow.splice(7, 0, '0');
+      return newRow;
+    });
+
+    // Step 4: Update header row
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SHEETS.TRANSACTIONS}!A1:M1`,
+      valueInputOption: 'RAW',
+      resource: {
+        values: [[
+          'Transaction ID', 'Date', 'Description', 'Merchant', 'Account',
+          'Amount', 'Category', 'Confidence', 'Verified', 'Pending', 'Payment Channel', 'Notes', 'Created At'
+        ]]
+      }
+    });
+
+    // Step 5: Update all data rows in batch
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SHEETS.TRANSACTIONS}!A2:M${rows.length + 1}`,
+      valueInputOption: 'RAW',
+      resource: {
+        values: migratedRows
+      }
+    });
+
+    console.log(`✓ Migration complete! Updated ${rows.length} transactions with Confidence column`);
+
+    return {
+      success: true,
+      message: `Successfully migrated ${rows.length} transactions`,
+      rowsUpdated: rows.length
+    };
+
+  } catch (error) {
+    console.error('Migration failed:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
  * Initialize Google Sheets API
  */
 export async function initializeSheets() {
