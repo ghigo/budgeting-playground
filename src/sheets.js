@@ -213,7 +213,7 @@ export async function initializeSheets(database = null) {
     const authClient = await auth.getClient();
     sheets = google.sheets({ version: 'v4', auth: authClient });
 
-    console.log(`✓ Connected to Google Sheets (${environment} environment)`);
+    console.log('✓ Connected to Google Sheets');
     console.log(`  Sheet ID: ${spreadsheetId}`);
     return true;
   } catch (error) {
