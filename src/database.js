@@ -801,7 +801,7 @@ export function getCategoryRules() {
 }
 
 export function getEnabledCategoryRules() {
-  return db.prepare('SELECT * FROM category_rules WHERE enabled = "Yes"').all();
+  return db.prepare('SELECT * FROM category_rules WHERE enabled = \'Yes\'').all();
 }
 
 export function saveMerchantMapping(merchantName, category) {
