@@ -266,6 +266,20 @@ app.post('/api/transactions/:transactionId/verify', async (req, res) => {
   }
 });
 
+// Auto-categorize existing transactions
+app.post('/api/transactions/recategorize', async (req, res) => {
+  try {
+    await ensureSheets();
+    const { onlyUncategorized = true } = req.body;
+
+    const result = await sheets.recategorizeExistingTransactions(onlyUncategorized);
+    res.json(result);
+  } catch (error) {
+    console.error('Error recategorizing transactions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============================================================================
 // CATEGORY MAPPINGS & RULES
 // ============================================================================

@@ -759,11 +759,26 @@ export async function getNetWorthOverTime(timeRange = '1m') {
 // Category operations
 export async function getCategories() {
   const rows = await getRows(SHEETS.CATEGORIES);
-  return rows.map((row, idx) => ({
-    id: idx + 1,
-    name: row[0],
-    parent_category: row[1] || null
-  }));
+
+  // Deduplicate categories by name (case-insensitive)
+  const seen = new Map(); // Map to track seen names (lowercase) -> first occurrence
+  const uniqueCategories = [];
+
+  rows.forEach((row, idx) => {
+    const name = row[0];
+    const lowerName = name.toLowerCase();
+
+    if (!seen.has(lowerName)) {
+      seen.set(lowerName, true);
+      uniqueCategories.push({
+        id: idx + 1,
+        name: name,
+        parent_category: row[1] || null
+      });
+    }
+  });
+
+  return uniqueCategories;
 }
 
 export async function addCategory(name, parentCategory = null) {
@@ -918,6 +933,75 @@ export async function verifyTransactionCategory(transactionId) {
   await updateRow(SHEETS.TRANSACTIONS, index + 2, rows[index]);
 
   return { success: true, category: rows[index][6] };
+}
+
+/**
+ * Auto-categorize existing transactions that don't have categories or aren't verified
+ * @param {boolean} onlyUncategorized - If true, only recategorize transactions with no category
+ * @returns {Object} - Stats about the recategorization
+ */
+export async function recategorizeExistingTransactions(onlyUncategorized = true) {
+  const rows = await getRows(SHEETS.TRANSACTIONS);
+
+  // Load categorization data once
+  const categorizationData = await getCategorizationData();
+
+  let processed = 0;
+  let updated = 0;
+  let skipped = 0;
+
+  // Process each transaction
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const transactionId = row[0];
+    const currentCategory = row[6] || '';
+    const isVerified = row[7] === 'Yes';
+
+    // Skip verified transactions (manually set by user)
+    if (isVerified) {
+      skipped++;
+      continue;
+    }
+
+    // Skip if onlyUncategorized and it already has a category
+    if (onlyUncategorized && currentCategory) {
+      skipped++;
+      continue;
+    }
+
+    processed++;
+
+    // Build transaction object for auto-categorization
+    const transaction = {
+      transaction_id: row[0],
+      date: row[1],
+      name: row[2],
+      merchant_name: row[3],
+      account_id: row[4],
+      amount: row[5],
+      category: [], // We'll try to parse if stored
+      personal_finance_category: null
+    };
+
+    // Try to get suggested category
+    const suggestedCategory = await autoCategorizeTransaction(transaction, categorizationData);
+
+    // Only update if we got a different category
+    if (suggestedCategory && suggestedCategory !== currentCategory) {
+      row[6] = suggestedCategory;
+      row[7] = 'No'; // Mark as not verified (auto-categorized)
+      await updateRow(SHEETS.TRANSACTIONS, i + 2, row);
+      updated++;
+    }
+  }
+
+  return {
+    success: true,
+    total: rows.length,
+    processed,
+    updated,
+    skipped
+  };
 }
 
 // ============================================================================

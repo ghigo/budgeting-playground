@@ -669,6 +669,36 @@ async function verifyCategory(transactionId) {
     }
 }
 
+async function autoCategorizeTransactions() {
+    if (!confirm('This will automatically categorize all transactions that don\'t have a verified category. Continue?')) {
+        return;
+    }
+
+    showLoading();
+    try {
+        const result = await fetchAPI('/api/transactions/recategorize', {
+            method: 'POST',
+            body: JSON.stringify({ onlyUncategorized: true })
+        });
+
+        if (result.success) {
+            showToast(
+                `✨ Auto-categorization complete!\n` +
+                `${result.updated} transactions categorized\n` +
+                `${result.skipped} skipped (verified or already categorized)\n` +
+                `${result.processed} processed`,
+                'success'
+            );
+            loadTransactions(); // Reload to show new categories
+        }
+    } catch (error) {
+        showToast('Failed to auto-categorize: ' + error.message, 'error');
+        console.error(error);
+    } finally {
+        hideLoading();
+    }
+}
+
 // Categories
 let categorySpendingChartInstance = null;
 
