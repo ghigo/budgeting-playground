@@ -14,25 +14,107 @@ A self-hosted expense tracking system that automatically syncs transactions from
 
 ## 📊 Features
 
-**Current (Phase 1)**
+**Current**
 - Connect multiple bank accounts via Plaid
 - Automatic transaction syncing (weekly or on-demand)
-- All data stored in your Google Sheet
-- Command-line interface for syncing and viewing
-- Pre-loaded expense categories
-- Basic spending statistics
+- SQLite database for fast, reliable storage
+- Optional Google Sheets sync for backup
+- Web dashboard with interactive charts
+- **Smart Auto-Categorization** - Learns from your manual categorizations
+- Pre-loaded expense categories with parent/child relationships
+- Merchant mapping and fuzzy matching
+- Transaction filtering and search
+- Category spending visualization
+- Net worth tracking over time
+- Reactive UI updates
 
 **Planned (Future Phases)**
-- Auto-categorization with custom rules
 - Monthly budgeting and tracking
-- Spending analysis dashboard
 - Recurring transaction detection
 - Budget alerts
+- Import from other expense trackers
+
+## 🤖 Auto-Categorization
+
+The app features a **smart learning system** that automatically categorizes your transactions with increasing accuracy:
+
+### How It Works
+
+1. **Initial categorization** - When transactions first sync from Plaid:
+   - Uses Plaid's category data (50-70% confidence)
+   - Auto-creates mappings to default categories
+   - Example: Plaid's "Food and Drink" → "Restaurants"
+
+2. **Learning from you** - When you manually categorize a transaction:
+   - Saves a merchant mapping: `"Starbucks" → "Restaurants"`
+   - Future transactions from Starbucks auto-categorize at **95% confidence**
+   - Console shows: `📚 Learned: "Starbucks" → "Restaurants"`
+
+3. **Categorization hierarchy** (highest to lowest confidence):
+   - **95%** - Exact merchant match (from your manual categorizations)
+   - **85%** - Pattern/regex rule match
+   - **75%** - Fuzzy merchant match (handles typos/variations)
+   - **70%** - Plaid category mapping
+   - **50%** - Auto-created Plaid mapping
+
+### Improving Accuracy
+
+**The more you use it, the smarter it gets!**
+
+1. Manually categorize transactions when first setting up
+2. The app learns and applies those categories automatically
+3. Similar merchants get categorized correctly in the future
+4. Use the "Apply to similar transactions" feature for bulk updates
+
+### Debugging Categorization
+
+If transactions aren't being categorized correctly:
+
+```bash
+# Enable debug logging
+DEBUG_CATEGORIZATION=1 npm start
+
+# This shows:
+# - What data Plaid is sending
+# - How many merchant mappings exist
+# - Why each transaction was (or wasn't) categorized
+# - The confidence score for each match
+```
+
+**Example debug output:**
+```
+📝 Processing 5 transaction(s) from Plaid...
+🔍 Debug - Sample Plaid transaction:
+   merchant_name: Starbucks
+   name: STARBUCKS #12345
+   category: ["Food and Drink", "Restaurants", "Coffee Shop"]
+   personal_finance_category: { primary: "FOOD_AND_DRINK", detailed: "FOOD_AND_DRINK_COFFEE" }
+
+📊 Categorization data:
+   Merchant mappings: 23
+   Category rules: 0
+   Plaid mappings: 15
+
+🔍 Categorizing: "STARBUCKS #12345"
+   Merchant: "Starbucks"
+   ✓ Exact merchant match: "Restaurants" (95%)
+```
+
+### Supported Categories
+
+The system auto-maps Plaid categories to these defaults:
+- Restaurants, Groceries, Gas, Transportation
+- Shopping, Entertainment, Travel, Healthcare
+- Bills & Utilities, Income, Transfer
+- Personal Care, Education, Subscriptions
+- Other (catch-all)
+
+You can add your own categories in the app!
 
 ## Prerequisites
 
 - Node.js 18+ (check with `node --version`)
-- Google account
+- Google account (optional, for backup sync)
 - Plaid developer account (free at https://plaid.com)
 
 ## 📦 Installation
