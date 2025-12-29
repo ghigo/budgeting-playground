@@ -791,7 +791,6 @@ function applyTransactionFilters() {
 }
 
 function clearTransactionFilters() {
-    console.log('clearTransactionFilters called');
     const searchInput = document.getElementById('transactionSearch');
     if (searchInput) searchInput.value = '';
     if (document.getElementById('filterCategory')) document.getElementById('filterCategory').value = '';
@@ -816,7 +815,6 @@ function clearTransactionFilters() {
         showUnverifiedBtn.classList.add('btn-secondary');
     }
 
-    console.log('About to call loadTransactions with no filters');
     loadTransactions();
 }
 
@@ -2322,52 +2320,30 @@ function showAllTransactions() {
 document.addEventListener('DOMContentLoaded', () => {
     checkSheetsStatus();
 
-    console.log('[ESC DEBUG] Event listener attached to document');
-
     // Add ESC key listener to clear filters
     document.addEventListener('keydown', (event) => {
-        console.log('[ESC DEBUG] Key pressed:', event.key);
-
         if (event.key === 'Escape') {
-            console.log('[ESC DEBUG] ESC detected');
-
-            // Check if we're on the transactions page (correct ID is 'transactions-page')
+            // Check if we're on the transactions page
             const transactionsPage = document.getElementById('transactions-page');
-            console.log('[ESC DEBUG] transactionsPage exists:', !!transactionsPage);
-
-            if (transactionsPage) {
-                const computedStyle = window.getComputedStyle(transactionsPage);
-                console.log('[ESC DEBUG] display style:', transactionsPage.style.display);
-                console.log('[ESC DEBUG] computed display:', computedStyle.display);
-            }
-
             const isVisible = transactionsPage &&
                 (transactionsPage.style.display === '' ||
                  transactionsPage.style.display === 'block' ||
                  window.getComputedStyle(transactionsPage).display !== 'none');
 
-            console.log('[ESC DEBUG] isVisible:', isVisible);
-
             if (isVisible) {
                 // Blur any focused input first
                 const activeElement = document.activeElement;
-                console.log('[ESC DEBUG] activeElement:', activeElement?.tagName);
-
                 const isInputField = activeElement &&
                     (activeElement.tagName === 'INPUT' ||
                      activeElement.tagName === 'TEXTAREA' ||
                      activeElement.tagName === 'SELECT');
 
                 if (isInputField) {
-                    console.log('[ESC DEBUG] Blurring input field');
                     activeElement.blur();
                 }
 
                 // Clear all filters and reload all transactions from server
-                console.log('[ESC DEBUG] Calling clearTransactionFilters()');
                 clearTransactionFilters();
-            } else {
-                console.log('[ESC DEBUG] Not on transactions page, skipping');
             }
         }
     });
