@@ -109,7 +109,7 @@ function handleHashChange() {
     let page = window.location.hash.slice(1) || 'dashboard';
 
     // Validate page exists
-    const validPages = ['dashboard', 'accounts', 'transactions', 'categories', 'mappings', 'amazon'];
+    const validPages = ['dashboard', 'accounts', 'transactions', 'categories', 'mappings', 'amazon', 'link'];
     if (!validPages.includes(page)) {
         page = 'dashboard';
         window.location.hash = page;
@@ -1099,15 +1099,22 @@ async function selectCategory(categoryName) {
             body: JSON.stringify({ category: categoryName })
         });
 
-        showToast('Category updated and verified', 'success');
+        console.log('Category update result:', result);
+        console.log('Similar transactions:', result.similarTransactions);
+        console.log('Similar count:', result.similarTransactions?.length);
 
-        // Emit events to update all views
-        eventBus.emit('transactionsUpdated');
-        eventBus.emit('mappingsUpdated');
+        showToast('Category updated and verified', 'success');
 
         // Check if there are similar transactions to suggest updating
         if (result.similarTransactions && result.similarTransactions.length > 0) {
+            console.log('Showing similar transactions modal with', result.similarTransactions.length, 'transactions');
             showSimilarTransactionsModal(result.similarTransactions, result.suggestedCategory);
+            // Don't reload yet - wait for modal to be dismissed
+        } else {
+            console.log('No similar transactions to show');
+            // No modal to show, safe to reload now
+            eventBus.emit('transactionsUpdated');
+            eventBus.emit('mappingsUpdated');
         }
     } catch (error) {
         showToast('Failed to update category: ' + error.message, 'error');
@@ -2178,6 +2185,10 @@ function closeSimilarTransactionsModal() {
     modal.style.display = 'none';
     currentSimilarTransactions = [];
     currentSuggestedCategory = '';
+
+    // Reload transactions after modal is closed
+    eventBus.emit('transactionsUpdated');
+    eventBus.emit('mappingsUpdated');
 }
 
 /**
@@ -2235,9 +2246,7 @@ async function applyCategoryToSimilar() {
             const count = result.updated || 0;
             showToast(`✓ Updated ${count} transaction(s) to category "${currentSuggestedCategory}"`, 'success');
 
-            // Emit events to update all views
-            eventBus.emit('transactionsUpdated');
-
+            // Close modal (which will emit update events)
             closeSimilarTransactionsModal();
         } else {
             showToast('Failed to update transactions', 'error');
