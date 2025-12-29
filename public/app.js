@@ -79,11 +79,10 @@ function setupReactiveUpdates() {
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
-    setupNavigation();
+    setupNavigation(); // This will handle initial page load via hash
     setupEventListeners();
     setupReactiveUpdates();
     checkEnvironment();
-    loadDashboard();
 });
 
 // Navigation
@@ -93,12 +92,39 @@ function setupNavigation() {
         item.addEventListener('click', (e) => {
             e.preventDefault();
             const page = item.dataset.page;
-            navigateTo(page);
+            // Update URL hash which will trigger navigation
+            window.location.hash = page;
         });
     });
+
+    // Listen for hash changes (back/forward buttons, direct URL changes)
+    window.addEventListener('hashchange', handleHashChange);
+
+    // Handle initial page load
+    handleHashChange();
 }
 
-function navigateTo(page) {
+function handleHashChange() {
+    // Get page from hash, default to dashboard
+    let page = window.location.hash.slice(1) || 'dashboard';
+
+    // Validate page exists
+    const validPages = ['dashboard', 'accounts', 'transactions', 'categories', 'mappings'];
+    if (!validPages.includes(page)) {
+        page = 'dashboard';
+        window.location.hash = page;
+    }
+
+    navigateTo(page, false);
+}
+
+function navigateTo(page, updateHash = true) {
+    // Update URL hash if not already updated
+    if (updateHash && window.location.hash.slice(1) !== page) {
+        window.location.hash = page;
+        return; // hashchange event will call navigateTo again
+    }
+
     // Update nav active state
     document.querySelectorAll('.nav-item').forEach(item => {
         item.classList.remove('active');
@@ -458,7 +484,7 @@ function displayAccounts(accounts) {
         container.innerHTML = `
             <div class="card centered">
                 <p>No accounts connected yet.</p>
-                <button onclick="navigateTo('link')" class="btn btn-primary" style="margin-top: 1rem;">Link Your First Account</button>
+                <button onclick="navigateTo('accounts')" class="btn btn-primary" style="margin-top: 1rem;">Link Your First Account</button>
             </div>
         `;
         return;
