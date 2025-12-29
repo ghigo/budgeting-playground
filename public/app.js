@@ -2818,6 +2818,30 @@ function displayAmazonOrders(orders) {
             `;
         }
 
+        // Build matched transaction info
+        let matchedTransactionHtml = '';
+        if (isMatched && order.matched_transaction) {
+            const tx = order.matched_transaction;
+            matchedTransactionHtml = `
+                <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                    <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--success);">✓ Matched Transaction</div>
+                    <div style="display: flex; justify-content: space-between; padding: 0.75rem; background: rgba(16, 185, 129, 0.05); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);">
+                        <div style="flex: 1;">
+                            <div style="font-size: 0.9rem; margin-bottom: 0.25rem; font-weight: 500;">${escapeHtml(tx.description || tx.name)}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                                📅 ${formatDate(tx.date)}
+                                ${tx.account_name ? ` • 🏦 ${escapeHtml(tx.account_name)}` : ''}
+                                ${tx.category ? ` • 🏷️ ${escapeHtml(tx.category)}` : ''}
+                            </div>
+                        </div>
+                        <div style="font-size: 1rem; font-weight: 600; color: var(--success); white-space: nowrap; margin-left: 1rem;">
+                            ${formatCurrency(tx.amount)}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
         html += `
             <div class="card">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1.5rem;">
@@ -2832,6 +2856,7 @@ function displayAmazonOrders(orders) {
                             ${order.order_status ? `<div>📦 ${escapeHtml(order.order_status)}</div>` : ''}
                         </div>
                         ${itemsHtml}
+                        ${matchedTransactionHtml}
                     </div>
                     <div style="text-align: right;">
                         <div style="font-size: 1.5rem; font-weight: 600; color: var(--primary);">${formatCurrency(order.total_amount)}</div>

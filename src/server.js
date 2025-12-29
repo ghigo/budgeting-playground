@@ -629,7 +629,21 @@ app.get('/api/amazon/orders', (req, res) => {
     };
 
     const orders = database.getAmazonOrders(filters);
-    res.json(orders);
+
+    // Include matched transaction details for each order
+    const ordersWithTransactions = orders.map(order => {
+      if (order.matched_transaction_id) {
+        const transaction = database.getTransactions(10000)
+          .find(t => t.transaction_id === order.matched_transaction_id);
+        return {
+          ...order,
+          matched_transaction: transaction || null
+        };
+      }
+      return order;
+    });
+
+    res.json(ordersWithTransactions);
   } catch (error) {
     console.error('Error fetching Amazon orders:', error);
     res.status(500).json({ error: error.message });
