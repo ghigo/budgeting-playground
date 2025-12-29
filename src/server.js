@@ -252,6 +252,40 @@ app.delete('/api/categories/:categoryName', async (req, res) => {
   }
 });
 
+// Update multiple transactions with the same category
+// IMPORTANT: This must come BEFORE the :transactionId route to avoid "bulk" being treated as an ID
+app.patch('/api/transactions/bulk/category', async (req, res) => {
+  try {
+    const { transactionIds, category } = req.body;
+
+    console.log('=== Bulk category update request ===');
+    console.log('Transaction IDs:', transactionIds);
+    console.log('Category:', category);
+
+    if (!Array.isArray(transactionIds) || transactionIds.length === 0) {
+      console.error('Invalid transaction IDs array');
+      return res.status(400).json({ error: 'Transaction IDs array is required' });
+    }
+
+    if (!category && category !== '') {
+      console.error('Invalid category');
+      return res.status(400).json({ error: 'Category is required' });
+    }
+
+    const updated = database.updateMultipleTransactionCategories(transactionIds, category);
+
+    console.log('Updated count:', updated);
+
+    res.json({
+      success: true,
+      updated
+    });
+  } catch (error) {
+    console.error('Error updating multiple transactions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Update transaction category
 app.patch('/api/transactions/:transactionId/category', async (req, res) => {
   try {
@@ -299,39 +333,6 @@ app.get('/api/transactions/:transactionId/similar', async (req, res) => {
     res.json({ similarTransactions });
   } catch (error) {
     console.error('Error finding similar transactions:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update multiple transactions with the same category
-app.patch('/api/transactions/bulk/category', async (req, res) => {
-  try {
-    const { transactionIds, category } = req.body;
-
-    console.log('=== Bulk category update request ===');
-    console.log('Transaction IDs:', transactionIds);
-    console.log('Category:', category);
-
-    if (!Array.isArray(transactionIds) || transactionIds.length === 0) {
-      console.error('Invalid transaction IDs array');
-      return res.status(400).json({ error: 'Transaction IDs array is required' });
-    }
-
-    if (!category && category !== '') {
-      console.error('Invalid category');
-      return res.status(400).json({ error: 'Category is required' });
-    }
-
-    const updated = database.updateMultipleTransactionCategories(transactionIds, category);
-
-    console.log('Updated count:', updated);
-
-    res.json({
-      success: true,
-      updated
-    });
-  } catch (error) {
-    console.error('Error updating multiple transactions:', error);
     res.status(500).json({ error: error.message });
   }
 });
