@@ -733,28 +733,36 @@ export function findSimilarTransactions(transactionId, merchantName) {
     return [];
   }
 
-  // Find similar transactions:
-  // 1. Same merchant_name (exact match) OR similar description
-  // 2. Exclude the transaction being updated
-  // 3. Only exclude manually categorized transactions (confidence = 100)
-  //    This allows correcting auto-categorizations even if they were verified
-  const similarTransactions = db.prepare(`
-    SELECT * FROM transactions
-    WHERE transaction_id != ?
-      AND (confidence IS NULL OR confidence < 100)
-      AND (
-        merchant_name = ?
-        OR (merchant_name IS NULL AND description LIKE ?)
-        OR (merchant_name = '' AND description LIKE ?)
-      )
-    ORDER BY date DESC
-    LIMIT 50
-  `).all(
-    transactionId,
-    merchantName || '',
-    `%${transaction.description}%`,
-    `%${transaction.description}%`
-  );
+  let similarTransactions = [];
+
+  // Strategy: If we have a merchant_name, use exact match. Otherwise, use description fuzzy match
+  if (merchantName && merchantName.trim() !== '') {
+    // Has merchant name - find exact merchant matches only
+    similarTransactions = db.prepare(`
+      SELECT * FROM transactions
+      WHERE transaction_id != ?
+        AND (confidence IS NULL OR confidence < 100)
+        AND merchant_name = ?
+      ORDER BY date DESC
+      LIMIT 50
+    `).all(transactionId, merchantName.trim());
+  } else {
+    // No merchant name - find by similar description
+    // Use the description to find similar transactions
+    const description = transaction.description || '';
+
+    if (description.trim() !== '') {
+      similarTransactions = db.prepare(`
+        SELECT * FROM transactions
+        WHERE transaction_id != ?
+          AND (confidence IS NULL OR confidence < 100)
+          AND (merchant_name IS NULL OR merchant_name = '')
+          AND description LIKE ?
+        ORDER BY date DESC
+        LIMIT 50
+      `).all(transactionId, `%${description.trim()}%`);
+    }
+  }
 
   return similarTransactions.map(tx => ({
     transaction_id: tx.transaction_id,
@@ -791,6 +799,18 @@ export function verifyTransactionCategory(transactionId) {
   const stmt = db.prepare(`
     UPDATE transactions
     SET confidence = 100, verified = 'Yes'
+    WHERE transaction_id = ?
+  `);
+  stmt.run(transactionId);
+
+  const tx = db.prepare('SELECT category FROM transactions WHERE transaction_id = ?').get(transactionId);
+  return { success: true, category: tx.category };
+}
+
+export function unverifyTransactionCategory(transactionId) {
+  const stmt = db.prepare(`
+    UPDATE transactions
+    SET verified = 'No'
     WHERE transaction_id = ?
   `);
   stmt.run(transactionId);

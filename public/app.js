@@ -1625,13 +1625,51 @@ async function checkEnvironment() {
     }
 }
 
-function showToast(message, type = 'info') {
+function showToast(message, type = 'info', options = {}) {
     const container = document.getElementById('toastContainer');
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    toast.textContent = message;
-    toast.style.cursor = 'pointer';
-    toast.title = 'Click to dismiss';
+
+    // If there's an undo action, create a toast with message and undo button
+    if (options.undoAction) {
+        toast.style.display = 'flex';
+        toast.style.alignItems = 'center';
+        toast.style.justifyContent = 'space-between';
+        toast.style.gap = '1rem';
+        toast.style.cursor = 'default';
+
+        const messageSpan = document.createElement('span');
+        messageSpan.textContent = message;
+        toast.appendChild(messageSpan);
+
+        const undoBtn = document.createElement('button');
+        undoBtn.textContent = 'Undo';
+        undoBtn.className = 'btn btn-secondary';
+        undoBtn.style.padding = '0.25rem 0.75rem';
+        undoBtn.style.fontSize = '0.875rem';
+        undoBtn.style.background = 'rgba(255,255,255,0.2)';
+        undoBtn.style.border = '1px solid rgba(255,255,255,0.3)';
+        undoBtn.style.color = 'white';
+        undoBtn.style.cursor = 'pointer';
+
+        undoBtn.addEventListener('click', async () => {
+            clearTimeout(timeoutId);
+            toast.remove();
+            await options.undoAction();
+        });
+
+        toast.appendChild(undoBtn);
+    } else {
+        toast.textContent = message;
+        toast.style.cursor = 'pointer';
+        toast.title = 'Click to dismiss';
+
+        // Click to dismiss immediately (only for non-undo toasts)
+        toast.addEventListener('click', () => {
+            clearTimeout(timeoutId);
+            toast.remove();
+        });
+    }
 
     container.appendChild(toast);
 
@@ -1639,12 +1677,6 @@ function showToast(message, type = 'info') {
     const timeoutId = setTimeout(() => {
         toast.remove();
     }, 10000);
-
-    // Click to dismiss immediately
-    toast.addEventListener('click', () => {
-        clearTimeout(timeoutId);
-        toast.remove();
-    });
 }
 
 // ============================================================================
@@ -2110,18 +2142,12 @@ async function approveAllVisibleTransactions() {
         return;
     }
 
-    // Show confirmation dialog
-    const confirmed = confirm(
-        `Are you sure you want to approve ${unverifiedTransactions.length} transaction(s)?\n\n` +
-        `This will mark all visible unverified transactions as verified. This action cannot be undone.`
-    );
-
-    if (!confirmed) {
-        return;
-    }
-
     showLoading();
     try {
+        // Store transaction IDs for undo
+        const transactionIds = unverifiedTransactions.map(tx => tx.transaction_id);
+
+        // Approve all transactions
         let approved = 0;
         for (const tx of unverifiedTransactions) {
             await fetchAPI(`/api/transactions/${tx.transaction_id}/verify`, {
@@ -2130,10 +2156,29 @@ async function approveAllVisibleTransactions() {
             approved++;
         }
 
-        showToast(`✓ Approved ${approved} transaction(s)`, 'success');
-
         // Emit events to update all views
         eventBus.emit('transactionsUpdated');
+
+        // Show toast with undo action
+        showToast(`✓ Approved ${approved} transaction(s)`, 'success', {
+            undoAction: async () => {
+                showLoading();
+                try {
+                    for (const txId of transactionIds) {
+                        await fetchAPI(`/api/transactions/${txId}/unverify`, {
+                            method: 'POST'
+                        });
+                    }
+                    showToast(`↶ Undid approval of ${transactionIds.length} transaction(s)`, 'info');
+                    eventBus.emit('transactionsUpdated');
+                } catch (error) {
+                    showToast('Failed to undo approval: ' + error.message, 'error');
+                    console.error(error);
+                } finally {
+                    hideLoading();
+                }
+            }
+        });
     } catch (error) {
         showToast('Failed to approve transactions: ' + error.message, 'error');
         console.error(error);
@@ -2247,9 +2292,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (event.key === 'Escape') {
             // Check if we're on the transactions page
             const transactionsSection = document.getElementById('transactions-section');
-            if (transactionsSection && transactionsSection.style.display !== 'none') {
-                // Clear all filters including newly categorized
-                clearTransactionFilters();
+            const isVisible = transactionsSection &&
+                (transactionsSection.style.display === '' ||
+                 transactionsSection.style.display === 'block' ||
+                 window.getComputedStyle(transactionsSection).display !== 'none');
+
+            if (isVisible) {
+                // Clear all filters and show all transactions
+                showAllTransactions();
             }
         }
     });

@@ -333,6 +333,18 @@ app.post('/api/transactions/:transactionId/verify', async (req, res) => {
   }
 });
 
+app.post('/api/transactions/:transactionId/unverify', async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+
+    const result = database.unverifyTransactionCategory(transactionId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error unverifying transaction category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Auto-categorize existing transactions
 app.post('/api/transactions/recategorize', async (req, res) => {
   try {
