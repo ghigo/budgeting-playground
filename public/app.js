@@ -1927,12 +1927,16 @@ function showToast(message, type = 'info', options = {}) {
 // Google Sheets Sync Functions
 // ============================================================================
 
+// Store current sheets config
+let currentSheetsConfig = null;
+
 /**
  * Check Google Sheets configuration status and update UI
  */
 async function checkSheetsStatus() {
     try {
         const response = await fetchAPI('/api/sheets/status');
+        currentSheetsConfig = response; // Store for later use
 
         const card = document.getElementById('sheetsSyncCard');
         const syncBtn = document.getElementById('sheetsSyncBtn');
@@ -1950,7 +1954,12 @@ async function checkSheetsStatus() {
             // Sheets configured and working - show sync button
             syncBtn.style.display = 'block';
             configBtn.style.display = 'none';
-            description.textContent = 'Sync your local SQLite data to Google Sheets for backup and analysis';
+
+            if (response.url) {
+                description.innerHTML = `Synced to: <a href="${escapeHtml(response.url)}" target="_blank" style="color: white; text-decoration: underline;">Google Sheet</a> • <a href="#" onclick="showSheetsConfigModal(); return false;" style="color: white; text-decoration: underline; opacity: 0.8;">Change</a>`;
+            } else {
+                description.textContent = 'Sync your local SQLite data to Google Sheets for backup and analysis';
+            }
         } else {
             // Not configured - show config button
             syncBtn.style.display = 'none';
@@ -2004,6 +2013,47 @@ async function syncToGoogleSheets() {
  */
 function showSheetsConfigModal() {
     const modal = document.getElementById('sheetsConfigModal');
+    const input = document.getElementById('sheetIdInput');
+    const title = document.getElementById('sheetsConfigModalTitle');
+    const description = document.getElementById('sheetsConfigModalDescription');
+    const currentInfo = document.getElementById('currentSheetInfo');
+
+    // Check if reconfiguring
+    const isReconfiguring = currentSheetsConfig && currentSheetsConfig.sheetId;
+
+    if (isReconfiguring) {
+        // Pre-populate with existing sheet ID
+        if (input) {
+            input.value = currentSheetsConfig.sheetId;
+        }
+
+        // Update modal text for reconfiguration
+        if (title) {
+            title.textContent = '🔗 Change Google Sheet';
+        }
+        if (description) {
+            description.textContent = 'Update your Google Sheet configuration:';
+        }
+        if (currentInfo && currentSheetsConfig.url) {
+            currentInfo.innerHTML = `Currently synced to: <a href="${escapeHtml(currentSheetsConfig.url)}" target="_blank" style="color: #2563eb; text-decoration: underline;">View Sheet</a>`;
+            currentInfo.style.display = 'block';
+        }
+    } else {
+        // Reset to default text for initial configuration
+        if (input) {
+            input.value = '';
+        }
+        if (title) {
+            title.textContent = '🔗 Link Google Sheet';
+        }
+        if (description) {
+            description.textContent = 'To sync your data to Google Sheets for backup and analysis:';
+        }
+        if (currentInfo) {
+            currentInfo.style.display = 'none';
+        }
+    }
+
     if (modal) {
         modal.style.display = 'flex';
     }
@@ -2031,6 +2081,8 @@ async function saveSheetConfig() {
         return;
     }
 
+    const isReconfiguring = currentSheetsConfig && currentSheetsConfig.sheetId;
+
     try {
         showToast('Saving configuration...', 'info');
 
@@ -2043,17 +2095,14 @@ async function saveSheetConfig() {
             showToast(result.message, 'success');
             closeSheetsConfigModal();
 
-            // Clear input
-            if (input) {
-                input.value = '';
-            }
-
             // Refresh sheets status
             await checkSheetsStatus();
 
-            // Optionally, ask user if they want to sync now
-            if (result.configured && confirm('Configuration saved! Would you like to sync your data to Google Sheets now?')) {
-                await syncToGoogleSheets();
+            // Only ask to sync now if this is the first time configuring
+            if (result.configured && !isReconfiguring) {
+                if (confirm('Configuration saved! Would you like to sync your data to Google Sheets now?')) {
+                    await syncToGoogleSheets();
+                }
             }
         } else {
             showToast(`Configuration failed: ${result.error}`, 'error');
