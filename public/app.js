@@ -2331,20 +2331,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (event.key === 'Escape') {
             console.log('[ESC DEBUG] ESC detected');
 
-            // Check if we're on the transactions page
-            const transactionsSection = document.getElementById('transactions-section');
-            console.log('[ESC DEBUG] transactionsSection exists:', !!transactionsSection);
+            // Check if we're on the transactions page (correct ID is 'transactions-page')
+            const transactionsPage = document.getElementById('transactions-page');
+            console.log('[ESC DEBUG] transactionsPage exists:', !!transactionsPage);
 
-            if (transactionsSection) {
-                const computedStyle = window.getComputedStyle(transactionsSection);
-                console.log('[ESC DEBUG] display style:', transactionsSection.style.display);
+            if (transactionsPage) {
+                const computedStyle = window.getComputedStyle(transactionsPage);
+                console.log('[ESC DEBUG] display style:', transactionsPage.style.display);
                 console.log('[ESC DEBUG] computed display:', computedStyle.display);
             }
 
-            const isVisible = transactionsSection &&
-                (transactionsSection.style.display === '' ||
-                 transactionsSection.style.display === 'block' ||
-                 window.getComputedStyle(transactionsSection).display !== 'none');
+            const isVisible = transactionsPage &&
+                (transactionsPage.style.display === '' ||
+                 transactionsPage.style.display === 'block' ||
+                 window.getComputedStyle(transactionsPage).display !== 'none');
 
             console.log('[ESC DEBUG] isVisible:', isVisible);
 
