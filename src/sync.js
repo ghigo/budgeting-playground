@@ -221,22 +221,60 @@ export async function linkAccount(publicToken) {
     const startDate = new Date(Date.now() - 730 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     console.log(`  📥 Fetching historical transactions (up to 2 years)...`);
-    const result = await plaid.getTransactions(accessToken, startDate, endDate);
 
-    // Add account_name to transactions
-    for (const transaction of result.transactions) {
-      const account = accounts.find(acc => acc.account_id === transaction.account_id);
-      transaction.account_name = account ? account.name : transaction.account_id;
+    // Retry logic for PRODUCT_NOT_READY errors (common with newly linked accounts)
+    const maxRetries = 4;
+    const retryDelays = [5000, 10000, 15000, 20000]; // 5s, 10s, 15s, 20s
+    let transactionsFetched = false;
+    let count = 0;
+
+    for (let attempt = 0; attempt < maxRetries && !transactionsFetched; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.log(`  ⏳ Waiting before retry... (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, retryDelays[attempt - 1]));
+        }
+
+        const result = await plaid.getTransactions(accessToken, startDate, endDate);
+
+        console.log(`  📥 Received ${result.transactions.length} transaction(s) from Plaid`);
+
+        // Add account_name to transactions
+        for (const transaction of result.transactions) {
+          const account = accounts.find(acc => acc.account_id === transaction.account_id);
+          transaction.account_name = account ? account.name : transaction.account_id;
+        }
+
+        count = database.saveTransactions(result.transactions, null);
+        transactionsFetched = true;
+
+      } catch (error) {
+        const errorCode = error.response?.data?.error_code;
+        const errorMessage = error.response?.data?.error_message || error.message;
+
+        if (errorCode === 'PRODUCT_NOT_READY' && attempt < maxRetries - 1) {
+          console.log(`  ⏳ Transactions not ready yet, will retry...`);
+          continue;
+        } else {
+          // Non-retryable error or max retries reached
+          console.warn(`  ⚠️  Could not fetch historical transactions: ${errorMessage}`);
+          console.log(`  ℹ️  You can use "Backfill History (2yrs)" button later to fetch them`);
+          break;
+        }
+      }
     }
-
-    const count = database.saveTransactions(result.transactions, null);
-    console.log(`  ✓ Synced ${count} transaction(s)`);
 
     database.updatePlaidItemLastSynced(itemId);
 
     console.log('\n✅ Account linked successfully!');
 
-    return { success: true, institution: institution.name, accounts: accounts.length, transactions: count };
+    return {
+      success: true,
+      item_id: itemId,
+      institution: institution.name,
+      accounts: accounts.length,
+      transactions: count
+    };
 
   } catch (error) {
     console.error('\n✗ Failed to link account:', error.message);

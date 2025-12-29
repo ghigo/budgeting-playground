@@ -1265,48 +1265,15 @@ async function initiatePlaidLink() {
                     });
 
                     console.log('✅ Account linked!', result);
-                    showToast('Account linked successfully!', 'success');
-                    statusEl.textContent = '✓ Account linked! Syncing transactions...';
 
-                    // Auto-sync transactions with retry logic for newly linked accounts
-                    const maxRetries = 4;
-                    const retryDelays = [5000, 10000, 15000, 20000]; // 5s, 10s, 15s, 20s
-                    let syncSuccessful = false;
-
-                    for (let attempt = 0; attempt < maxRetries && !syncSuccessful; attempt++) {
-                        try {
-                            if (attempt > 0) {
-                                // Wait before retrying
-                                statusEl.textContent = `⏳ Waiting for transactions... (attempt ${attempt + 1}/${maxRetries})`;
-                                await new Promise(resolve => setTimeout(resolve, retryDelays[attempt - 1]));
-                                statusEl.textContent = `🔄 Syncing transactions... (attempt ${attempt + 1}/${maxRetries})`;
-                            }
-
-                            const syncResult = await fetchAPI(`/api/sync/${result.item_id}`, {
-                                method: 'POST'
-                            });
-
-                            if (syncResult.success) {
-                                showToast(`Synced ${syncResult.transactionsSynced} transaction(s)!`, 'success');
-                                statusEl.textContent = '✓ Account linked and synced! Redirecting...';
-                                syncSuccessful = true;
-                                break;
-                            } else if (syncResult.errorCode !== 'PRODUCT_NOT_READY') {
-                                // Some other error - stop retrying
-                                console.warn('Sync failed with non-retryable error:', syncResult.error);
-                                break;
-                            }
-                            // If PRODUCT_NOT_READY, continue to next retry
-                        } catch (syncError) {
-                            console.error(`Sync attempt ${attempt + 1} failed:`, syncError);
-                            // Continue to next retry
-                        }
-                    }
-
-                    if (!syncSuccessful) {
-                        // All retries exhausted
-                        showToast('Account linked! Transactions are still being prepared. Use the sync button (🔄) from the Accounts page shortly.', 'info');
-                        statusEl.textContent = '✓ Account linked! Manual sync may be needed. Redirecting...';
+                    // Show results
+                    const transactionCount = result.transactions || 0;
+                    if (transactionCount > 0) {
+                        showToast(`Account linked! Fetched ${transactionCount} transaction(s) from the last 2 years`, 'success');
+                        statusEl.textContent = `✓ Account linked! Fetched ${transactionCount} transaction(s). Redirecting...`;
+                    } else {
+                        showToast('Account linked! Historical transactions may take a moment to sync. Check back shortly.', 'info');
+                        statusEl.textContent = '✓ Account linked! You can sync transactions from the Accounts page. Redirecting...';
                     }
 
                     setTimeout(() => {
