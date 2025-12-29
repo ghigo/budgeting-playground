@@ -145,14 +145,43 @@ function runMigrations() {
   const hasIcon = tableInfo.some(col => col.name === 'icon');
   const hasColor = tableInfo.some(col => col.name === 'color');
 
+  let columnsAdded = false;
+
   if (!hasIcon) {
     console.log('Adding icon column to categories table...');
     db.exec("ALTER TABLE categories ADD COLUMN icon TEXT DEFAULT '📁'");
+    columnsAdded = true;
   }
 
   if (!hasColor) {
     console.log('Adding color column to categories table...');
     db.exec("ALTER TABLE categories ADD COLUMN color TEXT DEFAULT '#6B7280'");
+    columnsAdded = true;
+  }
+
+  // Update existing categories with default values to have appropriate icons and colors
+  const categoriesToUpdate = db.prepare(`
+    SELECT name FROM categories
+    WHERE (icon = '📁' OR icon IS NULL OR icon = '')
+    OR (color = '#6B7280' OR color IS NULL OR color = '')
+  `).all();
+
+  if (categoriesToUpdate.length > 0) {
+    console.log(`Applying icons and colors to ${categoriesToUpdate.length} existing categories...`);
+
+    const palette = getCategoryColorPalette();
+    const updateStmt = db.prepare('UPDATE categories SET icon = ?, color = ? WHERE name = ?');
+
+    const transaction = db.transaction(() => {
+      categoriesToUpdate.forEach((cat, index) => {
+        const icon = suggestIconForCategory(cat.name);
+        const color = palette[index % palette.length];
+        updateStmt.run(icon, color, cat.name);
+        console.log(`  ✓ ${cat.name}: ${icon} ${color}`);
+      });
+    });
+
+    transaction();
   }
 }
 
@@ -227,6 +256,12 @@ function suggestIconForCategory(categoryName) {
     'taxi': '🚕',
     'uber': '🚕',
     'subscriptions': '📱',
+    'services': '🔧',
+    'service': '🔧',
+    'pair': '👶',
+    'childcare': '👶',
+    'babysit': '👶',
+    'nanny': '👶',
     'other': '📁'
   };
 
