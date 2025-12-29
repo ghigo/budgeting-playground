@@ -2777,8 +2777,46 @@ function displayAmazonOrders(orders) {
             ? `<span style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">✓ Matched (${order.match_confidence}%)</span>`
             : `<span style="background: #f59e0b; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">⚠ Unmatched</span>`;
 
+        // Build items list HTML
+        let itemsHtml = '';
+        if (order.items && order.items.length > 0) {
+            itemsHtml = `
+                <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                    <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Items (${order.items.length}):</div>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            `;
+
+            order.items.forEach(item => {
+                const itemUrl = item.asin ? `https://www.amazon.com/dp/${item.asin}` : null;
+                const titleHtml = itemUrl
+                    ? `<a href="${itemUrl}" target="_blank" style="color: var(--primary); text-decoration: none; hover:text-decoration: underline;">${escapeHtml(item.title)}</a>`
+                    : escapeHtml(item.title);
+
+                itemsHtml += `
+                    <div style="display: flex; justify-content: space-between; gap: 1rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                        <div style="flex: 1;">
+                            <div style="font-size: 0.9rem; margin-bottom: 0.25rem;">
+                                ${titleHtml}
+                                ${itemUrl ? ' <span style="font-size: 0.75rem;">🔗</span>' : ''}
+                            </div>
+                            <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                                ${item.quantity > 1 ? `Qty: ${item.quantity} × ` : ''}${formatCurrency(item.price)}${item.quantity > 1 ? ` = ${formatCurrency(item.price * item.quantity)}` : ''}
+                                ${item.category ? ` • ${escapeHtml(item.category)}` : ''}
+                                ${item.seller ? ` • Sold by: ${escapeHtml(item.seller)}` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            itemsHtml += `
+                    </div>
+                </div>
+            `;
+        }
+
         html += `
-            <div class="card" style="cursor: pointer; transition: all 0.2s;" onclick="alert('Order details: #${escapeHtml(order.order_id)}\\nAmount: ${formatCurrency(order.total_amount)}\\nDate: ${formatDate(order.order_date)}')">
+            <div class="card">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1.5rem;">
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
@@ -2790,6 +2828,7 @@ function displayAmazonOrders(orders) {
                             ${order.payment_method ? `<div style="margin-bottom: 0.25rem;">💳 ${escapeHtml(order.payment_method)}</div>` : ''}
                             ${order.order_status ? `<div>📦 ${escapeHtml(order.order_status)}</div>` : ''}
                         </div>
+                        ${itemsHtml}
                     </div>
                     <div style="text-align: right;">
                         <div style="font-size: 1.5rem; font-weight: 600; color: var(--primary);">${formatCurrency(order.total_amount)}</div>

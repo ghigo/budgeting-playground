@@ -1603,7 +1603,15 @@ export function getAmazonOrders(filters = {}) {
 
   sql += ' ORDER BY order_date DESC';
 
-  return db.prepare(sql).all(...params);
+  const orders = db.prepare(sql).all(...params);
+
+  // Fetch items for each order
+  const itemsStmt = db.prepare('SELECT * FROM amazon_items WHERE order_id = ?');
+
+  return orders.map(order => ({
+    ...order,
+    items: itemsStmt.all(order.order_id)
+  }));
 }
 
 /**
