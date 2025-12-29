@@ -188,6 +188,12 @@
                                style="width: 100%;">
                     </div>
 
+                    <!-- Quick Filters -->
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                        <button onclick="showAllTransactions()" class="btn btn-secondary" id="showAllBtn">All</button>
+                        <button onclick="applyUnverifiedFilter()" class="btn btn-secondary" id="showUnverifiedBtn">Unverified</button>
+                    </div>
+
                     <!-- Filters -->
                     <div class="filter-grid">
                         <div class="filter-item">
@@ -217,11 +223,28 @@
                     </div>
                 </div>
 
+                <!-- Bulk Actions -->
+                <div class="card" id="bulkActionsBar" style="margin-bottom: 1rem; display: none;">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div>
+                            <strong id="selectedCount">0</strong> transaction(s) selected
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="bulkVerifyTransactions()" class="btn btn-primary">✓ Verify Selected</button>
+                            <button onclick="showBulkCategoryModal()" class="btn btn-secondary">🏷️ Change Category</button>
+                            <button onclick="clearSelection()" class="btn btn-secondary">Clear Selection</button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="card">
                     <div class="table-container">
                         <table class="transactions-table">
                             <thead>
                                 <tr>
+                                    <th style="width: 40px;">
+                                        <input type="checkbox" id="selectAllTransactions" onchange="toggleAllTransactionSelection()" title="Select all">
+                                    </th>
                                     <th>Date</th>
                                     <th>Description</th>
                                     <th>Category</th>
@@ -389,52 +412,28 @@
         </div>
     </div>
 
-    <!-- Auto-Categorization Recap Modal -->
-    <div id="autoCategorizeRecapModal" class="modal" style="display: none;">
-        <div class="modal-content" style="max-width: 900px;">
+    <!-- Bulk Category Change Modal -->
+    <div id="bulkCategoryModal" class="modal" style="display: none;">
+        <div class="modal-content">
             <div class="modal-header">
-                <h3>✨ Auto-Categorization Complete</h3>
-                <button class="modal-close" onclick="closeAutoCategorizeRecapModal()">&times;</button>
+                <h3>🏷️ Change Category</h3>
+                <button class="modal-close" onclick="closeBulkCategoryModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <div style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-primary); border-radius: 0.5rem;">
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
-                        <div>
-                            <div style="font-size: 0.875rem; color: var(--text-secondary);">Categorized</div>
-                            <div style="font-size: 1.5rem; font-weight: 600; color: var(--success);" id="recapCategorized">0</div>
-                        </div>
-                        <div>
-                            <div style="font-size: 0.875rem; color: var(--text-secondary);">Skipped</div>
-                            <div style="font-size: 1.5rem; font-weight: 600;" id="recapSkipped">0</div>
-                        </div>
-                        <div>
-                            <div style="font-size: 0.875rem; color: var(--text-secondary);">Total Processed</div>
-                            <div style="font-size: 1.5rem; font-weight: 600;" id="recapTotal">0</div>
-                        </div>
-                    </div>
+                <p style="margin-bottom: 1rem;">
+                    Select a category to apply to <strong id="bulkSelectedCount">0</strong> selected transaction(s):
+                </p>
+
+                <div class="form-group">
+                    <label for="bulkCategorySelect">Category:</label>
+                    <select id="bulkCategorySelect" class="form-select" style="width: 100%; padding: 0.75rem;">
+                        <option value="">Select category...</option>
+                    </select>
                 </div>
 
-                <div id="recapTransactionsContainer" style="display: none;">
-                    <h4 style="margin-bottom: 0.75rem;">Categorized Transactions:</h4>
-                    <div style="max-height: 400px; overflow-y: auto; margin-bottom: 1rem; border: 1px solid var(--border); border-radius: 0.375rem;">
-                        <table style="width: 100%; border-collapse: collapse;">
-                            <thead style="background: var(--bg-primary); position: sticky; top: 0;">
-                                <tr>
-                                    <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">Date</th>
-                                    <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">Description</th>
-                                    <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">Amount</th>
-                                    <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">Category</th>
-                                    <th style="padding: 0.75rem; text-align: center; border-bottom: 1px solid var(--border);">Confidence</th>
-                                </tr>
-                            </thead>
-                            <tbody id="recapTransactionsList">
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
-                    <button onclick="closeAutoCategorizeRecapModal()" class="btn btn-primary">Done</button>
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem;">
+                    <button onclick="closeBulkCategoryModal()" class="btn btn-secondary">Cancel</button>
+                    <button onclick="applyBulkCategory()" class="btn btn-primary">Apply Category</button>
                 </div>
             </div>
         </div>

@@ -536,6 +536,7 @@ async function removeInstitution(itemId, institutionName) {
 // Transactions
 let allCategories = [];
 let allTransactions = []; // Store all transactions for client-side search/filter
+let selectedTransactions = new Set(); // Track selected transaction IDs
 
 async function loadTransactions(filters = {}) {
     showLoading();
@@ -568,6 +569,7 @@ async function loadTransactions(filters = {}) {
         allTransactions = transactions; // Store for searching
         displayTransactionsTable(transactions);
         updateTransactionFilters(transactions);
+        updateBulkActionsBar();
     } catch (error) {
         showToast('Failed to load transactions', 'error');
         console.error(error);
@@ -633,18 +635,25 @@ async function loadTransactionFilters() {
     }
 }
 
-function displayTransactionsTable(transactions) {
+function displayTransactionsTable(transactions, sortByConfidence = false) {
     const tbody = document.getElementById('transactionsTableBody');
 
     if (!transactions || transactions.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-secondary);">No transactions found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-secondary);">No transactions found</td></tr>';
         return;
     }
 
-    tbody.innerHTML = transactions.map(tx => {
+    // Sort by confidence if requested (descending order)
+    let displayTransactions = [...transactions];
+    if (sortByConfidence) {
+        displayTransactions.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+    }
+
+    tbody.innerHTML = displayTransactions.map(tx => {
         const isVerified = tx.verified;
         const hasCategory = tx.category && tx.category.length > 0;
         const confidence = tx.confidence || 0;
+        const isSelected = selectedTransactions.has(tx.transaction_id);
 
         // Determine confidence badge color and style
         let confidenceColor = '#666';
@@ -668,6 +677,13 @@ function displayTransactionsTable(transactions) {
 
         return `
         <tr>
+            <td>
+                <input type="checkbox"
+                       class="transaction-checkbox"
+                       data-transaction-id="${tx.transaction_id}"
+                       ${isSelected ? 'checked' : ''}
+                       onchange="toggleTransactionSelection('${tx.transaction_id}')">
+            </td>
             <td>${formatDate(tx.date)}</td>
             <td>${escapeHtml(tx.description || tx.name)}</td>
             <td>
@@ -793,12 +809,24 @@ async function autoCategorizeTransactions() {
         });
 
         if (result.success) {
-            // Show detailed recap modal
-            showAutoCategorizeRecap(result);
+            showToast(
+                `✨ Auto-categorization complete!\n` +
+                `${result.updated} transactions categorized\n` +
+                `${result.skipped} skipped (verified or already categorized)`,
+                'success'
+            );
 
             // Emit events to update all views
             eventBus.emit('transactionsUpdated');
             eventBus.emit('mappingsUpdated');
+
+            // Navigate to transactions page with unverified filter
+            navigateTo('transactions');
+
+            // Apply filter to show unverified transactions sorted by confidence
+            setTimeout(() => {
+                applyUnverifiedFilter();
+            }, 100);
         }
     } catch (error) {
         showToast('Failed to auto-categorize: ' + error.message, 'error');
@@ -1839,108 +1867,249 @@ async function applyCategoryToSimilar() {
 }
 
 // ============================================================================
-// Auto-Categorization Recap Modal Functions
+// Transaction Selection and Bulk Actions
 // ============================================================================
 
 /**
- * Show auto-categorization recap modal with details
+ * Toggle individual transaction selection
  */
-function showAutoCategorizeRecap(result) {
-    const modal = document.getElementById('autoCategorizeRecapModal');
-    const categorizedEl = document.getElementById('recapCategorized');
-    const skippedEl = document.getElementById('recapSkipped');
-    const totalEl = document.getElementById('recapTotal');
-    const listEl = document.getElementById('recapTransactionsList');
-    const containerEl = document.getElementById('recapTransactionsContainer');
-
-    // Update summary stats
-    categorizedEl.textContent = result.updated || 0;
-    skippedEl.textContent = result.skipped || 0;
-    totalEl.textContent = result.processed || 0;
-
-    // Show/hide transaction list based on whether there are categorized transactions
-    if (result.categorizedTransactions && result.categorizedTransactions.length > 0) {
-        containerEl.style.display = 'block';
-
-        // Build transaction rows
-        listEl.innerHTML = result.categorizedTransactions.map(tx => {
-            const formattedAmount = new Intl.NumberFormat('en-US', {
-                style: 'currency',
-                currency: 'USD'
-            }).format(Math.abs(tx.amount));
-
-            // Determine confidence badge color
-            let confidenceColor = '#666';
-            let confidenceBg = '#eee';
-            if (tx.confidence === 100) {
-                confidenceColor = '#fff';
-                confidenceBg = '#2563eb';
-            } else if (tx.confidence >= 95) {
-                confidenceColor = '#fff';
-                confidenceBg = '#059669'; // Green
-            } else if (tx.confidence >= 85) {
-                confidenceColor = '#fff';
-                confidenceBg = '#16a34a';
-            } else if (tx.confidence >= 70) {
-                confidenceColor = '#fff';
-                confidenceBg = '#ca8a04';
-            } else if (tx.confidence >= 50) {
-                confidenceColor = '#fff';
-                confidenceBg = '#ea580c';
-            }
-
-            return `
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td style="padding: 0.75rem;">${formatDate(tx.date)}</td>
-                    <td style="padding: 0.75rem;">
-                        <div style="font-weight: 500;">${escapeHtml(tx.merchant_name)}</div>
-                        ${tx.description !== tx.merchant_name ?
-                            `<div style="font-size: 0.75rem; color: var(--text-secondary);">${escapeHtml(tx.description)}</div>` :
-                            ''}
-                    </td>
-                    <td style="padding: 0.75rem;">${formattedAmount}</td>
-                    <td style="padding: 0.75rem;">
-                        ${tx.oldCategory ?
-                            `<div style="font-size: 0.75rem; color: var(--text-secondary); text-decoration: line-through;">${escapeHtml(tx.oldCategory)}</div>` :
-                            '<div style="font-size: 0.75rem; color: var(--text-secondary);">Uncategorized</div>'}
-                        <div style="font-weight: 500; color: var(--success);">${escapeHtml(tx.newCategory)}</div>
-                    </td>
-                    <td style="padding: 0.75rem; text-align: center;">
-                        <span style="
-                            display: inline-block;
-                            padding: 2px 8px;
-                            border-radius: 4px;
-                            font-size: 0.75rem;
-                            font-weight: 600;
-                            color: ${confidenceColor};
-                            background: ${confidenceBg};
-                        ">${tx.confidence}%</span>
-                    </td>
-                </tr>
-            `;
-        }).join('');
+function toggleTransactionSelection(transactionId) {
+    if (selectedTransactions.has(transactionId)) {
+        selectedTransactions.delete(transactionId);
     } else {
-        containerEl.style.display = 'none';
+        selectedTransactions.add(transactionId);
     }
-
-    // Show the modal
-    modal.style.display = 'flex';
-
-    // Also show a toast notification
-    showToast(
-        `✨ Auto-categorization complete!\n` +
-        `${result.updated} transactions categorized\n` +
-        `${result.skipped} skipped (verified or already categorized)`,
-        'success'
-    );
+    updateBulkActionsBar();
+    updateSelectAllCheckbox();
 }
 
 /**
- * Close auto-categorization recap modal
+ * Toggle all transactions selection
  */
-function closeAutoCategorizeRecapModal() {
-    const modal = document.getElementById('autoCategorizeRecapModal');
+function toggleAllTransactionSelection() {
+    const selectAllCheckbox = document.getElementById('selectAllTransactions');
+    const checkboxes = document.querySelectorAll('.transaction-checkbox');
+
+    if (selectAllCheckbox.checked) {
+        // Select all
+        checkboxes.forEach(cb => {
+            const txId = cb.getAttribute('data-transaction-id');
+            selectedTransactions.add(txId);
+            cb.checked = true;
+        });
+    } else {
+        // Deselect all
+        selectedTransactions.clear();
+        checkboxes.forEach(cb => {
+            cb.checked = false;
+        });
+    }
+    updateBulkActionsBar();
+}
+
+/**
+ * Update select all checkbox state based on individual selections
+ */
+function updateSelectAllCheckbox() {
+    const selectAllCheckbox = document.getElementById('selectAllTransactions');
+    const checkboxes = document.querySelectorAll('.transaction-checkbox');
+
+    if (checkboxes.length === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+        return;
+    }
+
+    const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+
+    if (checkedCount === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+    } else if (checkedCount === checkboxes.length) {
+        selectAllCheckbox.checked = true;
+        selectAllCheckbox.indeterminate = false;
+    } else {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = true;
+    }
+}
+
+/**
+ * Update bulk actions bar visibility and count
+ */
+function updateBulkActionsBar() {
+    const bulkActionsBar = document.getElementById('bulkActionsBar');
+    const selectedCountEl = document.getElementById('selectedCount');
+
+    const count = selectedTransactions.size;
+
+    if (count > 0) {
+        bulkActionsBar.style.display = 'block';
+        selectedCountEl.textContent = count;
+    } else {
+        bulkActionsBar.style.display = 'none';
+    }
+}
+
+/**
+ * Clear all selections
+ */
+function clearSelection() {
+    selectedTransactions.clear();
+    const checkboxes = document.querySelectorAll('.transaction-checkbox');
+    checkboxes.forEach(cb => cb.checked = false);
+    updateBulkActionsBar();
+    updateSelectAllCheckbox();
+}
+
+/**
+ * Bulk verify selected transactions
+ */
+async function bulkVerifyTransactions() {
+    if (selectedTransactions.size === 0) {
+        showToast('No transactions selected', 'warning');
+        return;
+    }
+
+    showLoading();
+    try {
+        let verified = 0;
+        for (const txId of selectedTransactions) {
+            await fetchAPI(`/api/transactions/${txId}/verify`, {
+                method: 'POST'
+            });
+            verified++;
+        }
+
+        showToast(`✓ Verified ${verified} transaction(s)`, 'success');
+        clearSelection();
+
+        // Emit events to update all views
+        eventBus.emit('transactionsUpdated');
+    } catch (error) {
+        showToast('Failed to verify transactions: ' + error.message, 'error');
+        console.error(error);
+    } finally {
+        hideLoading();
+    }
+}
+
+/**
+ * Show bulk category change modal
+ */
+function showBulkCategoryModal() {
+    if (selectedTransactions.size === 0) {
+        showToast('No transactions selected', 'warning');
+        return;
+    }
+
+    const modal = document.getElementById('bulkCategoryModal');
+    const countEl = document.getElementById('bulkSelectedCount');
+    const selectEl = document.getElementById('bulkCategorySelect');
+
+    countEl.textContent = selectedTransactions.size;
+
+    // Populate categories
+    selectEl.innerHTML = '<option value="">Select category...</option>' +
+        allCategories.map(cat => {
+            if (cat.parent_category) {
+                return `<option value="${escapeHtml(cat.name)}">  ${escapeHtml(cat.name)} (${escapeHtml(cat.parent_category)})</option>`;
+            } else {
+                return `<option value="${escapeHtml(cat.name)}">${escapeHtml(cat.name)}</option>`;
+            }
+        }).join('');
+
+    modal.style.display = 'flex';
+}
+
+/**
+ * Close bulk category modal
+ */
+function closeBulkCategoryModal() {
+    const modal = document.getElementById('bulkCategoryModal');
     modal.style.display = 'none';
+}
+
+/**
+ * Apply category to selected transactions
+ */
+async function applyBulkCategory() {
+    const selectEl = document.getElementById('bulkCategorySelect');
+    const category = selectEl.value;
+
+    if (!category) {
+        showToast('Please select a category', 'warning');
+        return;
+    }
+
+    closeBulkCategoryModal();
+    showLoading();
+
+    try {
+        const result = await fetchAPI('/api/transactions/bulk/category', {
+            method: 'PATCH',
+            body: JSON.stringify({
+                transactionIds: Array.from(selectedTransactions),
+                category: category
+            })
+        });
+
+        if (result.success) {
+            showToast(`✓ Updated ${result.updated} transaction(s) to category "${category}"`, 'success');
+            clearSelection();
+
+            // Emit events to update all views
+            eventBus.emit('transactionsUpdated');
+            eventBus.emit('mappingsUpdated');
+        }
+    } catch (error) {
+        showToast('Failed to update categories: ' + error.message, 'error');
+        console.error(error);
+    } finally {
+        hideLoading();
+    }
+}
+
+/**
+ * Apply unverified filter (show unverified transactions sorted by confidence)
+ */
+function applyUnverifiedFilter() {
+    // Filter for unverified transactions
+    const unverified = allTransactions.filter(tx => !tx.verified);
+
+    // Highlight the Unverified button
+    document.getElementById('showAllBtn').classList.remove('btn-primary');
+    document.getElementById('showAllBtn').classList.add('btn-secondary');
+    document.getElementById('showUnverifiedBtn').classList.remove('btn-secondary');
+    document.getElementById('showUnverifiedBtn').classList.add('btn-primary');
+
+    // Display sorted by confidence (descending)
+    displayTransactionsTable(unverified, true);
+
+    if (unverified.length > 0) {
+        showToast(`Showing ${unverified.length} unverified transaction(s), sorted by confidence`, 'info');
+    } else {
+        showToast('All transactions are verified!', 'success');
+    }
+}
+
+/**
+ * Show all transactions
+ */
+function showAllTransactions() {
+    // Highlight the All button
+    document.getElementById('showAllBtn').classList.remove('btn-secondary');
+    document.getElementById('showAllBtn').classList.add('btn-primary');
+    document.getElementById('showUnverifiedBtn').classList.remove('btn-primary');
+    document.getElementById('showUnverifiedBtn').classList.add('btn-secondary');
+
+    // Clear filters and show all
+    document.getElementById('filterCategory').value = '';
+    document.getElementById('filterAccount').value = '';
+    document.getElementById('filterStartDate').value = '';
+    document.getElementById('filterEndDate').value = '';
+
+    displayTransactionsTable(allTransactions, false);
 }
 
 // Check sheets status when dashboard loads
