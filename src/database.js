@@ -553,7 +553,8 @@ function autoCategorizeTransaction(transaction, categorizationData, skipSavingMa
       console.log(`     Merchant: "${merchantName}"`);
     }
 
-    // STEP 1: Exact merchant lookup - 95% confidence
+    // STEP 1: Exact merchant/description lookup - 95% confidence
+    // Check merchant_name first
     if (merchantName) {
       const exactMatch = merchantMappings.find(
         m => m.merchant_name.toLowerCase() === merchantName.toLowerCase()
@@ -566,6 +567,19 @@ function autoCategorizeTransaction(transaction, categorizationData, skipSavingMa
           console.log(`     ✓ Exact merchant match: "${exactMatch.category}" (95%)`);
         }
         return { category: exactMatch.category, confidence: 95 };
+      }
+    }
+
+    // If no merchant_name, check description for exact match
+    if (!merchantName && description) {
+      const exactDescMatch = merchantMappings.find(
+        m => m.merchant_name.toLowerCase() === description.toLowerCase()
+      );
+      if (exactDescMatch) {
+        if (process.env.DEBUG_CATEGORIZATION) {
+          console.log(`     ✓ Exact description match: "${exactDescMatch.category}" (95%)`);
+        }
+        return { category: exactDescMatch.category, confidence: 95 };
       }
     }
 
@@ -587,11 +601,12 @@ function autoCategorizeTransaction(transaction, categorizationData, skipSavingMa
       }
     }
 
-    // STEP 3: Fuzzy merchant matching (80% similarity) - 75% confidence
-    if (merchantName) {
+    // STEP 3: Fuzzy merchant/description matching (80% similarity) - 75% confidence
+    const searchText = merchantName || description;
+    if (searchText && searchText.length >= 3) {
       for (const mapping of merchantMappings) {
-        if (isFuzzyMatch(merchantName, mapping.merchant_name, 0.8)) {
-          if (!skipSavingMappings) {
+        if (isFuzzyMatch(searchText, mapping.merchant_name, 0.8)) {
+          if (!skipSavingMappings && merchantName) {
             saveMerchantMapping(merchantName, mapping.category);
           }
           if (process.env.DEBUG_CATEGORIZATION) {
@@ -682,9 +697,27 @@ export function updateTransactionCategory(transactionId, category) {
   stmt.run(category, transactionId);
 
   // Save merchant mapping so future transactions from this merchant auto-categorize
-  if (transaction && transaction.merchant_name) {
-    saveMerchantMapping(transaction.merchant_name, category);
-    console.log(`  📚 Learned: "${transaction.merchant_name}" → "${category}"`);
+  if (transaction) {
+    if (transaction.merchant_name && transaction.merchant_name.trim() !== '') {
+      // Has merchant name - save merchant mapping
+      saveMerchantMapping(transaction.merchant_name, category);
+      console.log(`  📚 Learned: "${transaction.merchant_name}" → "${category}"`);
+    } else if (transaction.description && transaction.description.trim() !== '') {
+      // No merchant name, but has description - try to create a pattern-based learning
+      const description = transaction.description.trim();
+
+      // Check if this is a common pattern we can learn from
+      // For example: "Interest Paid", "Transfer from...", etc.
+      if (description.length > 0) {
+        // Save as a merchant mapping using the description
+        // This allows the system to learn from description-based transactions
+        saveMerchantMapping(description, category);
+        console.log(`  📚 Learned: "${description}" → "${category}" (description-based)`);
+      }
+    } else {
+      // Transaction categorized but can't create a learning pattern
+      console.log(`  ℹ️  Categorized transaction → "${category}" (no pattern to learn)`);
+    }
   }
 }
 
