@@ -736,11 +736,12 @@ export function findSimilarTransactions(transactionId, merchantName) {
   // Find similar transactions:
   // 1. Same merchant_name (exact match) OR similar description
   // 2. Exclude the transaction being updated
-  // 3. Only include unverified transactions (so we don't override manual changes)
+  // 3. Include unverified OR auto-categorized transactions (confidence < 100)
+  //    This allows correcting auto-categorizations but protects manual verifications
   const similarTransactions = db.prepare(`
     SELECT * FROM transactions
     WHERE transaction_id != ?
-      AND verified = 'No'
+      AND (verified = 'No' OR confidence < 100)
       AND (
         merchant_name = ?
         OR (merchant_name IS NULL AND description LIKE ?)
