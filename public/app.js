@@ -738,13 +738,13 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                     ${hasCategory ? (() => {
                         const categoryObj = allCategories.find(c => c.name === tx.category);
-                        if (categoryObj) {
-                            return renderCategoryBadge(categoryObj, { inline: true });
-                        }
-                        return `<span class="category-badge" style="display: inline-flex; align-items: center; gap: 0.25rem;">
-                            <span>📁</span>
-                            <span>${escapeHtml(tx.category)}</span>
-                        </span>`;
+                        const badgeHtml = categoryObj
+                            ? renderCategoryBadge(categoryObj, { inline: true })
+                            : `<span class="category-badge" style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                                <span>📁</span>
+                                <span>${escapeHtml(tx.category)}</span>
+                            </span>`;
+                        return `<span onclick="showCategoryDropdown(event, '${tx.transaction_id}')" style="cursor: pointer;" title="Click to change category">${badgeHtml}</span>`;
                     })() : `<div class="searchable-dropdown-container" style="position: relative; flex: 1;">
                         <input type="text"
                                class="category-input ${isVerified ? 'verified' : ''}"
@@ -755,7 +755,6 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
                                onclick="showCategoryDropdown(this)"
                                autocomplete="off">
                     </div>`}
-                    ${hasCategory ? `<button class="btn-icon btn-secondary" onclick="showCategoryDropdown(event, '${tx.transaction_id}')" title="Change category" style="font-size: 0.9rem; padding: 0.25rem 0.5rem;">✏️</button>` : ''}
                     ${hasCategory && confidence > 0 ?
                         `<span style="
                             display: inline-block;
