@@ -797,10 +797,6 @@ async function verifyCategory(transactionId) {
 }
 
 async function autoCategorizeTransactions() {
-    if (!confirm('This will automatically categorize all transactions that don\'t have a verified category. Continue?')) {
-        return;
-    }
-
     showLoading();
     try {
         const result = await fetchAPI('/api/transactions/recategorize', {
