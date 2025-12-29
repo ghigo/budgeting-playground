@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
+    "update": "git pull && npm start",
     "start:prod": "MODE=production node src/server.js",
     "start:sandbox": "MODE=sandbox node src/server.js",
     "dev": "node --watch src/server.js",
