@@ -1603,10 +1603,10 @@ function showToast(message, type = 'info') {
 
     container.appendChild(toast);
 
-    // Auto-dismiss after 8 seconds
+    // Auto-dismiss after 10 seconds
     const timeoutId = setTimeout(() => {
         toast.remove();
-    }, 8000);
+    }, 10000);
 
     // Click to dismiss immediately
     toast.addEventListener('click', () => {
