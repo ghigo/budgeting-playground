@@ -36,6 +36,10 @@
                     <span class="icon">🤖</span>
                     Auto-Categorization
                 </a>
+                <a href="#" class="nav-item" data-page="amazon">
+                    <span class="icon">📦</span>
+                    Amazon Purchases
+                </a>
                 <a href="#" class="nav-item" data-page="link">
                     <span class="icon">🔗</span>
                     Link Account
@@ -382,6 +386,94 @@
                         </button>
                         <div id="linkStatus" class="status-message"></div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Amazon Purchases Page -->
+            <div class="page" id="amazon-page">
+                <div class="page-header">
+                    <h2>Amazon Purchases</h2>
+                    <p>Track and match Amazon orders with bank transactions</p>
+                </div>
+
+                <!-- Upload Section -->
+                <div class="card" style="margin-bottom: 2rem; background: linear-gradient(135deg, #FF9900 0%, #FFB84D 100%); border: none; color: white;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1.5rem;">
+                        <div style="flex: 1;">
+                            <h3 style="margin-bottom: 0.75rem; color: white;">📦 Upload Amazon Order History</h3>
+                            <p style="margin: 0 0 1rem 0; opacity: 0.95; font-size: 0.9rem; line-height: 1.5;">
+                                Download your Amazon order history as a CSV file and upload it here. We'll automatically match your Amazon purchases with bank transactions and improve categorization.
+                            </p>
+                            <ol style="margin: 0; padding-left: 1.5rem; opacity: 0.95; font-size: 0.875rem; line-height: 1.8;">
+                                <li>Go to <a href="https://www.amazon.com/gp/b2b/reports" target="_blank" style="color: white; text-decoration: underline;">Amazon Order History Reports</a></li>
+                                <li>Request a report (Items, shipments, and orders)</li>
+                                <li>Download the CSV file when ready</li>
+                                <li>Upload it below</li>
+                            </ol>
+                        </div>
+                        <div style="min-width: 200px;">
+                            <input type="file" id="amazonFileInput" accept=".csv" style="display: none;" onchange="handleAmazonFileUpload(event)">
+                            <button onclick="document.getElementById('amazonFileInput').click()" class="btn" style="background: white; color: #FF9900; font-weight: 600; width: 100%; margin-bottom: 0.5rem;">
+                                📁 Choose CSV File
+                            </button>
+                            <button onclick="runAmazonAutoMatch()" class="btn btn-secondary" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.4); width: 100%;">
+                                🔄 Auto-Match Orders
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Statistics -->
+                <div class="stats-grid" style="margin-bottom: 2rem;">
+                    <div class="stat-card">
+                        <div class="stat-label">Total Orders</div>
+                        <div class="stat-value" id="amazonTotalOrders">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Matched Orders</div>
+                        <div class="stat-value" id="amazonMatchedOrders">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Total Spent</div>
+                        <div class="stat-value" id="amazonTotalSpent">$0.00</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Match Rate</div>
+                        <div class="stat-value" id="amazonMatchRate">0%</div>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;">Filters</h3>
+                    <div class="filter-grid">
+                        <div class="filter-item">
+                            <label for="amazonFilterMatched">Status</label>
+                            <select id="amazonFilterMatched" class="form-select">
+                                <option value="">All Orders</option>
+                                <option value="true">Matched</option>
+                                <option value="false">Unmatched</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="amazonFilterStartDate">Start Date</label>
+                            <input type="date" id="amazonFilterStartDate" class="form-input">
+                        </div>
+                        <div class="filter-item">
+                            <label for="amazonFilterEndDate">End Date</label>
+                            <input type="date" id="amazonFilterEndDate" class="form-input">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+                        <button onclick="applyAmazonFilters()" class="btn btn-primary">Apply Filters</button>
+                        <button onclick="clearAmazonFilters()" class="btn btn-secondary">Clear All</button>
+                    </div>
+                </div>
+
+                <!-- Orders List -->
+                <div class="card">
+                    <h3 style="margin-bottom: 1rem;">Orders</h3>
+                    <div id="amazonOrdersList"></div>
                 </div>
             </div>
         </main>

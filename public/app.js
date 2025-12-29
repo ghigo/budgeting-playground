@@ -109,7 +109,7 @@ function handleHashChange() {
     let page = window.location.hash.slice(1) || 'dashboard';
 
     // Validate page exists
-    const validPages = ['dashboard', 'accounts', 'transactions', 'categories', 'mappings'];
+    const validPages = ['dashboard', 'accounts', 'transactions', 'categories', 'mappings', 'amazon'];
     if (!validPages.includes(page)) {
         page = 'dashboard';
         window.location.hash = page;
@@ -157,6 +157,9 @@ function navigateTo(page, updateHash = true) {
             break;
         case 'mappings':
             loadMappings();
+            break;
+        case 'amazon':
+            loadAmazonPage();
             break;
     }
 }
@@ -2697,3 +2700,204 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+
+// ============================================================================
+// AMAZON PURCHASES PAGE
+// ============================================================================
+
+let amazonOrders = [];
+let amazonStats = {};
+
+async function loadAmazonPage() {
+    showLoading();
+    try {
+        await Promise.all([
+            loadAmazonStats(),
+            loadAmazonOrders()
+        ]);
+    } catch (error) {
+        console.error('Error loading Amazon page:', error);
+        showToast('Failed to load Amazon data', 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+async function loadAmazonStats() {
+    try {
+        const stats = await fetchAPI('/api/amazon/stats');
+        amazonStats = stats;
+
+        document.getElementById('amazonTotalOrders').textContent = stats.total_orders || 0;
+        document.getElementById('amazonMatchedOrders').textContent = stats.matched_orders || 0;
+        document.getElementById('amazonTotalSpent').textContent = formatCurrency(stats.total_spent || 0);
+
+        const matchRate = stats.total_orders > 0
+            ? Math.round((stats.matched_orders / stats.total_orders) * 100)
+            : 0;
+        document.getElementById('amazonMatchRate').textContent = `${matchRate}%`;
+    } catch (error) {
+        console.error('Error loading Amazon stats:', error);
+    }
+}
+
+async function loadAmazonOrders(filters = {}) {
+    try {
+        const queryParams = new URLSearchParams();
+
+        if (filters.startDate) queryParams.append('startDate', filters.startDate);
+        if (filters.endDate) queryParams.append('endDate', filters.endDate);
+        if (filters.matched !== undefined) queryParams.append('matched', filters.matched);
+
+        const queryString = queryParams.toString();
+        const url = `/api/amazon/orders${queryString ? '?' + queryString : ''}`;
+        amazonOrders = await fetchAPI(url);
+
+        displayAmazonOrders(amazonOrders);
+    } catch (error) {
+        console.error('Error loading Amazon orders:', error);
+        showToast('Failed to load orders', 'error');
+    }
+}
+
+function displayAmazonOrders(orders) {
+    const container = document.getElementById('amazonOrdersList');
+
+    if (!orders || orders.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 2rem; text-align: center;">No Amazon orders found. Upload your order history to get started!</p>';
+        return;
+    }
+
+    let html = '<div style="display: flex; flex-direction: column; gap: 1rem;">';
+
+    orders.forEach(order => {
+        const isMatched = order.matched_transaction_id !== null;
+        const matchBadge = isMatched
+            ? `<span style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">✓ Matched (${order.match_confidence}%)</span>`
+            : `<span style="background: #f59e0b; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">⚠ Unmatched</span>`;
+
+        html += `
+            <div class="card" style="cursor: pointer; transition: all 0.2s;" onclick="alert('Order details: #${escapeHtml(order.order_id)}\\nAmount: ${formatCurrency(order.total_amount)}\\nDate: ${formatDate(order.order_date)}')">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1.5rem;">
+                    <div style="flex: 1;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                            <h4 style="margin: 0; font-size: 1rem;">Order #${escapeHtml(order.order_id)}</h4>
+                            ${matchBadge}
+                        </div>
+                        <div style="color: var(--text-secondary); font-size: 0.9rem;">
+                            <div style="margin-bottom: 0.25rem;">📅 ${formatDate(order.order_date)}</div>
+                            ${order.payment_method ? `<div style="margin-bottom: 0.25rem;">💳 ${escapeHtml(order.payment_method)}</div>` : ''}
+                            ${order.order_status ? `<div>📦 ${escapeHtml(order.order_status)}</div>` : ''}
+                        </div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 1.5rem; font-weight: 600; color: var(--primary);">${formatCurrency(order.total_amount)}</div>
+                        <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                            ${order.subtotal ? `Subtotal: ${formatCurrency(order.subtotal)}<br>` : ''}
+                            ${order.tax ? `Tax: ${formatCurrency(order.tax)}<br>` : ''}
+                            ${order.shipping ? `Shipping: ${formatCurrency(order.shipping)}` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+async function handleAmazonFileUpload(event) {
+    const file = event.target.files[0];
+
+    if (!file) {
+        return;
+    }
+
+    if (!file.name.endsWith('.csv')) {
+        showToast('Please upload a CSV file', 'error');
+        return;
+    }
+
+    showLoading();
+    showToast('Uploading and processing Amazon orders...', 'info');
+
+    try {
+        const csvContent = await file.text();
+
+        const result = await fetchAPI('/api/amazon/upload', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/plain'
+            },
+            body: csvContent
+        });
+
+        if (result.success) {
+            showToast(
+                `✓ Successfully imported ${result.imported} orders!\n` +
+                `• Matched: ${result.matched} orders\n` +
+                `• Unmatched: ${result.unmatched} orders`,
+                'success'
+            );
+
+            // Reload Amazon page
+            await loadAmazonPage();
+        } else {
+            showToast(`Upload failed: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error uploading Amazon file:', error);
+        showToast(`Upload error: ${error.message}`, 'error');
+    } finally {
+        hideLoading();
+        event.target.value = '';
+    }
+}
+
+async function runAmazonAutoMatch() {
+    if (!confirm('Run auto-match algorithm to find matching bank transactions for your Amazon orders?')) {
+        return;
+    }
+
+    showLoading();
+    showToast('Running auto-match algorithm...', 'info');
+
+    try {
+        const result = await fetchAPI('/api/amazon/auto-match', {
+            method: 'POST'
+        });
+
+        showToast(
+            `✓ Auto-match complete!\n` +
+            `• Matched: ${result.matched} orders\n` +
+            `• Still unmatched: ${result.unmatched} orders`,
+            'success'
+        );
+
+        await loadAmazonPage();
+    } catch (error) {
+        console.error('Error running auto-match:', error);
+        showToast(`Auto-match error: ${error.message}`, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+function applyAmazonFilters() {
+    const filters = {
+        matched: document.getElementById('amazonFilterMatched').value,
+        startDate: document.getElementById('amazonFilterStartDate').value,
+        endDate: document.getElementById('amazonFilterEndDate').value
+    };
+
+    loadAmazonOrders(filters);
+}
+
+function clearAmazonFilters() {
+    document.getElementById('amazonFilterMatched').value = '';
+    document.getElementById('amazonFilterStartDate').value = '';
+    document.getElementById('amazonFilterEndDate').value = '';
+
+    loadAmazonOrders();
+}
