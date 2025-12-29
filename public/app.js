@@ -2752,7 +2752,13 @@ async function loadAmazonOrders(filters = {}) {
         const url = `/api/amazon/orders${queryString ? '?' + queryString : ''}`;
         amazonOrders = await fetchAPI(url);
 
-        displayAmazonOrders(amazonOrders);
+        // Apply search filter if search term exists
+        const searchInput = document.getElementById('amazonSearchInput');
+        if (searchInput && searchInput.value) {
+            searchAmazonOrders();
+        } else {
+            displayAmazonOrders(amazonOrders);
+        }
     } catch (error) {
         console.error('Error loading Amazon orders:', error);
         showToast('Failed to load orders', 'error');
@@ -2961,6 +2967,85 @@ function clearAmazonFilters() {
     document.getElementById('amazonFilterMatched').value = '';
     document.getElementById('amazonFilterStartDate').value = '';
     document.getElementById('amazonFilterEndDate').value = '';
+    document.getElementById('amazonSearchInput').value = '';
 
     loadAmazonOrders();
+}
+
+function searchAmazonOrders() {
+    const searchTerm = document.getElementById('amazonSearchInput').value.toLowerCase();
+
+    if (!searchTerm) {
+        // No search term - show all loaded orders
+        displayAmazonOrders(amazonOrders);
+        return;
+    }
+
+    // Filter orders based on search term
+    const filtered = amazonOrders.filter(order => {
+        // Search in order ID
+        if (order.order_id && order.order_id.toLowerCase().includes(searchTerm)) {
+            return true;
+        }
+
+        // Search in order amount
+        if (order.total_amount && order.total_amount.toString().includes(searchTerm)) {
+            return true;
+        }
+
+        // Search in payment method
+        if (order.payment_method && order.payment_method.toLowerCase().includes(searchTerm)) {
+            return true;
+        }
+
+        // Search in order status
+        if (order.order_status && order.order_status.toLowerCase().includes(searchTerm)) {
+            return true;
+        }
+
+        // Search in items
+        if (order.items && order.items.length > 0) {
+            for (const item of order.items) {
+                // Search in item title
+                if (item.title && item.title.toLowerCase().includes(searchTerm)) {
+                    return true;
+                }
+
+                // Search in item category
+                if (item.category && item.category.toLowerCase().includes(searchTerm)) {
+                    return true;
+                }
+
+                // Search in item seller
+                if (item.seller && item.seller.toLowerCase().includes(searchTerm)) {
+                    return true;
+                }
+
+                // Search in item price
+                if (item.price && item.price.toString().includes(searchTerm)) {
+                    return true;
+                }
+
+                // Search in ASIN
+                if (item.asin && item.asin.toLowerCase().includes(searchTerm)) {
+                    return true;
+                }
+            }
+        }
+
+        // Search in matched transaction
+        if (order.matched_transaction) {
+            const tx = order.matched_transaction;
+            if ((tx.description && tx.description.toLowerCase().includes(searchTerm)) ||
+                (tx.name && tx.name.toLowerCase().includes(searchTerm)) ||
+                (tx.account_name && tx.account_name.toLowerCase().includes(searchTerm)) ||
+                (tx.category && tx.category.toLowerCase().includes(searchTerm))) {
+                return true;
+            }
+        }
+
+        return false;
+    });
+
+    displayAmazonOrders(filtered);
 }

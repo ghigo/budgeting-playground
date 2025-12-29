@@ -445,7 +445,19 @@
 
                 <!-- Filters -->
                 <div class="card" style="margin-bottom: 1.5rem;">
-                    <h3 style="margin-bottom: 1rem;">Filters</h3>
+                    <h3 style="margin-bottom: 1rem;">Search & Filters</h3>
+
+                    <!-- Search Box -->
+                    <div style="margin-bottom: 1.5rem;">
+                        <label for="amazonSearchInput" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Search Orders</label>
+                        <input type="text"
+                               id="amazonSearchInput"
+                               class="form-input"
+                               placeholder="Search by order ID, item title, amount, seller..."
+                               oninput="searchAmazonOrders()"
+                               style="width: 100%; padding: 0.75rem; font-size: 0.9rem;">
+                    </div>
+
                     <div class="filter-grid">
                         <div class="filter-item">
                             <label for="amazonFilterMatched">Status</label>
