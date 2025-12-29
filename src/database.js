@@ -202,10 +202,17 @@ function runMigrations() {
   // Check if account_name column exists in amazon_orders table
   const amazonOrdersInfo = db.prepare("PRAGMA table_info(amazon_orders)").all();
   const hasAccountName = amazonOrdersInfo.some(col => col.name === 'account_name');
+  const hasMatchVerified = amazonOrdersInfo.some(col => col.name === 'match_verified');
 
   if (!hasAccountName) {
     console.log('Adding account_name column to amazon_orders table...');
     db.exec("ALTER TABLE amazon_orders ADD COLUMN account_name TEXT DEFAULT 'Primary'");
+    columnsAdded = true;
+  }
+
+  if (!hasMatchVerified) {
+    console.log('Adding match_verified column to amazon_orders table...');
+    db.exec("ALTER TABLE amazon_orders ADD COLUMN match_verified TEXT DEFAULT 'No'");
     columnsAdded = true;
   }
 

@@ -3078,9 +3078,19 @@ function displayAmazonOrders(orders) {
         let matchedTransactionHtml = '';
         if (isMatched && order.matched_transaction) {
             const tx = order.matched_transaction;
+            const isVerified = order.match_verified === 'Yes';
             matchedTransactionHtml = `
                 <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
-                    <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--success);">✓ Matched Transaction</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <div style="font-weight: 600; font-size: 0.9rem; color: var(--success);">✓ Matched Transaction ${isVerified ? '(Verified)' : ''}</div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            ${isVerified ?
+                                `<button onclick="unverifyAmazonMatch('${escapeHtml(order.order_id)}')" class="btn-small" style="background: #f59e0b; color: white; padding: 0.25rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">Unverify</button>` :
+                                `<button onclick="verifyAmazonMatch('${escapeHtml(order.order_id)}')" class="btn-small" style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">Approve</button>`
+                            }
+                            <button onclick="unmatchAmazonOrder('${escapeHtml(order.order_id)}')" class="btn-small" style="background: #dc2626; color: white; padding: 0.25rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">Unmatch</button>
+                        </div>
+                    </div>
                     <div style="display: flex; justify-content: space-between; padding: 0.75rem; background: rgba(16, 185, 129, 0.05); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);">
                         <div style="flex: 1;">
                             <div style="font-size: 0.9rem; margin-bottom: 0.25rem; font-weight: 500;">${escapeHtml(tx.description || tx.name)}</div>

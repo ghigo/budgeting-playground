@@ -11,9 +11,10 @@ import * as database from './database.js';
 export function matchAmazonOrdersToTransactions(amazonOrders, transactions) {
   const matches = [];
   const unmatchedOrders = [];
+  const usedTransactionIds = new Set();
 
   for (const order of amazonOrders) {
-    const match = findBestTransactionMatch(order, transactions);
+    const match = findBestTransactionMatch(order, transactions, usedTransactionIds);
 
     if (match) {
       matches.push({
@@ -22,6 +23,8 @@ export function matchAmazonOrdersToTransactions(amazonOrders, transactions) {
         confidence: match.confidence,
         reason: match.reason
       });
+      // Mark this transaction as used so no other order can match it
+      usedTransactionIds.add(match.transaction.transaction_id);
     } else {
       unmatchedOrders.push(order);
     }
@@ -33,7 +36,7 @@ export function matchAmazonOrdersToTransactions(amazonOrders, transactions) {
 /**
  * Find the best matching transaction for an Amazon order
  */
-function findBestTransactionMatch(order, transactions) {
+function findBestTransactionMatch(order, transactions, usedTransactionIds = new Set()) {
   let bestMatch = null;
   let highestConfidence = 0;
 
@@ -41,6 +44,11 @@ function findBestTransactionMatch(order, transactions) {
   const orderAmount = Math.abs(parseFloat(order.total_amount));
 
   for (const transaction of transactions) {
+    // Skip if this transaction is already matched to another order
+    if (usedTransactionIds.has(transaction.transaction_id)) {
+      continue;
+    }
+
     const transactionDate = new Date(transaction.date);
     const transactionAmount = Math.abs(parseFloat(transaction.amount));
 
@@ -65,22 +73,19 @@ function findBestTransactionMatch(order, transactions) {
     let confidence = 0;
     const reasons = [];
 
-    // 1. Amount matching (40 points)
+    // 1. Amount matching (50 points) - STRICT matching required
     const amountDiff = Math.abs(transactionAmount - orderAmount);
     const amountTolerance = Math.max(0.50, orderAmount * 0.01); // $0.50 or 1% of order
 
     if (amountDiff === 0) {
-      confidence += 40;
+      confidence += 50;
       reasons.push('Exact amount match');
     } else if (amountDiff <= amountTolerance) {
-      confidence += 35;
+      confidence += 45;
       reasons.push('Amount match within tolerance');
-    } else if (amountDiff <= orderAmount * 0.05) {
-      // Could be partial payment (gift card/points used)
-      confidence += 25;
-      reasons.push('Partial payment (possible gift card/points)');
     } else {
-      // Amount too different, skip
+      // Amount doesn't match closely enough - skip this transaction
+      // Even a small mismatch drops confidence too low to match
       continue;
     }
 
