@@ -715,6 +715,28 @@ app.post('/api/amazon/orders/:orderId/unlink', (req, res) => {
   }
 });
 
+// Verify Amazon order match
+app.post('/api/amazon/orders/:orderId/verify', (req, res) => {
+  try {
+    const result = database.verifyAmazonMatch(req.params.orderId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error verifying Amazon match:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Unverify Amazon order match
+app.post('/api/amazon/orders/:orderId/unverify', (req, res) => {
+  try {
+    const result = database.unverifyAmazonMatch(req.params.orderId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error unverifying Amazon match:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Run auto-match algorithm
 app.post('/api/amazon/auto-match', async (req, res) => {
   try {

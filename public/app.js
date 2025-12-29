@@ -3223,6 +3223,58 @@ async function runAmazonAutoMatch() {
     }
 }
 
+async function verifyAmazonMatch(orderId) {
+    try {
+        const result = await fetchAPI(`/api/amazon/orders/${orderId}/verify`, {
+            method: 'POST'
+        });
+
+        if (result.success) {
+            showToast('Match verified', 'success');
+            await loadAmazonPage();
+        }
+    } catch (error) {
+        console.error('Error verifying match:', error);
+        showToast(`Failed to verify: ${error.message}`, 'error');
+    }
+}
+
+async function unverifyAmazonMatch(orderId) {
+    try {
+        const result = await fetchAPI(`/api/amazon/orders/${orderId}/unverify`, {
+            method: 'POST'
+        });
+
+        if (result.success) {
+            showToast('Match unverified', 'success');
+            await loadAmazonPage();
+        }
+    } catch (error) {
+        console.error('Error unverifying match:', error);
+        showToast(`Failed to unverify: ${error.message}`, 'error');
+    }
+}
+
+async function unmatchAmazonOrder(orderId) {
+    if (!confirm('Remove this match? The order will become unmatched and can be auto-matched again.')) {
+        return;
+    }
+
+    try {
+        const result = await fetchAPI(`/api/amazon/orders/${orderId}/unlink`, {
+            method: 'POST'
+        });
+
+        if (result.success) {
+            showToast('Order unmatched', 'success');
+            await loadAmazonPage();
+        }
+    } catch (error) {
+        console.error('Error unmatching order:', error);
+        showToast(`Failed to unmatch: ${error.message}`, 'error');
+    }
+}
+
 function applyAmazonFilters() {
     const filters = {
         matched: document.getElementById('amazonFilterMatched').value,

@@ -1686,11 +1686,43 @@ export function linkAmazonOrderToTransaction(orderId, transactionId, confidence 
 export function unlinkAmazonOrder(orderId) {
   const stmt = db.prepare(`
     UPDATE amazon_orders
-    SET matched_transaction_id = NULL, match_confidence = 0, updated_at = datetime('now')
+    SET matched_transaction_id = NULL, match_confidence = 0, match_verified = 'No', updated_at = datetime('now')
     WHERE order_id = ?
   `);
 
   stmt.run(orderId);
+}
+
+/**
+ * Verify an Amazon order match
+ */
+export function verifyAmazonMatch(orderId) {
+  const stmt = db.prepare(`
+    UPDATE amazon_orders
+    SET match_verified = 'Yes', updated_at = datetime('now')
+    WHERE order_id = ?
+  `);
+
+  stmt.run(orderId);
+
+  const order = db.prepare('SELECT * FROM amazon_orders WHERE order_id = ?').get(orderId);
+  return { success: true, order };
+}
+
+/**
+ * Unverify an Amazon order match
+ */
+export function unverifyAmazonMatch(orderId) {
+  const stmt = db.prepare(`
+    UPDATE amazon_orders
+    SET match_verified = 'No', updated_at = datetime('now')
+    WHERE order_id = ?
+  `);
+
+  stmt.run(orderId);
+
+  const order = db.prepare('SELECT * FROM amazon_orders WHERE order_id = ?').get(orderId);
+  return { success: true, order };
 }
 
 /**
