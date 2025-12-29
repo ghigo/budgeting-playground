@@ -412,6 +412,10 @@
                             </ol>
                         </div>
                         <div style="min-width: 200px;">
+                            <label for="amazonAccountName" style="display: block; margin-bottom: 0.5rem; font-size: 0.875rem; opacity: 0.95;">Account Name:</label>
+                            <input type="text" id="amazonAccountName" placeholder="e.g., Primary, Wife, Kid"
+                                   style="width: 100%; padding: 0.5rem; border: 1px solid rgba(255,255,255,0.4); border-radius: 6px; background: rgba(255,255,255,0.9); color: #333; margin-bottom: 0.75rem; font-size: 0.875rem;"
+                                   value="Primary">
                             <input type="file" id="amazonFileInput" accept=".csv" style="display: none;" onchange="handleAmazonFileUpload(event)">
                             <button onclick="document.getElementById('amazonFileInput').click()" class="btn" style="background: white; color: #FF9900; font-weight: 600; width: 100%; margin-bottom: 0.5rem;">
                                 📁 Choose CSV File
@@ -478,6 +482,12 @@
                             </select>
                         </div>
                         <div class="filter-item">
+                            <label for="amazonFilterAccount">Account</label>
+                            <select id="amazonFilterAccount" class="form-select">
+                                <option value="">All Accounts</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
                             <label for="amazonFilterStartDate">Start Date</label>
                             <input type="date" id="amazonFilterStartDate" class="form-input">
                         </div>
@@ -492,10 +502,31 @@
                     </div>
                 </div>
 
-                <!-- Spending by Time Period -->
+                <!-- Spending Charts -->
                 <div class="card" style="margin-bottom: 1.5rem;">
-                    <h3 style="margin-bottom: 1rem;">Spending by Time Period</h3>
-                    <div id="amazonSpendingByTime"></div>
+                    <h3 style="margin-bottom: 1rem;">Monthly Spending</h3>
+
+                    <!-- Time Range Selector -->
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                        <button class="time-range-btn active" data-range="all" onclick="selectTimeRange('all')">All</button>
+                        <button class="time-range-btn" data-range="1y" onclick="selectTimeRange('1y')">1Y</button>
+                        <button class="time-range-btn" data-range="ytd" onclick="selectTimeRange('ytd')">YTD</button>
+                        <button class="time-range-btn" data-range="3m" onclick="selectTimeRange('3m')">3M</button>
+                        <button class="time-range-btn" data-range="1m" onclick="selectTimeRange('1m')">1M</button>
+                    </div>
+
+                    <!-- Monthly Chart -->
+                    <div style="position: relative; height: 300px;">
+                        <canvas id="amazonMonthlyChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Yearly Spending Chart -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;">Yearly Spending</h3>
+                    <div style="position: relative; height: 250px;">
+                        <canvas id="amazonYearlyChart"></canvas>
+                    </div>
                 </div>
 
                 <!-- Orders List -->

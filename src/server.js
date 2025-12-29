@@ -592,13 +592,14 @@ app.post('/api/init-spreadsheet', async (req, res) => {
 app.post('/api/amazon/upload', express.text({ limit: '10mb' }), async (req, res) => {
   try {
     const csvContent = req.body;
+    const accountName = req.query.accountName || 'Primary';
 
     if (!csvContent || csvContent.trim().length === 0) {
       return res.status(400).json({ error: 'No CSV content provided' });
     }
 
-    // Import orders from CSV
-    const importResult = amazon.importAmazonOrdersFromCSV(csvContent);
+    // Import orders from CSV with account name
+    const importResult = amazon.importAmazonOrdersFromCSV(csvContent, accountName);
 
     // Auto-match orders to transactions
     const matchResult = await amazon.autoMatchAmazonOrders();

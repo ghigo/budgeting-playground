@@ -435,7 +435,7 @@ function standardizeDate(dateStr) {
 /**
  * Import Amazon orders from CSV
  */
-export function importAmazonOrdersFromCSV(csvContent) {
+export function importAmazonOrdersFromCSV(csvContent, accountName = 'Primary') {
   const parsedOrders = parseAmazonCSV(csvContent);
 
   let importedCount = 0;
@@ -443,6 +443,9 @@ export function importAmazonOrdersFromCSV(csvContent) {
 
   for (const order of parsedOrders) {
     try {
+      // Add account_name to each order
+      order.account_name = accountName;
+
       const orderId = database.upsertAmazonOrder(order);
 
       if (order.items && order.items.length > 0) {

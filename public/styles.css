@@ -515,6 +515,31 @@ body {
     cursor: not-allowed;
 }
 
+/* Time Range Buttons */
+.time-range-btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.time-range-btn:hover {
+    background: var(--bg-primary);
+    border-color: var(--primary);
+    color: var(--text-primary);
+}
+
+.time-range-btn.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
 /* Link Account Page */
 .link-account-content {
     padding: 2rem;

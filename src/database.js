@@ -199,6 +199,16 @@ function runMigrations() {
     columnsAdded = true;
   }
 
+  // Check if account_name column exists in amazon_orders table
+  const amazonOrdersInfo = db.prepare("PRAGMA table_info(amazon_orders)").all();
+  const hasAccountName = amazonOrdersInfo.some(col => col.name === 'account_name');
+
+  if (!hasAccountName) {
+    console.log('Adding account_name column to amazon_orders table...');
+    db.exec("ALTER TABLE amazon_orders ADD COLUMN account_name TEXT DEFAULT 'Primary'");
+    columnsAdded = true;
+  }
+
   // Update existing categories with default values to have appropriate icons and colors
   const categoriesToUpdate = db.prepare(`
     SELECT name FROM categories
@@ -1505,9 +1515,9 @@ export function upsertAmazonOrder(orderData) {
   const stmt = db.prepare(`
     INSERT INTO amazon_orders (
       order_id, order_date, total_amount, subtotal, tax, shipping,
-      payment_method, shipping_address, order_status,
+      payment_method, shipping_address, order_status, account_name,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
     ON CONFLICT(order_id) DO UPDATE SET
       order_date = excluded.order_date,
       total_amount = excluded.total_amount,
@@ -1517,6 +1527,7 @@ export function upsertAmazonOrder(orderData) {
       payment_method = excluded.payment_method,
       shipping_address = excluded.shipping_address,
       order_status = excluded.order_status,
+      account_name = excluded.account_name,
       updated_at = datetime('now')
   `);
 
@@ -1529,7 +1540,8 @@ export function upsertAmazonOrder(orderData) {
     orderData.shipping || null,
     orderData.payment_method || null,
     orderData.shipping_address || null,
-    orderData.order_status || 'delivered'
+    orderData.order_status || 'delivered',
+    orderData.account_name || 'Primary'
   );
 
   return orderData.order_id;

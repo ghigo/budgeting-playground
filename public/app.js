@@ -2752,6 +2752,9 @@ async function loadAmazonOrders(filters = {}) {
         const url = `/api/amazon/orders${queryString ? '?' + queryString : ''}`;
         amazonOrders = await fetchAPI(url);
 
+        // Populate account filter dropdown with unique account names
+        populateAccountFilter();
+
         // Apply search/confidence filters if they exist
         const searchInput = document.getElementById('amazonSearchInput');
         const confidenceFilter = document.getElementById('amazonFilterConfidence');
@@ -2766,77 +2769,220 @@ async function loadAmazonOrders(filters = {}) {
     }
 }
 
-function displayAmazonSpendingByTime(orders) {
-    const container = document.getElementById('amazonSpendingByTime');
+function populateAccountFilter() {
+    const accountFilter = document.getElementById('amazonFilterAccount');
+    if (!accountFilter) return;
 
+    // Get unique account names from orders
+    const accountNames = [...new Set(amazonOrders.map(order => order.account_name || 'Primary'))];
+    accountNames.sort();
+
+    // Store current selection
+    const currentSelection = accountFilter.value;
+
+    // Clear and repopulate
+    accountFilter.innerHTML = '<option value="">All Accounts</option>';
+    accountNames.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        accountFilter.appendChild(option);
+    });
+
+    // Restore selection if it still exists
+    if (currentSelection && accountNames.includes(currentSelection)) {
+        accountFilter.value = currentSelection;
+    }
+}
+
+// Global chart instances
+let amazonMonthlyChart = null;
+let amazonYearlyChart = null;
+let currentTimeRange = 'all';
+
+function selectTimeRange(range) {
+    currentTimeRange = range;
+
+    // Update button states
+    document.querySelectorAll('.time-range-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.range === range) {
+            btn.classList.add('active');
+        }
+    });
+
+    // Redraw monthly chart with new range
+    displayAmazonSpendingByTime(amazonOrders);
+}
+
+function displayAmazonSpendingByTime(orders) {
     if (!orders || orders.length === 0) {
-        container.innerHTML = '<p style="color: var(--text-secondary); padding: 1rem; text-align: center;">No data available</p>';
+        // Clear charts if no data
+        if (amazonMonthlyChart) {
+            amazonMonthlyChart.destroy();
+            amazonMonthlyChart = null;
+        }
+        if (amazonYearlyChart) {
+            amazonYearlyChart.destroy();
+            amazonYearlyChart = null;
+        }
         return;
     }
 
-    // Group orders by year and month
-    const spendingByYear = {};
-    const spendingByMonth = {};
+    // Filter orders by time range for monthly chart
+    const now = new Date();
+    const filteredOrders = orders.filter(order => {
+        const orderDate = new Date(order.order_date);
 
+        switch (currentTimeRange) {
+            case '1m':
+                const oneMonthAgo = new Date(now);
+                oneMonthAgo.setMonth(now.getMonth() - 1);
+                return orderDate >= oneMonthAgo;
+            case '3m':
+                const threeMonthsAgo = new Date(now);
+                threeMonthsAgo.setMonth(now.getMonth() - 3);
+                return orderDate >= threeMonthsAgo;
+            case 'ytd':
+                const yearStart = new Date(now.getFullYear(), 0, 1);
+                return orderDate >= yearStart;
+            case '1y':
+                const oneYearAgo = new Date(now);
+                oneYearAgo.setFullYear(now.getFullYear() - 1);
+                return orderDate >= oneYearAgo;
+            case 'all':
+            default:
+                return true;
+        }
+    });
+
+    // Group by month for monthly chart
+    const spendingByMonth = {};
+    filteredOrders.forEach(order => {
+        const date = new Date(order.order_date);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        const amount = parseFloat(order.total_amount) || 0;
+        spendingByMonth[monthKey] = (spendingByMonth[monthKey] || 0) + amount;
+    });
+
+    // Sort months chronologically
+    const sortedMonths = Object.keys(spendingByMonth).sort();
+    const monthLabels = sortedMonths.map(m => {
+        const [year, month] = m.split('-');
+        const date = new Date(year, month - 1);
+        return date.toLocaleDateString('default', { month: 'short', year: 'numeric' });
+    });
+    const monthValues = sortedMonths.map(m => spendingByMonth[m]);
+
+    // Create/update monthly chart
+    const monthlyCtx = document.getElementById('amazonMonthlyChart');
+    if (monthlyCtx) {
+        if (amazonMonthlyChart) {
+            amazonMonthlyChart.destroy();
+        }
+
+        amazonMonthlyChart = new Chart(monthlyCtx, {
+            type: 'bar',
+            data: {
+                labels: monthLabels,
+                datasets: [{
+                    label: 'Spending',
+                    data: monthValues,
+                    backgroundColor: 'rgba(76, 175, 80, 0.6)',
+                    borderColor: 'rgba(76, 175, 80, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Total: ' + formatCurrency(context.parsed.y);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return '$' + value.toLocaleString();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Group by year for yearly chart (use all orders, not filtered)
+    const spendingByYear = {};
     orders.forEach(order => {
         const date = new Date(order.order_date);
         const year = date.getFullYear();
-        const month = date.toLocaleString('default', { month: 'long', year: 'numeric' });
         const amount = parseFloat(order.total_amount) || 0;
-
-        // Sum by year
         spendingByYear[year] = (spendingByYear[year] || 0) + amount;
-
-        // Sum by month
-        spendingByMonth[month] = (spendingByMonth[month] || 0) + amount;
     });
 
-    // Sort years descending
-    const years = Object.keys(spendingByYear).sort((a, b) => b - a);
+    // Sort years chronologically
+    const sortedYears = Object.keys(spendingByYear).sort();
+    const yearLabels = sortedYears.map(y => y.toString());
+    const yearValues = sortedYears.map(y => spendingByYear[y]);
 
-    let html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">';
+    // Create/update yearly chart
+    const yearlyCtx = document.getElementById('amazonYearlyChart');
+    if (yearlyCtx) {
+        if (amazonYearlyChart) {
+            amazonYearlyChart.destroy();
+        }
 
-    // Display by year
-    html += '<div>';
-    html += '<h4 style="margin: 0 0 1rem 0; font-size: 0.95rem; color: var(--text-secondary);">By Year</h4>';
-    html += '<div style="display: flex; flex-direction: column; gap: 0.75rem;">';
-
-    years.forEach(year => {
-        const total = spendingByYear[year];
-        html += `
-            <div style="display: flex; justify-content: space-between; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px;">
-                <span style="font-weight: 500;">${year}</span>
-                <span style="font-weight: 600; color: var(--primary);">${formatCurrency(total)}</span>
-            </div>
-        `;
-    });
-
-    html += '</div></div>';
-
-    // Display by month
-    html += '<div>';
-    html += '<h4 style="margin: 0 0 1rem 0; font-size: 0.95rem; color: var(--text-secondary);">By Month</h4>';
-    html += '<div style="display: flex; flex-direction: column; gap: 0.75rem; max-height: 400px; overflow-y: auto;">';
-
-    // Sort months by date (most recent first)
-    const sortedMonths = Object.keys(spendingByMonth).sort((a, b) => {
-        return new Date(b) - new Date(a);
-    });
-
-    sortedMonths.forEach(month => {
-        const total = spendingByMonth[month];
-        html += `
-            <div style="display: flex; justify-content: space-between; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px;">
-                <span style="font-weight: 500;">${month}</span>
-                <span style="font-weight: 600; color: var(--primary);">${formatCurrency(total)}</span>
-            </div>
-        `;
-    });
-
-    html += '</div></div>';
-    html += '</div>';
-
-    container.innerHTML = html;
+        amazonYearlyChart = new Chart(yearlyCtx, {
+            type: 'bar',
+            data: {
+                labels: yearLabels,
+                datasets: [{
+                    label: 'Spending',
+                    data: yearValues,
+                    backgroundColor: 'rgba(33, 150, 243, 0.6)',
+                    borderColor: 'rgba(33, 150, 243, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Total: ' + formatCurrency(context.parsed.y);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return '$' + value.toLocaleString();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
 }
 
 function displayAmazonOrders(orders) {
@@ -2928,6 +3074,7 @@ function displayAmazonOrders(orders) {
                         <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
                             <h4 style="margin: 0; font-size: 1rem;">Order #${escapeHtml(order.order_id)}</h4>
                             ${matchBadge}
+                            ${order.account_name ? `<span style="background: var(--bg-primary); padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">👤 ${escapeHtml(order.account_name)}</span>` : ''}
                         </div>
                         <div style="color: var(--text-secondary); font-size: 0.9rem;">
                             <div style="margin-bottom: 0.25rem;">📅 ${formatDate(order.order_date)}</div>
@@ -2966,13 +3113,17 @@ async function handleAmazonFileUpload(event) {
         return;
     }
 
+    // Get account name from input
+    const accountName = document.getElementById('amazonAccountName').value.trim() || 'Primary';
+
     showLoading();
     showToast('Uploading and processing Amazon orders...', 'info');
 
     try {
         const csvContent = await file.text();
 
-        const result = await fetchAPI('/api/amazon/upload', {
+        // Add account name as query parameter
+        const result = await fetchAPI(`/api/amazon/upload?accountName=${encodeURIComponent(accountName)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'text/plain'
@@ -2982,7 +3133,7 @@ async function handleAmazonFileUpload(event) {
 
         if (result.success) {
             showToast(
-                `✓ Successfully imported ${result.imported} orders!\n` +
+                `✓ Successfully imported ${result.imported} orders for "${accountName}"!\n` +
                 `• Matched: ${result.matched} orders\n` +
                 `• Unmatched: ${result.unmatched} orders`,
                 'success'
@@ -3054,9 +3205,15 @@ function clearAmazonFilters() {
 function searchAmazonOrders() {
     const searchTerm = document.getElementById('amazonSearchInput').value.toLowerCase();
     const minConfidence = parseInt(document.getElementById('amazonFilterConfidence').value) || 0;
+    const accountFilter = document.getElementById('amazonFilterAccount').value;
 
     // Start with all orders
     let filtered = amazonOrders;
+
+    // Apply account filter
+    if (accountFilter) {
+        filtered = filtered.filter(order => order.account_name === accountFilter);
+    }
 
     // Apply confidence filter
     if (minConfidence > 0) {
@@ -3075,6 +3232,11 @@ function searchAmazonOrders() {
         filtered = filtered.filter(order => {
         // Search in order ID
         if (order.order_id && order.order_id.toLowerCase().includes(searchTerm)) {
+            return true;
+        }
+
+        // Search in account name
+        if (order.account_name && order.account_name.toLowerCase().includes(searchTerm)) {
             return true;
         }
 
