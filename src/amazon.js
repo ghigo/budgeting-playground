@@ -44,6 +44,17 @@ function findBestTransactionMatch(order, transactions) {
     const transactionDate = new Date(transaction.date);
     const transactionAmount = Math.abs(parseFloat(transaction.amount));
 
+    // CRITICAL: Only match transactions that have Amazon in description/merchant name
+    const description = (transaction.description || '').toLowerCase();
+    const merchantName = (transaction.merchant_name || '').toLowerCase();
+    const hasAmazon = description.includes('amazon') || merchantName.includes('amazon') ||
+                      description.includes('amzn') || merchantName.includes('amzn');
+
+    if (!hasAmazon) {
+      // Skip non-Amazon transactions entirely
+      continue;
+    }
+
     // Skip if transaction is too far from order date (within 0-7 days after order)
     const daysDiff = Math.floor((transactionDate - orderDate) / (1000 * 60 * 60 * 24));
     if (daysDiff < 0 || daysDiff > 7) {
@@ -74,17 +85,9 @@ function findBestTransactionMatch(order, transactions) {
     }
 
     // 2. Merchant name matching (30 points)
-    const description = (transaction.description || '').toLowerCase();
-    const merchantName = (transaction.merchant_name || '').toLowerCase();
-
-    if (description.includes('amazon') || merchantName.includes('amazon') ||
-        description.includes('amzn') || merchantName.includes('amzn')) {
-      confidence += 30;
-      reasons.push('Merchant name contains Amazon/AMZN');
-    } else {
-      // No Amazon in description, less confident
-      confidence += 5;
-    }
+    // We already confirmed Amazon is in the name above, so always give full points
+    confidence += 30;
+    reasons.push('Merchant name contains Amazon/AMZN');
 
     // 3. Date proximity (20 points)
     if (daysDiff === 0) {
