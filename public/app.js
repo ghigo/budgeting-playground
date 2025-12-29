@@ -793,13 +793,8 @@ async function autoCategorizeTransactions() {
         });
 
         if (result.success) {
-            showToast(
-                `✨ Auto-categorization complete!\n` +
-                `${result.updated} transactions categorized\n` +
-                `${result.skipped} skipped (verified or already categorized)\n` +
-                `${result.processed} processed`,
-                'success'
-            );
+            // Show detailed recap modal
+            showAutoCategorizeRecap(result);
 
             // Emit events to update all views
             eventBus.emit('transactionsUpdated');
@@ -1841,6 +1836,111 @@ async function applyCategoryToSimilar() {
         console.error('Error updating similar transactions:', error);
         showToast(`Failed to update: ${error.message}`, 'error');
     }
+}
+
+// ============================================================================
+// Auto-Categorization Recap Modal Functions
+// ============================================================================
+
+/**
+ * Show auto-categorization recap modal with details
+ */
+function showAutoCategorizeRecap(result) {
+    const modal = document.getElementById('autoCategorizeRecapModal');
+    const categorizedEl = document.getElementById('recapCategorized');
+    const skippedEl = document.getElementById('recapSkipped');
+    const totalEl = document.getElementById('recapTotal');
+    const listEl = document.getElementById('recapTransactionsList');
+    const containerEl = document.getElementById('recapTransactionsContainer');
+
+    // Update summary stats
+    categorizedEl.textContent = result.updated || 0;
+    skippedEl.textContent = result.skipped || 0;
+    totalEl.textContent = result.processed || 0;
+
+    // Show/hide transaction list based on whether there are categorized transactions
+    if (result.categorizedTransactions && result.categorizedTransactions.length > 0) {
+        containerEl.style.display = 'block';
+
+        // Build transaction rows
+        listEl.innerHTML = result.categorizedTransactions.map(tx => {
+            const formattedAmount = new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD'
+            }).format(Math.abs(tx.amount));
+
+            // Determine confidence badge color
+            let confidenceColor = '#666';
+            let confidenceBg = '#eee';
+            if (tx.confidence === 100) {
+                confidenceColor = '#fff';
+                confidenceBg = '#2563eb';
+            } else if (tx.confidence >= 95) {
+                confidenceColor = '#fff';
+                confidenceBg = '#059669'; // Green
+            } else if (tx.confidence >= 85) {
+                confidenceColor = '#fff';
+                confidenceBg = '#16a34a';
+            } else if (tx.confidence >= 70) {
+                confidenceColor = '#fff';
+                confidenceBg = '#ca8a04';
+            } else if (tx.confidence >= 50) {
+                confidenceColor = '#fff';
+                confidenceBg = '#ea580c';
+            }
+
+            return `
+                <tr style="border-bottom: 1px solid var(--border);">
+                    <td style="padding: 0.75rem;">${formatDate(tx.date)}</td>
+                    <td style="padding: 0.75rem;">
+                        <div style="font-weight: 500;">${escapeHtml(tx.merchant_name)}</div>
+                        ${tx.description !== tx.merchant_name ?
+                            `<div style="font-size: 0.75rem; color: var(--text-secondary);">${escapeHtml(tx.description)}</div>` :
+                            ''}
+                    </td>
+                    <td style="padding: 0.75rem;">${formattedAmount}</td>
+                    <td style="padding: 0.75rem;">
+                        ${tx.oldCategory ?
+                            `<div style="font-size: 0.75rem; color: var(--text-secondary); text-decoration: line-through;">${escapeHtml(tx.oldCategory)}</div>` :
+                            '<div style="font-size: 0.75rem; color: var(--text-secondary);">Uncategorized</div>'}
+                        <div style="font-weight: 500; color: var(--success);">${escapeHtml(tx.newCategory)}</div>
+                    </td>
+                    <td style="padding: 0.75rem; text-align: center;">
+                        <span style="
+                            display: inline-block;
+                            padding: 2px 8px;
+                            border-radius: 4px;
+                            font-size: 0.75rem;
+                            font-weight: 600;
+                            color: ${confidenceColor};
+                            background: ${confidenceBg};
+                        ">${tx.confidence}%</span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } else {
+        containerEl.style.display = 'none';
+    }
+
+    // Show the modal
+    modal.style.display = 'flex';
+
+    // Also show a toast notification
+    showToast(
+        `✨ Auto-categorization complete!\n` +
+        `${result.updated} transactions categorized\n` +
+        `${result.skipped} skipped (verified or already categorized)`,
+        'success'
+    );
+}
+
+/**
+ * Close auto-categorization recap modal
+ */
+function closeAutoCategorizeRecapModal() {
+    const modal = document.getElementById('autoCategorizeRecapModal');
+    modal.style.display = 'none';
 }
 
 // Check sheets status when dashboard loads

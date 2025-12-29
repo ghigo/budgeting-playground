@@ -812,6 +812,7 @@ export function recategorizeExistingTransactions(onlyUncategorized = true) {
   let skipped = 0;
 
   const batchUpdates = [];
+  const categorizedTransactions = []; // Track details for recap
 
   for (const row of rows) {
     // Skip verified transactions
@@ -848,6 +849,18 @@ export function recategorizeExistingTransactions(onlyUncategorized = true) {
         category,
         confidence
       });
+
+      // Add to recap
+      categorizedTransactions.push({
+        transaction_id: row.transaction_id,
+        date: row.date,
+        description: row.description,
+        merchant_name: row.merchant_name || row.description,
+        amount: row.amount,
+        oldCategory: row.category || '',
+        newCategory: category,
+        confidence: confidence
+      });
     }
   }
 
@@ -874,7 +887,8 @@ export function recategorizeExistingTransactions(onlyUncategorized = true) {
     total: rows.length,
     processed,
     updated,
-    skipped
+    skipped,
+    categorizedTransactions // Include detailed list
   };
 }
 
