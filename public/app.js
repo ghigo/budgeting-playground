@@ -497,7 +497,7 @@ function displayAccounts(accounts) {
     }
 
     container.innerHTML = accounts.map(acc => `
-        <div class="account-card">
+        <div class="account-card" onclick="viewAccountTransactions('${escapeHtml(acc.name)}')" style="cursor: pointer;" title="Click to view transactions">
             <div class="account-header">
                 <div>
                     <div class="account-name">${escapeHtml(acc.name)}</div>
@@ -511,6 +511,20 @@ function displayAccounts(accounts) {
             </div>
         </div>
     `).join('');
+}
+
+function viewAccountTransactions(accountName) {
+    // Navigate to transactions page
+    navigateTo('transactions');
+
+    // Wait for the page to load, then apply the filter
+    setTimeout(() => {
+        const filterAccount = document.getElementById('filterAccount');
+        if (filterAccount) {
+            filterAccount.value = accountName;
+            applyTransactionFilters();
+        }
+    }, 100);
 }
 
 async function syncInstitution(itemId, institutionName) {
