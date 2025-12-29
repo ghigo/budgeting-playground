@@ -929,26 +929,18 @@ function showCategoryDropdown(inputElementOrEvent, transactionIdParam = null) {
     let inputElement;
     let transactionId;
 
+    let clickedElement;
+
     if (typeof inputElementOrEvent === 'object' && inputElementOrEvent.target) {
-        // Called from button/span with event, need to find the transaction row
+        // Called from button/span with event
         const event = inputElementOrEvent;
         event.preventDefault();
         event.stopPropagation();
         transactionId = transactionIdParam;
 
         // Find the clicked element (could be button or span)
-        const clickedElement = event.target.closest('button') || event.target.closest('span[onclick]');
-        const container = clickedElement.parentElement;
-
-        // Create a temporary input-like element for the dropdown positioning
-        inputElement = document.createElement('div');
-        inputElement.setAttribute('data-transaction-id', transactionId);
-        inputElement.style.position = 'relative';
-        inputElement.style.display = 'inline-block';
-        inputElement.style.width = '250px';
-        inputElement.style.height = '0';
-        inputElement.style.verticalAlign = 'top';
-        container.appendChild(inputElement);
+        clickedElement = event.target.closest('button') || event.target.closest('span[onclick]');
+        inputElement = clickedElement; // Use the clicked element as reference for positioning
     } else {
         // Called from input element
         inputElement = inputElementOrEvent;
@@ -979,13 +971,16 @@ function showCategoryDropdown(inputElementOrEvent, transactionIdParam = null) {
         </div>
     `;
 
-    // Append dropdown to the input element (which has position: relative)
-    inputElement.appendChild(dropdown);
+    // Append dropdown to document body for proper positioning
+    document.body.appendChild(dropdown);
 
-    // Position dropdown - always start from top (0px) since we're inside the relative container
-    dropdown.style.top = '0px';
-    dropdown.style.left = '0px';
+    // Position dropdown relative to the clicked/input element
+    const rect = inputElement.getBoundingClientRect();
+    dropdown.style.position = 'fixed';
+    dropdown.style.top = (rect.bottom + 2) + 'px';
+    dropdown.style.left = rect.left + 'px';
     dropdown.style.minWidth = '250px';
+    dropdown.style.maxWidth = '400px';
 
     // Focus search input
     setTimeout(() => {
