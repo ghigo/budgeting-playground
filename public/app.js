@@ -2015,8 +2015,14 @@ function toggleAllSimilarTransactions() {
  * Apply category to selected similar transactions
  */
 async function applyCategoryToSimilar() {
+    console.log('=== applyCategoryToSimilar called ===');
+
     const checkboxes = document.querySelectorAll('.similar-tx-checkbox:checked');
     const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+
+    console.log('Selected checkboxes:', checkboxes.length);
+    console.log('Selected transaction IDs:', selectedIds);
+    console.log('Current suggested category:', currentSuggestedCategory);
 
     if (selectedIds.length === 0) {
         showToast('No transactions selected', 'warning');
@@ -2029,8 +2035,11 @@ async function applyCategoryToSimilar() {
         return;
     }
 
+    console.log('Showing loading spinner...');
     showLoading();
+
     try {
+        console.log('Making API call to bulk update...');
         const result = await fetchAPI('/api/transactions/bulk/category', {
             method: 'PATCH',
             body: JSON.stringify({
@@ -2039,8 +2048,11 @@ async function applyCategoryToSimilar() {
             })
         });
 
+        console.log('API response:', result);
+
         if (result.success) {
-            showToast(`✓ Updated ${result.updated} transaction(s) to category "${currentSuggestedCategory}"`, 'success');
+            const count = result.updated || 0;
+            showToast(`✓ Updated ${count} transaction(s) to category "${currentSuggestedCategory}"`, 'success');
 
             // Emit events to update all views
             eventBus.emit('transactionsUpdated');
@@ -2048,11 +2060,13 @@ async function applyCategoryToSimilar() {
             closeSimilarTransactionsModal();
         } else {
             showToast('Failed to update transactions', 'error');
+            console.error('API returned success: false');
         }
     } catch (error) {
         console.error('Error updating similar transactions:', error);
         showToast(`Failed to update: ${error.message}`, 'error');
     } finally {
+        console.log('Hiding loading spinner...');
         hideLoading();
     }
 }

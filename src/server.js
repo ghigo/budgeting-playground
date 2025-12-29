@@ -308,15 +308,23 @@ app.patch('/api/transactions/bulk/category', async (req, res) => {
   try {
     const { transactionIds, category } = req.body;
 
+    console.log('=== Bulk category update request ===');
+    console.log('Transaction IDs:', transactionIds);
+    console.log('Category:', category);
+
     if (!Array.isArray(transactionIds) || transactionIds.length === 0) {
+      console.error('Invalid transaction IDs array');
       return res.status(400).json({ error: 'Transaction IDs array is required' });
     }
 
     if (!category && category !== '') {
+      console.error('Invalid category');
       return res.status(400).json({ error: 'Category is required' });
     }
 
     const updated = database.updateMultipleTransactionCategories(transactionIds, category);
+
+    console.log('Updated count:', updated);
 
     res.json({
       success: true,

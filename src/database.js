@@ -780,18 +780,33 @@ export function findSimilarTransactions(transactionId, merchantName) {
  * Update categories for multiple transactions at once
  */
 export function updateMultipleTransactionCategories(transactionIds, category) {
+  console.log('=== updateMultipleTransactionCategories ===');
+  console.log('Transaction IDs:', transactionIds);
+  console.log('Category:', category);
+
   if (!transactionIds || transactionIds.length === 0) {
+    console.log('No transaction IDs provided, returning 0');
     return 0;
   }
 
   const placeholders = transactionIds.map(() => '?').join(',');
-  const stmt = db.prepare(`
+  console.log('SQL placeholders:', placeholders);
+
+  const sql = `
     UPDATE transactions
     SET category = ?, confidence = 100, verified = 'Yes'
     WHERE transaction_id IN (${placeholders})
-  `);
+  `;
+  console.log('SQL query:', sql);
 
-  const result = stmt.run(category, ...transactionIds);
+  const stmt = db.prepare(sql);
+  const params = [category, ...transactionIds];
+  console.log('SQL params:', params);
+
+  const result = stmt.run(...params);
+  console.log('Update result:', result);
+  console.log('Rows changed:', result.changes);
+
   return result.changes;
 }
 
