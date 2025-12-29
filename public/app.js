@@ -2023,6 +2023,13 @@ async function applyCategoryToSimilar() {
         return;
     }
 
+    if (!currentSuggestedCategory) {
+        showToast('No category selected', 'error');
+        console.error('currentSuggestedCategory is empty or undefined');
+        return;
+    }
+
+    showLoading();
     try {
         const result = await fetchAPI('/api/transactions/bulk/category', {
             method: 'PATCH',
@@ -2045,6 +2052,8 @@ async function applyCategoryToSimilar() {
     } catch (error) {
         console.error('Error updating similar transactions:', error);
         showToast(`Failed to update: ${error.message}`, 'error');
+    } finally {
+        hideLoading();
     }
 }
 
@@ -2415,29 +2424,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add ESC key listener to dismiss modals and clear filters
     document.addEventListener('keydown', (event) => {
+        // Check which modals are open
+        const similarTransactionsModal = document.getElementById('similarTransactionsModal');
+        const bulkCategoryModal = document.getElementById('bulkCategoryModal');
+        const editCategoryModal = document.getElementById('editCategoryModal');
+        const sheetsConfigModal = document.getElementById('sheetsConfigModal');
+
+        const similarOpen = similarTransactionsModal && similarTransactionsModal.style.display !== 'none';
+        const bulkOpen = bulkCategoryModal && bulkCategoryModal.style.display !== 'none';
+        const editOpen = editCategoryModal && editCategoryModal.style.display !== 'none';
+        const sheetsOpen = sheetsConfigModal && sheetsConfigModal.style.display !== 'none';
+        const anyModalOpen = similarOpen || bulkOpen || editOpen || sheetsOpen;
+
         if (event.key === 'Escape') {
             // First priority: Check if any modal is open and close it
-            const similarTransactionsModal = document.getElementById('similarTransactionsModal');
-            const bulkCategoryModal = document.getElementById('bulkCategoryModal');
-            const editCategoryModal = document.getElementById('editCategoryModal');
-            const sheetsConfigModal = document.getElementById('sheetsConfigModal');
-
-            if (similarTransactionsModal && similarTransactionsModal.style.display !== 'none') {
+            if (similarOpen) {
                 closeSimilarTransactionsModal();
                 return;
             }
 
-            if (bulkCategoryModal && bulkCategoryModal.style.display !== 'none') {
+            if (bulkOpen) {
                 closeBulkCategoryModal();
                 return;
             }
 
-            if (editCategoryModal && editCategoryModal.style.display !== 'none') {
+            if (editOpen) {
                 closeEditCategoryModal();
                 return;
             }
 
-            if (sheetsConfigModal && sheetsConfigModal.style.display !== 'none') {
+            if (sheetsOpen) {
                 closeSheetsConfigModal();
                 return;
             }
@@ -2461,6 +2477,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Clear all filters and reload all transactions from server
                 clearTransactionFilters();
+            }
+        }
+
+        // Handle Enter key to trigger primary CTA when modal is open
+        if (event.key === 'Enter' && anyModalOpen) {
+            // Don't trigger if user is typing in a textarea
+            const activeElement = document.activeElement;
+            if (activeElement && activeElement.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            event.preventDefault();
+
+            if (similarOpen) {
+                applyCategoryToSimilar();
+                return;
+            }
+
+            if (bulkOpen) {
+                applyBulkCategory();
+                return;
+            }
+
+            if (editOpen) {
+                saveEditCategory();
+                return;
+            }
+
+            if (sheetsOpen) {
+                saveSheetConfig();
+                return;
             }
         }
     });
