@@ -5,10 +5,83 @@ const API_URL = '';
 let plaidHandler = null;
 let currentPage = 'dashboard';
 
+// ============================================================================
+// Event Bus for Reactive State Management
+// ============================================================================
+
+class EventBus {
+    constructor() {
+        this.listeners = {};
+    }
+
+    on(event, callback) {
+        if (!this.listeners[event]) {
+            this.listeners[event] = [];
+        }
+        this.listeners[event].push(callback);
+    }
+
+    off(event, callback) {
+        if (!this.listeners[event]) return;
+        this.listeners[event] = this.listeners[event].filter(cb => cb !== callback);
+    }
+
+    emit(event, data) {
+        if (!this.listeners[event]) return;
+        this.listeners[event].forEach(callback => callback(data));
+    }
+}
+
+const eventBus = new EventBus();
+
+// Setup automatic view updates
+function setupReactiveUpdates() {
+    // When accounts change, refresh accounts page and transaction filters
+    eventBus.on('accountsUpdated', () => {
+        console.log('📡 Accounts updated, refreshing views...');
+        if (currentPage === 'accounts') {
+            loadAccounts();
+        }
+        // Refresh transaction filters on all pages
+        loadTransactionFilters();
+    });
+
+    // When transactions change, refresh transactions and dashboard
+    eventBus.on('transactionsUpdated', () => {
+        console.log('📡 Transactions updated, refreshing views...');
+        if (currentPage === 'transactions') {
+            loadTransactions();
+        }
+        if (currentPage === 'dashboard') {
+            loadDashboard();
+        }
+    });
+
+    // When categories change, refresh categories page and dropdowns
+    eventBus.on('categoriesUpdated', () => {
+        console.log('📡 Categories updated, refreshing views...');
+        if (currentPage === 'categories') {
+            loadCategories();
+        }
+        if (currentPage === 'transactions') {
+            loadTransactions(); // Reload to get updated category dropdowns
+        }
+    });
+
+    // When mappings change, refresh mappings page
+    eventBus.on('mappingsUpdated', () => {
+        console.log('📡 Mappings updated, refreshing views...');
+        if (currentPage === 'mappings') {
+            loadMappings();
+        }
+    });
+}
+
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
     setupNavigation();
     setupEventListeners();
+    setupReactiveUpdates();
     checkEnvironment();
     loadDashboard();
 });
@@ -418,7 +491,12 @@ async function syncInstitution(itemId, institutionName) {
 
         if (result.success) {
             showToast(`${result.institution} synced successfully! ${result.transactionsSynced} new transaction(s) added.`, 'success');
-            loadAccounts(); // Reload to show updated sync time
+
+            // Emit events to update all views
+            eventBus.emit('accountsUpdated');
+            if (result.transactionsSynced > 0) {
+                eventBus.emit('transactionsUpdated');
+            }
         } else {
             showToast(`Failed to sync ${institutionName}: ${result.error}`, 'error');
         }
@@ -444,8 +522,9 @@ async function removeInstitution(itemId, institutionName) {
 
         showToast(`${result.institution} removed successfully! Deleted ${result.accountsRemoved} account(s) and ${result.transactionsRemoved} transaction(s).`, 'success');
 
-        // Reload the accounts page
-        loadAccounts();
+        // Emit events to update all views
+        eventBus.emit('accountsUpdated');
+        eventBus.emit('transactionsUpdated');
     } catch (error) {
         showToast('Failed to remove institution: ' + error.message, 'error');
         console.error(error);
@@ -512,6 +591,45 @@ function updateTransactionFilters(transactions) {
         const accounts = [...new Set(transactions.map(t => t.account_name).filter(Boolean))];
         accountFilter.innerHTML = '<option value="">All Accounts</option>' +
             accounts.map(acc => `<option value="${escapeHtml(acc)}">${escapeHtml(acc)}</option>`).join('');
+    }
+}
+
+/**
+ * Load fresh transaction filter data (accounts and categories)
+ * Used by reactive updates when data changes
+ */
+async function loadTransactionFilters() {
+    try {
+        const [accounts, categories] = await Promise.all([
+            fetchAPI('/api/accounts'),
+            fetchAPI('/api/categories')
+        ]);
+
+        // Update account filter dropdown
+        const accountFilter = document.getElementById('filterAccount');
+        if (accountFilter) {
+            const currentValue = accountFilter.value;
+            accountFilter.innerHTML = '<option value="">All Accounts</option>' +
+                accounts.map(acc => `<option value="${escapeHtml(acc.name)}">${escapeHtml(acc.name)}</option>`).join('');
+            // Restore previous selection if still valid
+            if (currentValue && Array.from(accountFilter.options).some(opt => opt.value === currentValue)) {
+                accountFilter.value = currentValue;
+            }
+        }
+
+        // Update category filter dropdown
+        const categoryFilter = document.getElementById('filterCategory');
+        if (categoryFilter) {
+            const currentValue = categoryFilter.value;
+            categoryFilter.innerHTML = '<option value="">All Categories</option>' +
+                categories.map(cat => `<option value="${escapeHtml(cat.name)}">${escapeHtml(cat.name)}</option>`).join('');
+            // Restore previous selection if still valid
+            if (currentValue && Array.from(categoryFilter.options).some(opt => opt.value === currentValue)) {
+                categoryFilter.value = currentValue;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading transaction filters:', error);
     }
 }
 
@@ -653,7 +771,9 @@ async function verifyCategory(transactionId) {
             method: 'POST'
         });
         showToast(`Category "${result.category}" verified`, 'success');
-        loadTransactions(); // Reload to show verified status
+
+        // Emit events to update all views
+        eventBus.emit('transactionsUpdated');
     } catch (error) {
         showToast('Failed to verify category: ' + error.message, 'error');
         console.error(error);
@@ -680,7 +800,10 @@ async function autoCategorizeTransactions() {
                 `${result.processed} processed`,
                 'success'
             );
-            loadTransactions(); // Reload to show new categories
+
+            // Emit events to update all views
+            eventBus.emit('transactionsUpdated');
+            eventBus.emit('mappingsUpdated');
         }
     } catch (error) {
         showToast('Failed to auto-categorize: ' + error.message, 'error');
@@ -837,11 +960,13 @@ async function selectCategory(categoryName) {
 
         showToast('Category updated and verified', 'success');
 
+        // Emit events to update all views
+        eventBus.emit('transactionsUpdated');
+        eventBus.emit('mappingsUpdated');
+
         // Check if there are similar transactions to suggest updating
         if (result.similarTransactions && result.similarTransactions.length > 0) {
             showSimilarTransactionsModal(result.similarTransactions, result.suggestedCategory);
-        } else {
-            loadTransactions(); // Reload to show verified status
         }
     } catch (error) {
         showToast('Failed to update category: ' + error.message, 'error');
@@ -1074,7 +1199,9 @@ async function addCategory() {
         showToast('Category added successfully', 'success');
         nameInput.value = '';
         parentSelect.value = '';
-        loadCategories();
+
+        // Emit events to update all views
+        eventBus.emit('categoriesUpdated');
     } catch (error) {
         showToast('Failed to add category: ' + error.message, 'error');
         console.error(error);
@@ -1092,7 +1219,9 @@ async function deleteCategory(categoryName) {
         });
 
         showToast('Category deleted successfully', 'success');
-        loadCategories();
+
+        // Emit events to update all views
+        eventBus.emit('categoriesUpdated');
     } catch (error) {
         showToast('Failed to delete category: ' + error.message, 'error');
         console.error(error);
@@ -1276,6 +1405,12 @@ async function initiatePlaidLink() {
                         statusEl.textContent = '✓ Account linked! You can sync transactions from the Accounts page. Redirecting...';
                     }
 
+                    // Emit events to update all views
+                    eventBus.emit('accountsUpdated');
+                    if (transactionCount > 0) {
+                        eventBus.emit('transactionsUpdated');
+                    }
+
                     setTimeout(() => {
                         navigateTo('accounts');
                     }, 3000);
@@ -1331,14 +1466,9 @@ async function syncTransactions() {
         const result = await fetchAPI('/api/sync', { method: 'POST' });
         showToast(`Synced successfully! ${result.newTransactions || 0} new transactions`, 'success');
 
-        // Reload current page data
-        if (currentPage === 'dashboard') {
-            loadDashboard();
-        } else if (currentPage === 'transactions') {
-            loadTransactions();
-        } else if (currentPage === 'accounts') {
-            loadAccounts();
-        }
+        // Emit events to update all views
+        eventBus.emit('accountsUpdated');
+        eventBus.emit('transactionsUpdated');
     } catch (error) {
         showToast('Sync failed: ' + error.message, 'error');
         console.error(error);
@@ -1366,14 +1496,8 @@ async function backfillHistoricalTransactions() {
         const result = await fetchAPI('/api/backfill', { method: 'POST' });
         showToast(`Backfill complete! ${result.totalTransactions || 0} new transactions added`, 'success');
 
-        // Reload current page data
-        if (currentPage === 'dashboard') {
-            loadDashboard();
-        } else if (currentPage === 'transactions') {
-            loadTransactions();
-        } else if (currentPage === 'accounts') {
-            loadAccounts();
-        }
+        // Emit events to update all views
+        eventBus.emit('transactionsUpdated');
     } catch (error) {
         showToast('Backfill failed: ' + error.message, 'error');
         console.error(error);
@@ -1668,9 +1792,6 @@ function closeSimilarTransactionsModal() {
     modal.style.display = 'none';
     currentSimilarTransactions = [];
     currentSuggestedCategory = '';
-
-    // Reload transactions after closing
-    loadTransactions();
 }
 
 /**
@@ -1708,6 +1829,10 @@ async function applyCategoryToSimilar() {
 
         if (result.success) {
             showToast(`✓ Updated ${result.updated} transaction(s) to category "${currentSuggestedCategory}"`, 'success');
+
+            // Emit events to update all views
+            eventBus.emit('transactionsUpdated');
+
             closeSimilarTransactionsModal();
         } else {
             showToast('Failed to update transactions', 'error');
