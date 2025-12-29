@@ -126,7 +126,7 @@ function findBestTransactionMatch(order, transactions) {
  */
 export async function autoMatchAmazonOrders() {
   const unmatchedOrders = database.getUnmatchedAmazonOrders();
-  const allTransactions = database.getTransactions({ limit: 10000 });
+  const allTransactions = database.getTransactions(10000);
 
   const { matches, unmatchedOrders: stillUnmatched } = matchAmazonOrdersToTransactions(
     unmatchedOrders,

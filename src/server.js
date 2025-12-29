@@ -647,7 +647,7 @@ app.get('/api/amazon/orders/:orderId', (req, res) => {
 
     // If matched, include transaction details
     if (order.matched_transaction_id) {
-      const transaction = database.getTransactions({ limit: 10000 })
+      const transaction = database.getTransactions(10000)
         .find(t => t.transaction_id === order.matched_transaction_id);
 
       order.matched_transaction = transaction || null;
