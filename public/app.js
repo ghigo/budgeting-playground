@@ -2798,10 +2798,10 @@ function populateAccountFilter() {
 // Global chart instances
 let amazonMonthlyChart = null;
 let amazonYearlyChart = null;
-let currentTimeRange = 'all';
+let amazonCurrentTimeRange = 'all';
 
 function selectTimeRange(range) {
-    currentTimeRange = range;
+    amazonCurrentTimeRange = range;
 
     // Update button states
     document.querySelectorAll('.time-range-btn').forEach(btn => {
@@ -2834,7 +2834,7 @@ function displayAmazonSpendingByTime(orders) {
     const filteredOrders = orders.filter(order => {
         const orderDate = new Date(order.order_date);
 
-        switch (currentTimeRange) {
+        switch (amazonCurrentTimeRange) {
             case '1m':
                 const oneMonthAgo = new Date(now);
                 oneMonthAgo.setMonth(now.getMonth() - 1);
