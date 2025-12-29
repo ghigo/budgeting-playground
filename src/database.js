@@ -322,6 +322,15 @@ export function saveTransactions(transactions, categorizationData) {
 
   console.log(`  📝 Processing ${transactions.length} transaction(s) from Plaid...`);
 
+  // Debug: Log first transaction to see Plaid data structure
+  if (transactions.length > 0 && process.env.DEBUG_CATEGORIZATION) {
+    console.log('  🔍 Debug - Sample Plaid transaction:');
+    console.log('     merchant_name:', transactions[0].merchant_name);
+    console.log('     name:', transactions[0].name);
+    console.log('     category:', transactions[0].category);
+    console.log('     personal_finance_category:', transactions[0].personal_finance_category);
+  }
+
   // Get categorization data if not provided
   if (!categorizationData) {
     categorizationData = {
@@ -329,6 +338,14 @@ export function saveTransactions(transactions, categorizationData) {
       categoryRules: getEnabledCategoryRules(),
       plaidMappings: getPlaidCategoryMappings()
     };
+  }
+
+  // Debug: Log categorization data availability
+  if (process.env.DEBUG_CATEGORIZATION) {
+    console.log(`  📊 Categorization data:`);
+    console.log(`     Merchant mappings: ${categorizationData.merchantMappings.length}`);
+    console.log(`     Category rules: ${categorizationData.categoryRules.length}`);
+    console.log(`     Plaid mappings: ${categorizationData.plaidMappings.length}`);
   }
 
   const stmt = db.prepare(`
@@ -431,44 +448,93 @@ function isFuzzyMatch(str1, str2, threshold = 0.8) {
 
 /**
  * Map Plaid's category to default categories
+ * Handles both old category array format and new personal_finance_category format
  */
 function mapPlaidCategoryToDefault(plaidCategory) {
+  if (!plaidCategory) return null;
+
   const cat = plaidCategory.toLowerCase();
 
-  if (cat.includes('restaurant') || cat.includes('food') || cat.includes('coffee')) {
+  // Food & Dining
+  if (cat.includes('restaurant') || cat.includes('food_and_drink') || cat.includes('dining') ||
+      cat.includes('coffee') || cat.includes('fast food') || cat.includes('bar')) {
     return 'Restaurants';
   }
-  if (cat.includes('groceries') || cat.includes('supermarket')) {
+  if (cat.includes('groceries') || cat.includes('supermarket') || cat.includes('food_store')) {
     return 'Groceries';
   }
-  if (cat.includes('gas') || cat.includes('fuel')) {
+
+  // Transportation
+  if (cat.includes('gas') || cat.includes('fuel') || cat.includes('service_station')) {
     return 'Gas';
   }
-  if (cat.includes('transport') || cat.includes('taxi') || cat.includes('uber')) {
+  if (cat.includes('transport') || cat.includes('taxi') || cat.includes('uber') ||
+      cat.includes('lyft') || cat.includes('parking') || cat.includes('public_transit') ||
+      cat.includes('automotive')) {
     return 'Transportation';
   }
-  if (cat.includes('shop') || cat.includes('retail')) {
+
+  // Shopping
+  if (cat.includes('shop') || cat.includes('retail') || cat.includes('general_merchandise') ||
+      cat.includes('clothing') || cat.includes('electronics') || cat.includes('home_improvement')) {
     return 'Shopping';
   }
-  if (cat.includes('entertainment') || cat.includes('recreation')) {
+
+  // Entertainment & Recreation
+  if (cat.includes('entertainment') || cat.includes('recreation') || cat.includes('gym') ||
+      cat.includes('fitness') || cat.includes('sports') || cat.includes('movie') ||
+      cat.includes('music') || cat.includes('streaming')) {
     return 'Entertainment';
   }
-  if (cat.includes('travel') || cat.includes('hotel') || cat.includes('airfare')) {
+
+  // Travel
+  if (cat.includes('travel') || cat.includes('hotel') || cat.includes('airfare') ||
+      cat.includes('lodging') || cat.includes('airline') || cat.includes('vacation')) {
     return 'Travel';
   }
-  if (cat.includes('healthcare') || cat.includes('medical')) {
+
+  // Healthcare
+  if (cat.includes('healthcare') || cat.includes('medical') || cat.includes('doctor') ||
+      cat.includes('pharmacy') || cat.includes('hospital') || cat.includes('dental')) {
     return 'Healthcare';
   }
-  if (cat.includes('utility') || cat.includes('utilities')) {
+
+  // Bills & Utilities
+  if (cat.includes('utility') || cat.includes('utilities') || cat.includes('electric') ||
+      cat.includes('water') || cat.includes('internet') || cat.includes('phone') ||
+      cat.includes('cable') || cat.includes('rent') || cat.includes('mortgage')) {
     return 'Bills & Utilities';
   }
-  if (cat.includes('income') || cat.includes('paycheck')) {
+
+  // Income
+  if (cat.includes('income') || cat.includes('paycheck') || cat.includes('salary') ||
+      cat.includes('deposit') || cat.includes('refund') || cat.includes('reimbursement')) {
     return 'Income';
   }
-  if (cat.includes('transfer')) {
+
+  // Transfer
+  if (cat.includes('transfer') || cat.includes('payment') || cat.includes('credit_card_payment')) {
     return 'Transfer';
   }
 
+  // Personal Care
+  if (cat.includes('personal_care') || cat.includes('salon') || cat.includes('spa') ||
+      cat.includes('barber')) {
+    return 'Personal Care';
+  }
+
+  // Education
+  if (cat.includes('education') || cat.includes('school') || cat.includes('tuition') ||
+      cat.includes('student')) {
+    return 'Education';
+  }
+
+  // Subscriptions
+  if (cat.includes('subscription') || cat.includes('membership')) {
+    return 'Subscriptions';
+  }
+
+  // Catch-all for uncategorized
   return 'Other';
 }
 
@@ -477,20 +543,30 @@ function mapPlaidCategoryToDefault(plaidCategory) {
  */
 function autoCategorizeTransaction(transaction, categorizationData, skipSavingMappings = false) {
   try {
-    const merchantName = transaction.merchant_name || transaction.name || '';
+    const merchantName = transaction.merchant_name || '';
     const description = transaction.name || '';
 
     const { merchantMappings, categoryRules, plaidMappings } = categorizationData;
 
+    if (process.env.DEBUG_CATEGORIZATION) {
+      console.log(`  🔍 Categorizing: "${description}"`);
+      console.log(`     Merchant: "${merchantName}"`);
+    }
+
     // STEP 1: Exact merchant lookup - 95% confidence
-    const exactMatch = merchantMappings.find(
-      m => m.merchant_name.toLowerCase() === merchantName.toLowerCase()
-    );
-    if (exactMatch) {
-      if (!skipSavingMappings) {
-        saveMerchantMapping(merchantName, exactMatch.category);
+    if (merchantName) {
+      const exactMatch = merchantMappings.find(
+        m => m.merchant_name.toLowerCase() === merchantName.toLowerCase()
+      );
+      if (exactMatch) {
+        if (!skipSavingMappings) {
+          saveMerchantMapping(merchantName, exactMatch.category);
+        }
+        if (process.env.DEBUG_CATEGORIZATION) {
+          console.log(`     ✓ Exact merchant match: "${exactMatch.category}" (95%)`);
+        }
+        return { category: exactMatch.category, confidence: 95 };
       }
-      return { category: exactMatch.category, confidence: 95 };
     }
 
     // STEP 2: Pattern matching (regex rules) - 85% confidence
@@ -500,6 +576,9 @@ function autoCategorizeTransaction(transaction, categorizationData, skipSavingMa
         if (regex.test(merchantName) || regex.test(description)) {
           if (merchantName && !skipSavingMappings) {
             saveMerchantMapping(merchantName, rule.category);
+          }
+          if (process.env.DEBUG_CATEGORIZATION) {
+            console.log(`     ✓ Pattern match: "${rule.category}" (85%)`);
           }
           return { category: rule.category, confidence: 85 };
         }
@@ -515,49 +594,72 @@ function autoCategorizeTransaction(transaction, categorizationData, skipSavingMa
           if (!skipSavingMappings) {
             saveMerchantMapping(merchantName, mapping.category);
           }
+          if (process.env.DEBUG_CATEGORIZATION) {
+            console.log(`     ✓ Fuzzy match: "${mapping.category}" (75%)`);
+          }
           return { category: mapping.category, confidence: 75 };
         }
       }
     }
 
-    // STEP 4: Plaid category mapping - 70% confidence
-    if (transaction.category && transaction.category.length > 0) {
+    // STEP 4: Check personal_finance_category first (newer Plaid field) - 70% / 50% confidence
+    if (transaction.personal_finance_category) {
+      const pfc = transaction.personal_finance_category;
+      const pfcString = pfc.detailed || pfc.primary;
+
+      if (pfcString) {
+        const mapping = plaidMappings.find(m => m.plaid_category === pfcString);
+        if (mapping) {
+          if (process.env.DEBUG_CATEGORIZATION) {
+            console.log(`     ✓ Plaid PFC mapping: "${mapping.user_category}" (70%)`);
+          }
+          return { category: mapping.user_category, confidence: 70 };
+        }
+
+        // Auto-create mapping from PFC
+        if (!skipSavingMappings) {
+          const suggestedCategory = mapPlaidCategoryToDefault(pfcString);
+          if (suggestedCategory) {
+            savePlaidCategoryMapping(pfcString, suggestedCategory);
+            if (process.env.DEBUG_CATEGORIZATION) {
+              console.log(`     ✓ Auto-created PFC mapping: "${suggestedCategory}" (50%)`);
+            }
+            return { category: suggestedCategory, confidence: 50 };
+          }
+        }
+      }
+    }
+
+    // STEP 5: Plaid legacy category array - 70% / 50% confidence
+    if (Array.isArray(transaction.category) && transaction.category.length > 0) {
+      // Check from most specific to least specific
       for (let i = transaction.category.length - 1; i >= 0; i--) {
         const plaidCat = transaction.category[i];
         const mapping = plaidMappings.find(m => m.plaid_category === plaidCat);
         if (mapping) {
+          if (process.env.DEBUG_CATEGORIZATION) {
+            console.log(`     ✓ Plaid category mapping: "${mapping.user_category}" (70%)`);
+          }
           return { category: mapping.user_category, confidence: 70 };
         }
       }
 
-      // Auto-create mapping - 50% confidence
+      // Auto-create mapping from category array
       if (!skipSavingMappings) {
         const plaidCategory = transaction.category[transaction.category.length - 1];
         const suggestedCategory = mapPlaidCategoryToDefault(plaidCategory);
         if (suggestedCategory) {
           savePlaidCategoryMapping(plaidCategory, suggestedCategory);
+          if (process.env.DEBUG_CATEGORIZATION) {
+            console.log(`     ✓ Auto-created category mapping: "${suggestedCategory}" (50%)`);
+          }
           return { category: suggestedCategory, confidence: 50 };
         }
       }
     }
 
-    // STEP 5: Check personal_finance_category - 70% / 50% confidence
-    if (transaction.personal_finance_category) {
-      const pfc = transaction.personal_finance_category;
-      const pfcString = pfc.detailed || pfc.primary;
-
-      const mapping = plaidMappings.find(m => m.plaid_category === pfcString);
-      if (mapping) {
-        return { category: mapping.user_category, confidence: 70 };
-      }
-
-      if (!skipSavingMappings) {
-        const suggestedCategory = mapPlaidCategoryToDefault(pfcString);
-        if (suggestedCategory) {
-          savePlaidCategoryMapping(pfcString, suggestedCategory);
-          return { category: suggestedCategory, confidence: 50 };
-        }
-      }
+    if (process.env.DEBUG_CATEGORIZATION) {
+      console.log(`     ✗ No category match found`);
     }
 
     return { category: '', confidence: 0 };
@@ -568,12 +670,22 @@ function autoCategorizeTransaction(transaction, categorizationData, skipSavingMa
 }
 
 export function updateTransactionCategory(transactionId, category) {
+  // Get the transaction to extract merchant name
+  const transaction = db.prepare('SELECT * FROM transactions WHERE transaction_id = ?').get(transactionId);
+
+  // Update the transaction
   const stmt = db.prepare(`
     UPDATE transactions
     SET category = ?, confidence = 100, verified = 'Yes'
     WHERE transaction_id = ?
   `);
   stmt.run(category, transactionId);
+
+  // Save merchant mapping so future transactions from this merchant auto-categorize
+  if (transaction && transaction.merchant_name) {
+    saveMerchantMapping(transaction.merchant_name, category);
+    console.log(`  📚 Learned: "${transaction.merchant_name}" → "${category}"`);
+  }
 }
 
 /**
