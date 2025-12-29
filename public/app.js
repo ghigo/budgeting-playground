@@ -2394,17 +2394,41 @@ function showAllTransactions() {
 document.addEventListener('DOMContentLoaded', () => {
     checkSheetsStatus();
 
-    // Add ESC key listener to clear filters
+    // Add ESC key listener to dismiss modals and clear filters
     document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') {
-            // Check if we're on the transactions page
-            const transactionsPage = document.getElementById('transactions-page');
-            const isVisible = transactionsPage &&
-                (transactionsPage.style.display === '' ||
-                 transactionsPage.style.display === 'block' ||
-                 window.getComputedStyle(transactionsPage).display !== 'none');
+            // First priority: Check if any modal is open and close it
+            const similarTransactionsModal = document.getElementById('similarTransactionsModal');
+            const bulkCategoryModal = document.getElementById('bulkCategoryModal');
+            const editCategoryModal = document.getElementById('editCategoryModal');
+            const sheetsConfigModal = document.getElementById('sheetsConfigModal');
 
-            if (isVisible) {
+            if (similarTransactionsModal && similarTransactionsModal.style.display !== 'none') {
+                closeSimilarTransactionsModal();
+                return;
+            }
+
+            if (bulkCategoryModal && bulkCategoryModal.style.display !== 'none') {
+                closeBulkCategoryModal();
+                return;
+            }
+
+            if (editCategoryModal && editCategoryModal.style.display !== 'none') {
+                closeEditCategoryModal();
+                return;
+            }
+
+            if (sheetsConfigModal && sheetsConfigModal.style.display !== 'none') {
+                closeSheetsConfigModal();
+                return;
+            }
+
+            // Second priority: If on transactions page and no modals are open, clear filters
+            const transactionsPage = document.getElementById('transactions-page');
+            const isOnTransactionsPage = transactionsPage &&
+                window.getComputedStyle(transactionsPage).display !== 'none';
+
+            if (isOnTransactionsPage) {
                 // Blur any focused input first
                 const activeElement = document.activeElement;
                 const isInputField = activeElement &&
