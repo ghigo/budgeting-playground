@@ -1637,20 +1637,36 @@ function showToast(message, type = 'info', options = {}) {
         toast.style.justifyContent = 'space-between';
         toast.style.gap = '1rem';
         toast.style.cursor = 'default';
+        toast.style.padding = '1rem 1.25rem';
 
         const messageSpan = document.createElement('span');
         messageSpan.textContent = message;
+        messageSpan.style.flex = '1';
         toast.appendChild(messageSpan);
 
         const undoBtn = document.createElement('button');
-        undoBtn.textContent = 'Undo';
-        undoBtn.className = 'btn btn-secondary';
-        undoBtn.style.padding = '0.25rem 0.75rem';
+        undoBtn.textContent = 'UNDO';
+        undoBtn.style.padding = '0.5rem 1rem';
         undoBtn.style.fontSize = '0.875rem';
-        undoBtn.style.background = 'rgba(255,255,255,0.2)';
-        undoBtn.style.border = '1px solid rgba(255,255,255,0.3)';
-        undoBtn.style.color = 'white';
+        undoBtn.style.fontWeight = '600';
+        undoBtn.style.background = 'white';
+        undoBtn.style.color = '#16a34a';
+        undoBtn.style.border = 'none';
+        undoBtn.style.borderRadius = '6px';
         undoBtn.style.cursor = 'pointer';
+        undoBtn.style.whiteSpace = 'nowrap';
+        undoBtn.style.transition = 'all 0.2s ease';
+        undoBtn.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+
+        // Hover effects
+        undoBtn.addEventListener('mouseenter', () => {
+            undoBtn.style.background = '#f0f0f0';
+            undoBtn.style.transform = 'scale(1.05)';
+        });
+        undoBtn.addEventListener('mouseleave', () => {
+            undoBtn.style.background = 'white';
+            undoBtn.style.transform = 'scale(1)';
+        });
 
         undoBtn.addEventListener('click', async () => {
             clearTimeout(timeoutId);
