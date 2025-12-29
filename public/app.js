@@ -2766,13 +2766,90 @@ async function loadAmazonOrders(filters = {}) {
     }
 }
 
+function displayAmazonSpendingByTime(orders) {
+    const container = document.getElementById('amazonSpendingByTime');
+
+    if (!orders || orders.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 1rem; text-align: center;">No data available</p>';
+        return;
+    }
+
+    // Group orders by year and month
+    const spendingByYear = {};
+    const spendingByMonth = {};
+
+    orders.forEach(order => {
+        const date = new Date(order.order_date);
+        const year = date.getFullYear();
+        const month = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+        const amount = parseFloat(order.total_amount) || 0;
+
+        // Sum by year
+        spendingByYear[year] = (spendingByYear[year] || 0) + amount;
+
+        // Sum by month
+        spendingByMonth[month] = (spendingByMonth[month] || 0) + amount;
+    });
+
+    // Sort years descending
+    const years = Object.keys(spendingByYear).sort((a, b) => b - a);
+
+    let html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">';
+
+    // Display by year
+    html += '<div>';
+    html += '<h4 style="margin: 0 0 1rem 0; font-size: 0.95rem; color: var(--text-secondary);">By Year</h4>';
+    html += '<div style="display: flex; flex-direction: column; gap: 0.75rem;">';
+
+    years.forEach(year => {
+        const total = spendingByYear[year];
+        html += `
+            <div style="display: flex; justify-content: space-between; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px;">
+                <span style="font-weight: 500;">${year}</span>
+                <span style="font-weight: 600; color: var(--primary);">${formatCurrency(total)}</span>
+            </div>
+        `;
+    });
+
+    html += '</div></div>';
+
+    // Display by month
+    html += '<div>';
+    html += '<h4 style="margin: 0 0 1rem 0; font-size: 0.95rem; color: var(--text-secondary);">By Month</h4>';
+    html += '<div style="display: flex; flex-direction: column; gap: 0.75rem; max-height: 400px; overflow-y: auto;">';
+
+    // Sort months by date (most recent first)
+    const sortedMonths = Object.keys(spendingByMonth).sort((a, b) => {
+        return new Date(b) - new Date(a);
+    });
+
+    sortedMonths.forEach(month => {
+        const total = spendingByMonth[month];
+        html += `
+            <div style="display: flex; justify-content: space-between; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px;">
+                <span style="font-weight: 500;">${month}</span>
+                <span style="font-weight: 600; color: var(--primary);">${formatCurrency(total)}</span>
+            </div>
+        `;
+    });
+
+    html += '</div></div>';
+    html += '</div>';
+
+    container.innerHTML = html;
+}
+
 function displayAmazonOrders(orders) {
     const container = document.getElementById('amazonOrdersList');
 
     if (!orders || orders.length === 0) {
         container.innerHTML = '<p style="color: var(--text-secondary); padding: 2rem; text-align: center;">No Amazon orders found. Upload your order history to get started!</p>';
+        displayAmazonSpendingByTime([]);
         return;
     }
+
+    // Also display spending by time
+    displayAmazonSpendingByTime(orders);
 
     let html = '<div style="display: flex; flex-direction: column; gap: 1rem;">';
 
