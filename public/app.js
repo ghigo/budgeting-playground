@@ -945,7 +945,9 @@ function showCategoryDropdown(inputElementOrEvent, transactionIdParam = null) {
         inputElement.setAttribute('data-transaction-id', transactionId);
         inputElement.style.position = 'relative';
         inputElement.style.display = 'inline-block';
-        inputElement.style.width = '200px';
+        inputElement.style.width = '250px';
+        inputElement.style.height = '0';
+        inputElement.style.verticalAlign = 'top';
         container.appendChild(inputElement);
     } else {
         // Called from input element
@@ -957,7 +959,6 @@ function showCategoryDropdown(inputElementOrEvent, transactionIdParam = null) {
     closeAllDropdowns();
 
     currentDropdownInput = inputElement;
-    const container = inputElement.parentElement;
 
     // Create dropdown element
     const dropdown = document.createElement('div');
@@ -978,11 +979,13 @@ function showCategoryDropdown(inputElementOrEvent, transactionIdParam = null) {
         </div>
     `;
 
-    container.appendChild(dropdown);
+    // Append dropdown to the input element (which has position: relative)
+    inputElement.appendChild(dropdown);
 
-    // Position dropdown
-    dropdown.style.top = (inputElement.offsetHeight + 2) + 'px';
-    dropdown.style.width = inputElement.offsetWidth + 'px';
+    // Position dropdown - always start from top (0px) since we're inside the relative container
+    dropdown.style.top = '0px';
+    dropdown.style.left = '0px';
+    dropdown.style.minWidth = '250px';
 
     // Focus search input
     setTimeout(() => {
