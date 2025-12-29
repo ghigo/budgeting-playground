@@ -1075,6 +1075,76 @@ export function addCategory(name, parentCategory = null) {
   }
 }
 
+export function updateCategory(oldName, newName, newParentCategory = null) {
+  // Check if category exists
+  const existingCategory = db.prepare('SELECT * FROM categories WHERE name = ?').get(oldName);
+  if (!existingCategory) {
+    throw new Error('Category not found');
+  }
+
+  // Check if new name already exists (if name is changing)
+  if (oldName !== newName) {
+    const duplicate = db.prepare('SELECT * FROM categories WHERE name = ? AND name != ?').get(newName, oldName);
+    if (duplicate) {
+      throw new Error('A category with this name already exists');
+    }
+  }
+
+  // Use transaction to update both category and all related transactions
+  const transaction = db.transaction(() => {
+    // Update category
+    const updateCategoryStmt = db.prepare(`
+      UPDATE categories
+      SET name = ?, parent_category = ?
+      WHERE name = ?
+    `);
+    updateCategoryStmt.run(newName, newParentCategory || '', oldName);
+
+    // Update all transactions that use this category
+    const updateTransactionsStmt = db.prepare(`
+      UPDATE transactions
+      SET category = ?
+      WHERE category = ?
+    `);
+    const result = updateTransactionsStmt.run(newName, oldName);
+
+    return { success: true, name: newName, parent_category: newParentCategory, transactionsUpdated: result.changes };
+  });
+
+  return transaction();
+}
+
+export function deleteCategory(name) {
+  // Check if category exists
+  const existingCategory = db.prepare('SELECT * FROM categories WHERE name = ?').get(name);
+  if (!existingCategory) {
+    throw new Error('Category not found');
+  }
+
+  // Use transaction to delete category and uncategorize related transactions
+  const transaction = db.transaction(() => {
+    // Delete category
+    const deleteCategoryStmt = db.prepare('DELETE FROM categories WHERE name = ?');
+    deleteCategoryStmt.run(name);
+
+    // Move all transactions in this category to uncategorized and unverify them
+    const updateTransactionsStmt = db.prepare(`
+      UPDATE transactions
+      SET category = '', verified = 'No', confidence = 0
+      WHERE category = ?
+    `);
+    const result = updateTransactionsStmt.run(name);
+
+    // Delete all merchant mappings for this category
+    const deleteMappingsStmt = db.prepare('DELETE FROM merchant_mappings WHERE category = ?');
+    deleteMappingsStmt.run(name);
+
+    return { success: true, transactionsAffected: result.changes };
+  });
+
+  return transaction();
+}
+
 export function getCategorySpending(startDate = null, endDate = null) {
   let sql = `
     SELECT

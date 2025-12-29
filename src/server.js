@@ -225,8 +225,15 @@ app.post('/api/categories', async (req, res) => {
 // Update a category
 app.put('/api/categories/:categoryName', async (req, res) => {
   try {
-    // TODO: Implement this function in database.js
-    res.status(501).json({ error: 'Category update not yet implemented for SQLite' });
+    const oldName = req.params.categoryName;
+    const { name: newName, parent_category } = req.body;
+
+    if (!newName) {
+      return res.status(400).json({ error: 'Category name is required' });
+    }
+
+    const result = database.updateCategory(oldName, newName, parent_category);
+    res.json(result);
   } catch (error) {
     console.error('Error updating category:', error);
     res.status(500).json({ error: error.message });
@@ -236,8 +243,9 @@ app.put('/api/categories/:categoryName', async (req, res) => {
 // Delete a category
 app.delete('/api/categories/:categoryName', async (req, res) => {
   try {
-    // TODO: Implement this function in database.js
-    res.status(501).json({ error: 'Category deletion not yet implemented for SQLite' });
+    const { categoryName } = req.params;
+    const result = database.deleteCategory(categoryName);
+    res.json(result);
   } catch (error) {
     console.error('Error deleting category:', error);
     res.status(500).json({ error: error.message });

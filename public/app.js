@@ -1126,7 +1126,10 @@ function displayCategories(categories, spending) {
                         <span class="category-name">${escapeHtml(cat.name)}</span>
                         <span class="category-stats">${catSpending.count} transactions · ${formatCurrency(catSpending.total)}</span>
                     </div>
-                    <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(cat.name)}')" title="Delete category">🗑️</button>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(cat.name)}', '${escapeHtml(cat.parent_category || '')}')" title="Edit category">✏️</button>
+                        <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(cat.name)}')" title="Delete category">🗑️</button>
+                    </div>
                 </div>
         `;
 
@@ -1141,7 +1144,10 @@ function displayCategories(categories, spending) {
                                 <span class="category-name">↳ ${escapeHtml(child.name)}</span>
                                 <span class="category-stats">${childSpending.count} transactions · ${formatCurrency(childSpending.total)}</span>
                             </div>
-                            <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(child.name)}')" title="Delete category">🗑️</button>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(child.name)}', '${escapeHtml(child.parent_category || '')}')" title="Edit category">✏️</button>
+                                <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(child.name)}')" title="Delete category">🗑️</button>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -1164,7 +1170,10 @@ function displayCategories(categories, spending) {
                             <span class="category-name">${escapeHtml(orphan.name)} <span style="color: var(--text-secondary); font-size: 0.875rem;">(orphaned)</span></span>
                             <span class="category-stats">${orphanSpending.count} transactions · ${formatCurrency(orphanSpending.total)}</span>
                         </div>
-                        <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(orphan.name)}')" title="Delete category">🗑️</button>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(orphan.name)}', '${escapeHtml(orphan.parent_category || '')}')" title="Edit category">✏️</button>
+                            <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(orphan.name)}')" title="Delete category">🗑️</button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1272,23 +1281,88 @@ async function addCategory() {
     }
 }
 
-async function deleteCategory(categoryName) {
-    if (!confirm(`Are you sure you want to delete the category "${categoryName}"?\n\nThis will fail if any transactions are using this category.`)) {
+let currentEditingCategory = null;
+
+function editCategory(categoryName, parentCategory) {
+    currentEditingCategory = categoryName;
+
+    // Populate modal fields
+    document.getElementById('editCategoryName').value = categoryName;
+
+    // Populate parent category dropdown
+    const parentSelect = document.getElementById('editCategoryParent');
+    parentSelect.innerHTML = '<option value="">No parent (top-level category)</option>';
+
+    // Get all categories to populate parent dropdown (exclude the category being edited)
+    allCategories.filter(cat => cat.name !== categoryName).forEach(cat => {
+        const option = document.createElement('option');
+        option.value = cat.name;
+        option.textContent = cat.name;
+        if (cat.name === parentCategory) {
+            option.selected = true;
+        }
+        parentSelect.appendChild(option);
+    });
+
+    // Show modal
+    document.getElementById('editCategoryModal').style.display = 'flex';
+}
+
+function closeEditCategoryModal() {
+    document.getElementById('editCategoryModal').style.display = 'none';
+    currentEditingCategory = null;
+}
+
+async function saveEditCategory() {
+    const newName = document.getElementById('editCategoryName').value.trim();
+    const newParent = document.getElementById('editCategoryParent').value;
+
+    if (!newName) {
+        showToast('Please enter a category name', 'error');
         return;
     }
 
+    showLoading();
     try {
-        await fetchAPI(`/api/categories/${encodeURIComponent(categoryName)}`, {
-            method: 'DELETE'
+        const result = await fetchAPI(`/api/categories/${encodeURIComponent(currentEditingCategory)}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                name: newName,
+                parent_category: newParent || null
+            })
         });
 
-        showToast('Category deleted successfully', 'success');
+        showToast(`Category updated successfully. ${result.transactionsUpdated} transaction(s) updated.`, 'success');
+        closeEditCategoryModal();
 
         // Emit events to update all views
         eventBus.emit('categoriesUpdated');
+        eventBus.emit('transactionsUpdated');
+    } catch (error) {
+        showToast('Failed to update category: ' + error.message, 'error');
+        console.error(error);
+    } finally {
+        hideLoading();
+    }
+}
+
+async function deleteCategory(categoryName) {
+    showLoading();
+    try {
+        const result = await fetchAPI(`/api/categories/${encodeURIComponent(categoryName)}`, {
+            method: 'DELETE'
+        });
+
+        showToast(`Category deleted. ${result.transactionsAffected} transaction(s) moved to uncategorized.`, 'success');
+
+        // Emit events to update all views
+        eventBus.emit('categoriesUpdated');
+        eventBus.emit('transactionsUpdated');
     } catch (error) {
         showToast('Failed to delete category: ' + error.message, 'error');
         console.error(error);
+    } finally {
+        hideLoading();
     }
 }
 

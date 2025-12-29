@@ -462,6 +462,34 @@
         </div>
     </div>
 
+    <!-- Edit Category Modal -->
+    <div id="editCategoryModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>✏️ Edit Category</h3>
+                <button class="modal-close" onclick="closeEditCategoryModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label for="editCategoryName">Category Name:</label>
+                    <input type="text" id="editCategoryName" class="form-input" style="width: 100%; padding: 0.75rem;" placeholder="Category name">
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label for="editCategoryParent">Parent Category:</label>
+                    <select id="editCategoryParent" class="form-select" style="width: 100%; padding: 0.75rem;">
+                        <option value="">No parent (top-level category)</option>
+                    </select>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button onclick="closeEditCategoryModal()" class="btn btn-secondary">Cancel</button>
+                    <button onclick="saveEditCategory()" class="btn btn-primary">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Google Sheets Configuration Modal -->
     <div id="sheetsConfigModal" class="modal" style="display: none;">
         <div class="modal-content">
