@@ -762,6 +762,103 @@ export function getTransactionStats(startDate = null, endDate = null) {
   }));
 }
 
+/**
+ * Get daily spending and income data for charts
+ * @param {number} days - Number of days to retrieve
+ * @returns {Array} Array of {date, income, expenses} objects
+ */
+export function getDailySpendingIncome(days = 30) {
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+  const startDateStr = startDate.toISOString().split('T')[0];
+
+  const sql = `
+    SELECT
+      date,
+      SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as income,
+      ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) as expenses
+    FROM transactions
+    WHERE date >= ?
+    GROUP BY date
+    ORDER BY date ASC
+  `;
+
+  const results = db.prepare(sql).all(startDateStr);
+  return results.map(r => ({
+    date: r.date,
+    income: parseFloat(r.income) || 0,
+    expenses: parseFloat(r.expenses) || 0
+  }));
+}
+
+/**
+ * Get net worth over time for charts
+ * @param {string} range - Time range: '1w', '1m', '3m', '6m', '1y'
+ * @returns {Array} Array of {date, balance} objects
+ */
+export function getNetWorthOverTime(range = '1w') {
+  // Calculate start date based on range
+  const now = new Date();
+  let daysBack = 7;
+
+  switch (range) {
+    case '1w': daysBack = 7; break;
+    case '1m': daysBack = 30; break;
+    case '3m': daysBack = 90; break;
+    case '6m': daysBack = 180; break;
+    case '1y': daysBack = 365; break;
+    default: daysBack = 7;
+  }
+
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - daysBack);
+  const startDateStr = startDate.toISOString().split('T')[0];
+
+  // Get all unique dates in the range
+  const datesSql = `
+    SELECT DISTINCT date
+    FROM transactions
+    WHERE date >= ?
+    ORDER BY date ASC
+  `;
+
+  const dates = db.prepare(datesSql).all(startDateStr);
+
+  // If no transactions in this range, return empty array
+  if (dates.length === 0) {
+    return [];
+  }
+
+  // Get current account balances
+  const accounts = db.prepare('SELECT current_balance FROM accounts').all();
+  const currentTotalBalance = accounts.reduce((sum, acc) => sum + parseFloat(acc.current_balance || 0), 0);
+
+  // Calculate balance for each date by working backwards from current balance
+  const results = [];
+
+  for (const { date } of dates) {
+    // Get total of all transactions after this date
+    const transactionsAfterSql = `
+      SELECT SUM(amount) as total
+      FROM transactions
+      WHERE date > ?
+    `;
+
+    const afterResult = db.prepare(transactionsAfterSql).get(date);
+    const transactionsAfter = parseFloat(afterResult.total || 0);
+
+    // Balance on this date = current balance - transactions after this date
+    const balanceOnDate = currentTotalBalance - transactionsAfter;
+
+    results.push({
+      date,
+      balance: balanceOnDate
+    });
+  }
+
+  return results;
+}
+
 // ============================================================================
 // CATEGORIES
 // ============================================================================

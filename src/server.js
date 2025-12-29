@@ -161,8 +161,9 @@ app.get('/api/stats', async (req, res) => {
 // Get daily spending and income data
 app.get('/api/charts/daily-spending-income', async (req, res) => {
   try {
-    // TODO: Implement this function in database.js
-    res.status(501).json({ error: 'Daily spending/income chart not yet implemented for SQLite' });
+    const days = parseInt(req.query.days) || 30;
+    const data = database.getDailySpendingIncome(days);
+    res.json(data);
   } catch (error) {
     console.error('Error fetching daily spending/income:', error);
     res.status(500).json({ error: error.message });
@@ -172,8 +173,9 @@ app.get('/api/charts/daily-spending-income', async (req, res) => {
 // Get net worth over time
 app.get('/api/charts/net-worth', async (req, res) => {
   try {
-    // TODO: Implement this function in database.js
-    res.status(501).json({ error: 'Net worth chart not yet implemented for SQLite' });
+    const range = req.query.range || '1w';
+    const data = database.getNetWorthOverTime(range);
+    res.json(data);
   } catch (error) {
     console.error('Error fetching net worth data:', error);
     res.status(500).json({ error: error.message });
