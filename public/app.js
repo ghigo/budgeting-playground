@@ -1127,6 +1127,7 @@ function displayCategories(categories, spending) {
                         <span class="category-stats">${catSpending.count} transactions · ${formatCurrency(catSpending.total)}</span>
                     </div>
                     <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn-icon btn-primary" onclick="viewCategoryTransactions('${escapeHtml(cat.name)}')" title="View transactions">👁️</button>
                         <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(cat.name)}', '${escapeHtml(cat.parent_category || '')}')" title="Edit category">✏️</button>
                         <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(cat.name)}')" title="Delete category">🗑️</button>
                     </div>
@@ -1145,6 +1146,7 @@ function displayCategories(categories, spending) {
                                 <span class="category-stats">${childSpending.count} transactions · ${formatCurrency(childSpending.total)}</span>
                             </div>
                             <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn-icon btn-primary" onclick="viewCategoryTransactions('${escapeHtml(child.name)}')" title="View transactions">👁️</button>
                                 <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(child.name)}', '${escapeHtml(child.parent_category || '')}')" title="Edit category">✏️</button>
                                 <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(child.name)}')" title="Delete category">🗑️</button>
                             </div>
@@ -1171,6 +1173,7 @@ function displayCategories(categories, spending) {
                             <span class="category-stats">${orphanSpending.count} transactions · ${formatCurrency(orphanSpending.total)}</span>
                         </div>
                         <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn-icon btn-primary" onclick="viewCategoryTransactions('${escapeHtml(orphan.name)}')" title="View transactions">👁️</button>
                             <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(orphan.name)}', '${escapeHtml(orphan.parent_category || '')}')" title="Edit category">✏️</button>
                             <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(orphan.name)}')" title="Delete category">🗑️</button>
                         </div>
@@ -1364,6 +1367,22 @@ async function deleteCategory(categoryName) {
     } finally {
         hideLoading();
     }
+}
+
+function viewCategoryTransactions(categoryName) {
+    // Navigate to transactions page
+    navigateTo('transactions');
+
+    // Set the category filter after a short delay to ensure DOM is ready
+    setTimeout(() => {
+        const categoryFilter = document.getElementById('filterCategory');
+        if (categoryFilter) {
+            categoryFilter.value = categoryName;
+        }
+
+        // Apply the filter
+        applyTransactionFilters();
+    }, 100);
 }
 
 // ============================================================================
