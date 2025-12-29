@@ -1150,8 +1150,8 @@ export function getCategorySpending(startDate = null, endDate = null) {
     SELECT
       c.name,
       c.parent_category,
-      COALESCE(SUM(CASE WHEN t.amount < 0 THEN ABS(t.amount) ELSE 0 END), 0) as total,
-      COUNT(CASE WHEN t.amount < 0 THEN 1 END) as count
+      COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 0) as total,
+      COUNT(CASE WHEN t.amount > 0 THEN 1 END) as count
     FROM categories c
     LEFT JOIN transactions t ON c.name = t.category
   `;
