@@ -554,21 +554,16 @@ function displayTransactionsTable(transactions) {
             <td>${escapeHtml(tx.description || tx.name)}</td>
             <td>
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <input type="text"
-                           list="categories-${tx.transaction_id}"
-                           class="category-input ${isVerified ? 'verified' : ''}"
-                           data-transaction-id="${tx.transaction_id}"
-                           value="${escapeHtml(tx.category || '')}"
-                           placeholder="Select category..."
-                           onchange="updateTransactionCategoryFromInput(this)"
-                           autocomplete="off">
-                    <datalist id="categories-${tx.transaction_id}">
-                        ${allCategories.map(cat => `
-                            <option value="${escapeHtml(cat.name)}">
-                                ${escapeHtml(cat.name)}${cat.parent_category ? ` (${cat.parent_category})` : ''}
-                            </option>
-                        `).join('')}
-                    </datalist>
+                    <div class="searchable-dropdown-container" style="position: relative; flex: 1;">
+                        <input type="text"
+                               class="category-input ${isVerified ? 'verified' : ''}"
+                               data-transaction-id="${tx.transaction_id}"
+                               value="${escapeHtml(tx.category || '')}"
+                               placeholder="Select category..."
+                               readonly
+                               onclick="showCategoryDropdown(this)"
+                               autocomplete="off">
+                    </div>
                     ${hasCategory && confidence > 0 ?
                         `<span style="
                             display: inline-block;
@@ -597,58 +592,6 @@ function displayTransactionsTable(transactions) {
         </tr>
         `;
     }).join('');
-}
-
-async function updateTransactionCategory(selectElement) {
-    const transactionId = selectElement.getAttribute('data-transaction-id');
-    const newCategory = selectElement.value;
-
-    try {
-        const result = await fetchAPI(`/api/transactions/${transactionId}/category`, {
-            method: 'PATCH',
-            body: JSON.stringify({ category: newCategory })
-        });
-
-        showToast('Category updated and verified', 'success');
-
-        // Check if there are similar transactions to suggest updating
-        if (result.similarTransactions && result.similarTransactions.length > 0) {
-            showSimilarTransactionsModal(result.similarTransactions, result.suggestedCategory);
-        } else {
-            loadTransactions(); // Reload to show verified status
-        }
-    } catch (error) {
-        showToast('Failed to update category: ' + error.message, 'error');
-        console.error(error);
-        // Revert the select on error
-        loadTransactions();
-    }
-}
-
-async function updateTransactionCategoryFromInput(inputElement) {
-    const transactionId = inputElement.getAttribute('data-transaction-id');
-    const newCategory = inputElement.value.trim();
-
-    try {
-        const result = await fetchAPI(`/api/transactions/${transactionId}/category`, {
-            method: 'PATCH',
-            body: JSON.stringify({ category: newCategory })
-        });
-
-        showToast('Category updated and verified', 'success');
-
-        // Check if there are similar transactions to suggest updating
-        if (result.similarTransactions && result.similarTransactions.length > 0) {
-            showSimilarTransactionsModal(result.similarTransactions, result.suggestedCategory);
-        } else {
-            loadTransactions(); // Reload to show verified status
-        }
-    } catch (error) {
-        showToast('Failed to update category: ' + error.message, 'error');
-        console.error(error);
-        // Revert on error
-        loadTransactions();
-    }
 }
 
 function searchTransactions() {
@@ -746,6 +689,191 @@ async function autoCategorizeTransactions() {
         hideLoading();
     }
 }
+
+// ============================================================================
+// Searchable Category Dropdown
+// ============================================================================
+
+let currentDropdownInput = null;
+
+/**
+ * Show searchable category dropdown
+ */
+function showCategoryDropdown(inputElement) {
+    // Close any existing dropdown
+    closeAllDropdowns();
+
+    currentDropdownInput = inputElement;
+    const container = inputElement.parentElement;
+    const transactionId = inputElement.getAttribute('data-transaction-id');
+
+    // Create dropdown element
+    const dropdown = document.createElement('div');
+    dropdown.className = 'category-dropdown';
+    dropdown.id = 'category-dropdown-' + transactionId;
+
+    // Build dropdown HTML
+    dropdown.innerHTML = `
+        <div class="category-dropdown-search">
+            <input type="text"
+                   class="category-search-input"
+                   placeholder="Search categories..."
+                   oninput="filterCategoryDropdown(this.value)"
+                   autofocus>
+        </div>
+        <div class="category-dropdown-list" id="category-list-${transactionId}">
+            ${buildCategoryList(allCategories)}
+        </div>
+    `;
+
+    container.appendChild(dropdown);
+
+    // Position dropdown
+    dropdown.style.top = (inputElement.offsetHeight + 2) + 'px';
+    dropdown.style.width = inputElement.offsetWidth + 'px';
+
+    // Focus search input
+    setTimeout(() => {
+        const searchInput = dropdown.querySelector('.category-search-input');
+        if (searchInput) searchInput.focus();
+    }, 10);
+}
+
+/**
+ * Build category list HTML
+ */
+function buildCategoryList(categories, searchTerm = '') {
+    const filtered = searchTerm
+        ? categories.filter(cat =>
+            cat.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (cat.parent_category && cat.parent_category.toLowerCase().includes(searchTerm.toLowerCase()))
+          )
+        : categories;
+
+    if (filtered.length === 0) {
+        return '<div class="category-dropdown-empty">No categories found</div>';
+    }
+
+    // Group by parent category
+    const topLevel = filtered.filter(cat => !cat.parent_category);
+    const withParent = filtered.filter(cat => cat.parent_category);
+
+    const html = [];
+
+    // Top-level categories first
+    topLevel.forEach(cat => {
+        html.push(`
+            <div class="category-dropdown-item" onclick="selectCategory('${escapeHtml(cat.name)}')">
+                <span class="category-name">${escapeHtml(cat.name)}</span>
+            </div>
+        `);
+    });
+
+    // Child categories grouped by parent
+    const parentGroups = {};
+    withParent.forEach(cat => {
+        if (!parentGroups[cat.parent_category]) {
+            parentGroups[cat.parent_category] = [];
+        }
+        parentGroups[cat.parent_category].push(cat);
+    });
+
+    Object.entries(parentGroups).forEach(([parent, children]) => {
+        // Add parent header if parent exists in filtered list
+        const parentInList = topLevel.find(c => c.name === parent);
+        if (!parentInList && !searchTerm) {
+            html.push(`
+                <div class="category-dropdown-header">${escapeHtml(parent)}</div>
+            `);
+        }
+
+        children.forEach(cat => {
+            html.push(`
+                <div class="category-dropdown-item category-child" onclick="selectCategory('${escapeHtml(cat.name)}')">
+                    <span class="category-name">${escapeHtml(cat.name)}</span>
+                    <span class="category-parent">${escapeHtml(cat.parent_category)}</span>
+                </div>
+            `);
+        });
+    });
+
+    return html.join('');
+}
+
+/**
+ * Filter category dropdown based on search term
+ */
+function filterCategoryDropdown(searchTerm) {
+    if (!currentDropdownInput) return;
+
+    const transactionId = currentDropdownInput.getAttribute('data-transaction-id');
+    const listContainer = document.getElementById('category-list-' + transactionId);
+
+    if (listContainer) {
+        listContainer.innerHTML = buildCategoryList(allCategories, searchTerm);
+    }
+}
+
+/**
+ * Select a category from dropdown
+ */
+async function selectCategory(categoryName) {
+    if (!currentDropdownInput) return;
+
+    const transactionId = currentDropdownInput.getAttribute('data-transaction-id');
+
+    // Update input value
+    currentDropdownInput.value = categoryName;
+
+    // Close dropdown
+    closeAllDropdowns();
+
+    // Update category in backend
+    try {
+        const result = await fetchAPI(`/api/transactions/${transactionId}/category`, {
+            method: 'PATCH',
+            body: JSON.stringify({ category: categoryName })
+        });
+
+        showToast('Category updated and verified', 'success');
+
+        // Check if there are similar transactions to suggest updating
+        if (result.similarTransactions && result.similarTransactions.length > 0) {
+            showSimilarTransactionsModal(result.similarTransactions, result.suggestedCategory);
+        } else {
+            loadTransactions(); // Reload to show verified status
+        }
+    } catch (error) {
+        showToast('Failed to update category: ' + error.message, 'error');
+        console.error(error);
+        loadTransactions();
+    }
+}
+
+/**
+ * Close all open category dropdowns
+ */
+function closeAllDropdowns() {
+    document.querySelectorAll('.category-dropdown').forEach(dropdown => {
+        dropdown.remove();
+    });
+    currentDropdownInput = null;
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.searchable-dropdown-container') &&
+        !e.target.closest('.category-dropdown')) {
+        closeAllDropdowns();
+    }
+});
+
+// Close dropdown on escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeAllDropdowns();
+    }
+});
 
 // Categories
 let categorySpendingChartInstance = null;
