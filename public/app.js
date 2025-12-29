@@ -925,25 +925,27 @@ let currentDropdownInput = null;
  * Show searchable category dropdown
  */
 function showCategoryDropdown(inputElementOrEvent, transactionIdParam = null) {
-    // Handle both direct input click and button click with event
+    // Handle both direct input click and button/span click with event
     let inputElement;
     let transactionId;
 
     if (typeof inputElementOrEvent === 'object' && inputElementOrEvent.target) {
-        // Called from button with event, need to find the transaction row
+        // Called from button/span with event, need to find the transaction row
         const event = inputElementOrEvent;
         event.preventDefault();
         event.stopPropagation();
         transactionId = transactionIdParam;
 
-        // Find or create a container for the dropdown
-        const button = event.target.closest('button');
-        const container = button.parentElement;
+        // Find the clicked element (could be button or span)
+        const clickedElement = event.target.closest('button') || event.target.closest('span[onclick]');
+        const container = clickedElement.parentElement;
 
         // Create a temporary input-like element for the dropdown positioning
         inputElement = document.createElement('div');
         inputElement.setAttribute('data-transaction-id', transactionId);
-        inputElement.style.display = 'none';
+        inputElement.style.position = 'relative';
+        inputElement.style.display = 'inline-block';
+        inputElement.style.width = '200px';
         container.appendChild(inputElement);
     } else {
         // Called from input element
