@@ -9,6 +9,7 @@ import * as plaidClient from './plaid.js';
 import { plaidEnvironment } from './plaid.js';
 import * as sync from './sync.js';
 import * as sheets from './sheets.js';
+import * as amazon from './amazon.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -579,6 +580,133 @@ app.post('/api/init-spreadsheet', async (req, res) => {
     res.json({ success: true, message: 'Spreadsheet initialized' });
   } catch (error) {
     console.error('Error initializing spreadsheet:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// AMAZON ENDPOINTS
+// ============================================================================
+
+// Upload Amazon order history CSV
+app.post('/api/amazon/upload', express.text({ limit: '10mb' }), async (req, res) => {
+  try {
+    const csvContent = req.body;
+
+    if (!csvContent || csvContent.trim().length === 0) {
+      return res.status(400).json({ error: 'No CSV content provided' });
+    }
+
+    // Import orders from CSV
+    const importResult = amazon.importAmazonOrdersFromCSV(csvContent);
+
+    // Auto-match orders to transactions
+    const matchResult = await amazon.autoMatchAmazonOrders();
+
+    // Ensure Amazon categories exist
+    amazon.ensureAmazonCategories();
+
+    res.json({
+      success: true,
+      imported: importResult.imported,
+      updated: importResult.updated,
+      matched: matchResult.matched,
+      unmatched: matchResult.unmatched
+    });
+  } catch (error) {
+    console.error('Error uploading Amazon orders:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all Amazon orders
+app.get('/api/amazon/orders', (req, res) => {
+  try {
+    const filters = {
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+      matched: req.query.matched === 'true' ? true : req.query.matched === 'false' ? false : undefined
+    };
+
+    const orders = database.getAmazonOrders(filters);
+    res.json(orders);
+  } catch (error) {
+    console.error('Error fetching Amazon orders:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get Amazon order with items by ID
+app.get('/api/amazon/orders/:orderId', (req, res) => {
+  try {
+    const order = database.getAmazonOrderWithItems(req.params.orderId);
+
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    // If matched, include transaction details
+    if (order.matched_transaction_id) {
+      const transaction = database.getTransactions({ limit: 10000 })
+        .find(t => t.transaction_id === order.matched_transaction_id);
+
+      order.matched_transaction = transaction || null;
+    }
+
+    res.json(order);
+  } catch (error) {
+    console.error('Error fetching Amazon order:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get Amazon order statistics
+app.get('/api/amazon/stats', (req, res) => {
+  try {
+    const stats = database.getAmazonOrderStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching Amazon stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Manually link Amazon order to transaction
+app.post('/api/amazon/orders/:orderId/link', (req, res) => {
+  try {
+    const { transactionId } = req.body;
+
+    if (!transactionId) {
+      return res.status(400).json({ error: 'Transaction ID is required' });
+    }
+
+    database.linkAmazonOrderToTransaction(req.params.orderId, transactionId, 100);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error linking Amazon order:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Unlink Amazon order from transaction
+app.post('/api/amazon/orders/:orderId/unlink', (req, res) => {
+  try {
+    database.unlinkAmazonOrder(req.params.orderId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error unlinking Amazon order:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Run auto-match algorithm
+app.post('/api/amazon/auto-match', async (req, res) => {
+  try {
+    const result = await amazon.autoMatchAmazonOrders();
+    res.json(result);
+  } catch (error) {
+    console.error('Error auto-matching Amazon orders:', error);
     res.status(500).json({ error: error.message });
   }
 });

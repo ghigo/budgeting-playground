@@ -122,11 +122,51 @@ function createTables() {
       value TEXT NOT NULL
     );
 
+    -- Amazon Orders
+    CREATE TABLE IF NOT EXISTS amazon_orders (
+      order_id TEXT PRIMARY KEY,
+      order_date TEXT NOT NULL,
+      total_amount REAL NOT NULL,
+      subtotal REAL,
+      tax REAL,
+      shipping REAL,
+      payment_method TEXT,
+      shipping_address TEXT,
+      order_status TEXT,
+      matched_transaction_id TEXT,
+      match_confidence INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (matched_transaction_id) REFERENCES transactions(transaction_id) ON DELETE SET NULL
+    );
+
+    -- Amazon Items (individual products within orders)
+    CREATE TABLE IF NOT EXISTS amazon_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id TEXT NOT NULL,
+      asin TEXT,
+      title TEXT NOT NULL,
+      category TEXT,
+      price REAL NOT NULL,
+      quantity INTEGER DEFAULT 1,
+      seller TEXT,
+      product_url TEXT,
+      image_url TEXT,
+      return_status TEXT,
+      return_date TEXT,
+      refund_amount REAL,
+      FOREIGN KEY (order_id) REFERENCES amazon_orders(order_id) ON DELETE CASCADE
+    );
+
     -- Indexes for performance
     CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
     CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category);
     CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_name);
     CREATE INDEX IF NOT EXISTS idx_accounts_item_id ON accounts(item_id);
+    CREATE INDEX IF NOT EXISTS idx_amazon_orders_date ON amazon_orders(order_date);
+    CREATE INDEX IF NOT EXISTS idx_amazon_orders_matched ON amazon_orders(matched_transaction_id);
+    CREATE INDEX IF NOT EXISTS idx_amazon_items_order ON amazon_items(order_id);
+    CREATE INDEX IF NOT EXISTS idx_amazon_items_category ON amazon_items(category);
   `);
 
   // Run migrations to add new columns to existing tables
@@ -1452,4 +1492,218 @@ export function setConfig(key, value) {
 export function deleteConfig(key) {
   const stmt = db.prepare('DELETE FROM config WHERE key = ?');
   stmt.run(key);
+}
+
+// ============================================================================
+// AMAZON ORDERS & ITEMS
+// ============================================================================
+
+/**
+ * Add or update an Amazon order
+ */
+export function upsertAmazonOrder(orderData) {
+  const stmt = db.prepare(`
+    INSERT INTO amazon_orders (
+      order_id, order_date, total_amount, subtotal, tax, shipping,
+      payment_method, shipping_address, order_status,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(order_id) DO UPDATE SET
+      order_date = excluded.order_date,
+      total_amount = excluded.total_amount,
+      subtotal = excluded.subtotal,
+      tax = excluded.tax,
+      shipping = excluded.shipping,
+      payment_method = excluded.payment_method,
+      shipping_address = excluded.shipping_address,
+      order_status = excluded.order_status,
+      updated_at = datetime('now')
+  `);
+
+  stmt.run(
+    orderData.order_id,
+    orderData.order_date,
+    orderData.total_amount,
+    orderData.subtotal || null,
+    orderData.tax || null,
+    orderData.shipping || null,
+    orderData.payment_method || null,
+    orderData.shipping_address || null,
+    orderData.order_status || 'delivered'
+  );
+
+  return orderData.order_id;
+}
+
+/**
+ * Add Amazon items for an order
+ */
+export function addAmazonItems(orderId, items) {
+  // Delete existing items for this order
+  db.prepare('DELETE FROM amazon_items WHERE order_id = ?').run(orderId);
+
+  const stmt = db.prepare(`
+    INSERT INTO amazon_items (
+      order_id, asin, title, category, price, quantity,
+      seller, product_url, image_url, return_status, return_date, refund_amount
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const insertMany = db.transaction((items) => {
+    for (const item of items) {
+      stmt.run(
+        orderId,
+        item.asin || null,
+        item.title,
+        item.category || null,
+        item.price,
+        item.quantity || 1,
+        item.seller || null,
+        item.product_url || null,
+        item.image_url || null,
+        item.return_status || null,
+        item.return_date || null,
+        item.refund_amount || null
+      );
+    }
+  });
+
+  insertMany(items);
+}
+
+/**
+ * Get all Amazon orders with optional filters
+ */
+export function getAmazonOrders(filters = {}) {
+  let sql = 'SELECT * FROM amazon_orders';
+  const conditions = [];
+  const params = [];
+
+  if (filters.startDate) {
+    conditions.push('order_date >= ?');
+    params.push(filters.startDate);
+  }
+
+  if (filters.endDate) {
+    conditions.push('order_date <= ?');
+    params.push(filters.endDate);
+  }
+
+  if (filters.matched !== undefined) {
+    if (filters.matched) {
+      conditions.push('matched_transaction_id IS NOT NULL');
+    } else {
+      conditions.push('matched_transaction_id IS NULL');
+    }
+  }
+
+  if (conditions.length > 0) {
+    sql += ' WHERE ' + conditions.join(' AND ');
+  }
+
+  sql += ' ORDER BY order_date DESC';
+
+  return db.prepare(sql).all(...params);
+}
+
+/**
+ * Get Amazon order by ID with items
+ */
+export function getAmazonOrderWithItems(orderId) {
+  const order = db.prepare('SELECT * FROM amazon_orders WHERE order_id = ?').get(orderId);
+
+  if (!order) {
+    return null;
+  }
+
+  const items = db.prepare('SELECT * FROM amazon_items WHERE order_id = ?').all(orderId);
+
+  return {
+    ...order,
+    items
+  };
+}
+
+/**
+ * Get all Amazon items with order info
+ */
+export function getAmazonItemsWithOrders() {
+  return db.prepare(`
+    SELECT
+      i.*,
+      o.order_date,
+      o.total_amount as order_total,
+      o.matched_transaction_id
+    FROM amazon_items i
+    JOIN amazon_orders o ON i.order_id = o.order_id
+    ORDER BY o.order_date DESC, i.id
+  `).all();
+}
+
+/**
+ * Link an Amazon order to a transaction
+ */
+export function linkAmazonOrderToTransaction(orderId, transactionId, confidence = 85) {
+  const stmt = db.prepare(`
+    UPDATE amazon_orders
+    SET matched_transaction_id = ?, match_confidence = ?, updated_at = datetime('now')
+    WHERE order_id = ?
+  `);
+
+  stmt.run(transactionId, confidence, orderId);
+}
+
+/**
+ * Unlink an Amazon order from its transaction
+ */
+export function unlinkAmazonOrder(orderId) {
+  const stmt = db.prepare(`
+    UPDATE amazon_orders
+    SET matched_transaction_id = NULL, match_confidence = 0, updated_at = datetime('now')
+    WHERE order_id = ?
+  `);
+
+  stmt.run(orderId);
+}
+
+/**
+ * Get unmatched Amazon orders
+ */
+export function getUnmatchedAmazonOrders() {
+  return db.prepare(`
+    SELECT * FROM amazon_orders
+    WHERE matched_transaction_id IS NULL
+    ORDER BY order_date DESC
+  `).all();
+}
+
+/**
+ * Get Amazon order statistics
+ */
+export function getAmazonOrderStats() {
+  const stats = db.prepare(`
+    SELECT
+      COUNT(*) as total_orders,
+      SUM(CASE WHEN matched_transaction_id IS NOT NULL THEN 1 ELSE 0 END) as matched_orders,
+      SUM(total_amount) as total_spent,
+      COUNT(DISTINCT strftime('%Y-%m', order_date)) as months_with_orders
+    FROM amazon_orders
+  `).get();
+
+  const categoryBreakdown = db.prepare(`
+    SELECT
+      i.category,
+      COUNT(*) as item_count,
+      SUM(i.price * i.quantity) as total_spent
+    FROM amazon_items i
+    WHERE i.category IS NOT NULL
+    GROUP BY i.category
+    ORDER BY total_spent DESC
+    LIMIT 10
+  `).all();
+
+  return {
+    ...stats,
+    categoryBreakdown
+  };
 }
