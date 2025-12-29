@@ -537,6 +537,7 @@ async function removeInstitution(itemId, institutionName) {
 let allCategories = [];
 let allTransactions = []; // Store all transactions for client-side search/filter
 let selectedTransactions = new Set(); // Track selected transaction IDs
+let newlyCategorizedTransactionIds = new Set(); // Track newly categorized transaction IDs
 
 async function loadTransactions(filters = {}) {
     showLoading();
@@ -778,6 +779,11 @@ function clearTransactionFilters() {
     if (document.getElementById('filterAccount')) document.getElementById('filterAccount').value = '';
     if (document.getElementById('filterStartDate')) document.getElementById('filterStartDate').value = '';
     if (document.getElementById('filterEndDate')) document.getElementById('filterEndDate').value = '';
+
+    // Clear newly categorized filter
+    document.getElementById('newlyCategorizedBanner').style.display = 'none';
+    newlyCategorizedTransactionIds.clear();
+
     loadTransactions();
 }
 
@@ -812,16 +818,24 @@ async function autoCategorizeTransactions() {
                 'success'
             );
 
+            // Store newly categorized transaction IDs
+            newlyCategorizedTransactionIds.clear();
+            if (result.categorizedTransactions && result.categorizedTransactions.length > 0) {
+                result.categorizedTransactions.forEach(tx => {
+                    newlyCategorizedTransactionIds.add(tx.transaction_id);
+                });
+            }
+
             // Emit events to update all views
             eventBus.emit('transactionsUpdated');
             eventBus.emit('mappingsUpdated');
 
-            // Navigate to transactions page with unverified filter
+            // Navigate to transactions page
             navigateTo('transactions');
 
-            // Apply filter to show unverified transactions sorted by confidence
+            // Show newly categorized transactions
             setTimeout(() => {
-                applyUnverifiedFilter();
+                showNewlyCategorizedTransactions();
             }, 100);
         }
     } catch (error) {
@@ -2067,9 +2081,56 @@ async function applyBulkCategory() {
 }
 
 /**
+ * Show newly categorized transactions
+ */
+function showNewlyCategorizedTransactions() {
+    if (newlyCategorizedTransactionIds.size === 0) {
+        showToast('No newly categorized transactions to show', 'info');
+        return;
+    }
+
+    // Filter for newly categorized transactions
+    const newlyCategorized = allTransactions.filter(tx =>
+        newlyCategorizedTransactionIds.has(tx.transaction_id)
+    );
+
+    // Update banner
+    const banner = document.getElementById('newlyCategorizedBanner');
+    const countEl = document.getElementById('newlyCategorizedCount');
+    banner.style.display = 'block';
+    countEl.textContent = newlyCategorized.length;
+
+    // Clear quick filter highlights
+    document.getElementById('showAllBtn').classList.remove('btn-primary');
+    document.getElementById('showAllBtn').classList.add('btn-secondary');
+    document.getElementById('showUnverifiedBtn').classList.remove('btn-primary');
+    document.getElementById('showUnverifiedBtn').classList.add('btn-secondary');
+
+    // Display sorted by confidence (descending)
+    displayTransactionsTable(newlyCategorized, true);
+}
+
+/**
+ * Clear newly categorized filter
+ */
+function clearNewlyCategorizedFilter() {
+    // Hide banner
+    document.getElementById('newlyCategorizedBanner').style.display = 'none';
+
+    // Clear the stored IDs
+    newlyCategorizedTransactionIds.clear();
+
+    // Show all transactions
+    showAllTransactions();
+}
+
+/**
  * Apply unverified filter (show unverified transactions sorted by confidence)
  */
 function applyUnverifiedFilter() {
+    // Hide newly categorized banner
+    document.getElementById('newlyCategorizedBanner').style.display = 'none';
+
     // Filter for unverified transactions
     const unverified = allTransactions.filter(tx => !tx.verified);
 
@@ -2093,6 +2154,12 @@ function applyUnverifiedFilter() {
  * Show all transactions
  */
 function showAllTransactions() {
+    // Hide newly categorized banner
+    document.getElementById('newlyCategorizedBanner').style.display = 'none';
+
+    // Clear newly categorized IDs
+    newlyCategorizedTransactionIds.clear();
+
     // Highlight the All button
     document.getElementById('showAllBtn').classList.remove('btn-secondary');
     document.getElementById('showAllBtn').classList.add('btn-primary');
@@ -2104,6 +2171,7 @@ function showAllTransactions() {
     document.getElementById('filterAccount').value = '';
     document.getElementById('filterStartDate').value = '';
     document.getElementById('filterEndDate').value = '';
+    document.getElementById('transactionSearch').value = '';
 
     displayTransactionsTable(allTransactions, false);
 }
@@ -2111,4 +2179,16 @@ function showAllTransactions() {
 // Check sheets status when dashboard loads
 document.addEventListener('DOMContentLoaded', () => {
     checkSheetsStatus();
+
+    // Add ESC key listener to clear filters
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            // Check if we're on the transactions page
+            const transactionsSection = document.getElementById('transactions-section');
+            if (transactionsSection && transactionsSection.style.display !== 'none') {
+                // Clear all filters including newly categorized
+                clearTransactionFilters();
+            }
+        }
+    });
 });
