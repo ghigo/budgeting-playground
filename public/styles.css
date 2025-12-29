@@ -540,6 +540,36 @@ body {
     border-color: var(--primary);
 }
 
+/* Verify Button */
+.verify-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    cursor: pointer;
+    font-size: 1rem;
+    color: var(--text-secondary);
+    transition: all 0.2s;
+}
+
+.verify-btn:hover {
+    background: var(--bg-primary);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.verify-btn.verified {
+    background: var(--success);
+    color: white;
+    border-color: var(--success);
+}
+
+.verify-btn.verified:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+    color: white;
+}
+
 /* Link Account Page */
 .link-account-content {
     padding: 2rem;

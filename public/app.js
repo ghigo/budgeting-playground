@@ -772,7 +772,7 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
                         ''
                     }
                     ${isVerified ?
-                        '<span style="color: var(--success); font-size: 1.2rem;" title="Verified">✓</span>' :
+                        `<button class="verify-btn verified" onclick="unverifyCategory('${tx.transaction_id}')" title="Click to unverify">✓</button>` :
                         (hasCategory ?
                             `<button class="verify-btn" onclick="verifyCategory('${tx.transaction_id}')" title="Verify auto-assigned category">✓</button>` :
                             '')
@@ -870,6 +870,22 @@ async function verifyCategory(transactionId) {
         eventBus.emit('transactionsUpdated');
     } catch (error) {
         showToast('Failed to verify category: ' + error.message, 'error');
+        console.error(error);
+    }
+}
+
+async function unverifyCategory(transactionId) {
+    try {
+        const result = await fetchAPI(`/api/transactions/${transactionId}/unverify`, {
+            method: 'POST',
+            body: JSON.stringify({})
+        });
+        showToast(`Category "${result.category}" unverified - will be auto-recategorized`, 'success');
+
+        // Emit events to update all views
+        eventBus.emit('transactionsUpdated');
+    } catch (error) {
+        showToast('Failed to unverify category: ' + error.message, 'error');
         console.error(error);
     }
 }
