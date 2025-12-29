@@ -253,9 +253,67 @@ app.patch('/api/transactions/:transactionId/category', async (req, res) => {
     }
 
     database.updateTransactionCategory(transactionId, category);
-    res.json({ success: true });
+
+    // Find similar transactions to suggest updating
+    const transaction = database.getTransactions(1, { transactionId }).find(t => t.transaction_id === transactionId);
+    const merchantName = transaction?.merchant_name || '';
+    const similarTransactions = database.findSimilarTransactions(transactionId, merchantName);
+
+    res.json({
+      success: true,
+      similarTransactions: similarTransactions.length > 0 ? similarTransactions : null,
+      suggestedCategory: category
+    });
   } catch (error) {
     console.error('Error updating transaction category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get similar transactions for a given transaction
+app.get('/api/transactions/:transactionId/similar', async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+
+    // Get the transaction to find its merchant name
+    const transactions = database.getTransactions(999999);
+    const transaction = transactions.find(t => t.transaction_id === transactionId);
+
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    const merchantName = transaction.merchant_name || '';
+    const similarTransactions = database.findSimilarTransactions(transactionId, merchantName);
+
+    res.json({ similarTransactions });
+  } catch (error) {
+    console.error('Error finding similar transactions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update multiple transactions with the same category
+app.patch('/api/transactions/bulk/category', async (req, res) => {
+  try {
+    const { transactionIds, category } = req.body;
+
+    if (!Array.isArray(transactionIds) || transactionIds.length === 0) {
+      return res.status(400).json({ error: 'Transaction IDs array is required' });
+    }
+
+    if (!category && category !== '') {
+      return res.status(400).json({ error: 'Category is required' });
+    }
+
+    const updated = database.updateMultipleTransactionCategories(transactionIds, category);
+
+    res.json({
+      success: true,
+      updated
+    });
+  } catch (error) {
+    console.error('Error updating multiple transactions:', error);
     res.status(500).json({ error: error.message });
   }
 });

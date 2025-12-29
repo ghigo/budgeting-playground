@@ -576,6 +576,71 @@ export function updateTransactionCategory(transactionId, category) {
   stmt.run(category, transactionId);
 }
 
+/**
+ * Find similar transactions based on merchant name
+ * Used to suggest applying category changes to similar transactions
+ */
+export function findSimilarTransactions(transactionId, merchantName) {
+  // Get the transaction being updated
+  const transaction = db.prepare('SELECT * FROM transactions WHERE transaction_id = ?').get(transactionId);
+
+  if (!transaction) {
+    return [];
+  }
+
+  // Find similar transactions:
+  // 1. Same merchant_name (exact match) OR similar description
+  // 2. Exclude the transaction being updated
+  // 3. Only include unverified transactions (so we don't override manual changes)
+  const similarTransactions = db.prepare(`
+    SELECT * FROM transactions
+    WHERE transaction_id != ?
+      AND verified = 'No'
+      AND (
+        merchant_name = ?
+        OR (merchant_name IS NULL AND description LIKE ?)
+        OR (merchant_name = '' AND description LIKE ?)
+      )
+    ORDER BY date DESC
+    LIMIT 50
+  `).all(
+    transactionId,
+    merchantName || '',
+    `%${transaction.description}%`,
+    `%${transaction.description}%`
+  );
+
+  return similarTransactions.map(tx => ({
+    transaction_id: tx.transaction_id,
+    date: tx.date,
+    description: tx.description,
+    merchant_name: tx.merchant_name,
+    account_name: tx.account_name,
+    amount: tx.amount,
+    category: tx.category,
+    confidence: tx.confidence
+  }));
+}
+
+/**
+ * Update categories for multiple transactions at once
+ */
+export function updateMultipleTransactionCategories(transactionIds, category) {
+  if (!transactionIds || transactionIds.length === 0) {
+    return 0;
+  }
+
+  const placeholders = transactionIds.map(() => '?').join(',');
+  const stmt = db.prepare(`
+    UPDATE transactions
+    SET category = ?, confidence = 100, verified = 'Yes'
+    WHERE transaction_id IN (${placeholders})
+  `);
+
+  const result = stmt.run(category, ...transactionIds);
+  return result.changes;
+}
+
 export function verifyTransactionCategory(transactionId) {
   const stmt = db.prepare(`
     UPDATE transactions

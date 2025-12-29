@@ -604,12 +604,19 @@ async function updateTransactionCategory(selectElement) {
     const newCategory = selectElement.value;
 
     try {
-        await fetchAPI(`/api/transactions/${transactionId}/category`, {
+        const result = await fetchAPI(`/api/transactions/${transactionId}/category`, {
             method: 'PATCH',
             body: JSON.stringify({ category: newCategory })
         });
+
         showToast('Category updated and verified', 'success');
-        loadTransactions(); // Reload to show verified status
+
+        // Check if there are similar transactions to suggest updating
+        if (result.similarTransactions && result.similarTransactions.length > 0) {
+            showSimilarTransactionsModal(result.similarTransactions, result.suggestedCategory);
+        } else {
+            loadTransactions(); // Reload to show verified status
+        }
     } catch (error) {
         showToast('Failed to update category: ' + error.message, 'error');
         console.error(error);
@@ -623,12 +630,19 @@ async function updateTransactionCategoryFromInput(inputElement) {
     const newCategory = inputElement.value.trim();
 
     try {
-        await fetchAPI(`/api/transactions/${transactionId}/category`, {
+        const result = await fetchAPI(`/api/transactions/${transactionId}/category`, {
             method: 'PATCH',
             body: JSON.stringify({ category: newCategory })
         });
+
         showToast('Category updated and verified', 'success');
-        loadTransactions(); // Reload to show verified status
+
+        // Check if there are similar transactions to suggest updating
+        if (result.similarTransactions && result.similarTransactions.length > 0) {
+            showSimilarTransactionsModal(result.similarTransactions, result.suggestedCategory);
+        } else {
+            loadTransactions(); // Reload to show verified status
+        }
     } catch (error) {
         showToast('Failed to update category: ' + error.message, 'error');
         console.error(error);
@@ -1501,6 +1515,111 @@ async function saveSheetConfig() {
     } catch (error) {
         console.error('Error saving sheet configuration:', error);
         showToast(`Configuration error: ${error.message}`, 'error');
+    }
+}
+
+// ============================================================================
+// Similar Transactions Modal Functions
+// ============================================================================
+
+let currentSimilarTransactions = [];
+let currentSuggestedCategory = '';
+
+/**
+ * Show modal with similar transactions
+ */
+function showSimilarTransactionsModal(similarTransactions, suggestedCategory) {
+    currentSimilarTransactions = similarTransactions;
+    currentSuggestedCategory = suggestedCategory;
+
+    const modal = document.getElementById('similarTransactionsModal');
+    const countEl = document.getElementById('similarCount');
+    const categoryNameEl = document.getElementById('suggestedCategoryName');
+    const listEl = document.getElementById('similarTransactionsList');
+
+    countEl.textContent = similarTransactions.length;
+    categoryNameEl.textContent = suggestedCategory;
+
+    // Build table rows
+    listEl.innerHTML = similarTransactions.map(tx => {
+        const formattedAmount = new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD'
+        }).format(Math.abs(tx.amount));
+
+        return `
+            <tr>
+                <td style="padding: 0.75rem; border-bottom: 1px solid var(--border);">
+                    <input type="checkbox" class="similar-tx-checkbox" value="${escapeHtml(tx.transaction_id)}" checked>
+                </td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid var(--border);">${escapeHtml(tx.date)}</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid var(--border);">${escapeHtml(tx.description)}</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid var(--border);">${formattedAmount}</td>
+                <td style="padding: 0.75rem; border-bottom: 1px solid var(--border);">
+                    ${tx.category ? escapeHtml(tx.category) : '<em style="color: var(--text-secondary);">Uncategorized</em>'}
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    modal.style.display = 'flex';
+}
+
+/**
+ * Close similar transactions modal
+ */
+function closeSimilarTransactionsModal() {
+    const modal = document.getElementById('similarTransactionsModal');
+    modal.style.display = 'none';
+    currentSimilarTransactions = [];
+    currentSuggestedCategory = '';
+
+    // Reload transactions after closing
+    loadTransactions();
+}
+
+/**
+ * Toggle all checkboxes in similar transactions list
+ */
+function toggleAllSimilarTransactions() {
+    const selectAll = document.getElementById('selectAllSimilar');
+    const checkboxes = document.querySelectorAll('.similar-tx-checkbox');
+
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = selectAll.checked;
+    });
+}
+
+/**
+ * Apply category to selected similar transactions
+ */
+async function applyCategoryToSimilar() {
+    const checkboxes = document.querySelectorAll('.similar-tx-checkbox:checked');
+    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+
+    if (selectedIds.length === 0) {
+        showToast('No transactions selected', 'warning');
+        return;
+    }
+
+    try {
+        const result = await fetchAPI('/api/transactions/bulk/category', {
+            method: 'PATCH',
+            body: JSON.stringify({
+                transactionIds: selectedIds,
+                category: currentSuggestedCategory
+            })
+        });
+
+        if (result.success) {
+            showToast(`✓ Updated ${result.updated} transaction(s) to category "${currentSuggestedCategory}"`, 'success');
+            closeSimilarTransactionsModal();
+        } else {
+            showToast('Failed to update transactions', 'error');
+        }
+    } catch (error) {
+        console.error('Error updating similar transactions:', error);
+        showToast(`Failed to update: ${error.message}`, 'error');
     }
 }
 

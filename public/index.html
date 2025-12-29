@@ -350,6 +350,45 @@
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
+    <!-- Similar Transactions Modal -->
+    <div id="similarTransactionsModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3>📋 Apply to Similar Transactions</h3>
+                <button class="modal-close" onclick="closeSimilarTransactionsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 1rem;">
+                    Found <strong id="similarCount">0</strong> similar transaction(s) with the same merchant.
+                    Would you like to apply the category <strong id="suggestedCategoryName"></strong> to these transactions?
+                </p>
+
+                <div style="max-height: 400px; overflow-y: auto; margin-bottom: 1rem; border: 1px solid var(--border); border-radius: 0.375rem;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead style="background: var(--bg-primary); position: sticky; top: 0;">
+                            <tr>
+                                <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">
+                                    <input type="checkbox" id="selectAllSimilar" onchange="toggleAllSimilarTransactions()" checked>
+                                </th>
+                                <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">Date</th>
+                                <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">Description</th>
+                                <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">Amount</th>
+                                <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">Current Category</th>
+                            </tr>
+                        </thead>
+                        <tbody id="similarTransactionsList">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button onclick="closeSimilarTransactionsModal()" class="btn btn-secondary">Skip</button>
+                    <button onclick="applyCategoryToSimilar()" class="btn btn-primary">Apply to Selected</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Google Sheets Configuration Modal -->
     <div id="sheetsConfigModal" class="modal" style="display: none;">
         <div class="modal-content">
