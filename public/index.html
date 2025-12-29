@@ -460,11 +460,21 @@
 
                     <div class="filter-grid">
                         <div class="filter-item">
-                            <label for="amazonFilterMatched">Status</label>
+                            <label for="amazonFilterMatched">Match Status</label>
                             <select id="amazonFilterMatched" class="form-select">
                                 <option value="">All Orders</option>
-                                <option value="true">Matched</option>
-                                <option value="false">Unmatched</option>
+                                <option value="true">Matched Only</option>
+                                <option value="false">Unmatched Only</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="amazonFilterConfidence">Min Confidence</label>
+                            <select id="amazonFilterConfidence" class="form-select">
+                                <option value="">Any Confidence</option>
+                                <option value="90">90%+ (Excellent)</option>
+                                <option value="80">80%+ (High)</option>
+                                <option value="70">70%+ (Good)</option>
+                                <option value="60">60%+ (Fair)</option>
                             </select>
                         </div>
                         <div class="filter-item">

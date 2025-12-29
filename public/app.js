@@ -2752,9 +2752,10 @@ async function loadAmazonOrders(filters = {}) {
         const url = `/api/amazon/orders${queryString ? '?' + queryString : ''}`;
         amazonOrders = await fetchAPI(url);
 
-        // Apply search filter if search term exists
+        // Apply search/confidence filters if they exist
         const searchInput = document.getElementById('amazonSearchInput');
-        if (searchInput && searchInput.value) {
+        const confidenceFilter = document.getElementById('amazonFilterConfidence');
+        if ((searchInput && searchInput.value) || (confidenceFilter && confidenceFilter.value)) {
             searchAmazonOrders();
         } else {
             displayAmazonOrders(amazonOrders);
@@ -2965,6 +2966,7 @@ function applyAmazonFilters() {
 
 function clearAmazonFilters() {
     document.getElementById('amazonFilterMatched').value = '';
+    document.getElementById('amazonFilterConfidence').value = '';
     document.getElementById('amazonFilterStartDate').value = '';
     document.getElementById('amazonFilterEndDate').value = '';
     document.getElementById('amazonSearchInput').value = '';
@@ -2974,15 +2976,26 @@ function clearAmazonFilters() {
 
 function searchAmazonOrders() {
     const searchTerm = document.getElementById('amazonSearchInput').value.toLowerCase();
+    const minConfidence = parseInt(document.getElementById('amazonFilterConfidence').value) || 0;
 
-    if (!searchTerm) {
-        // No search term - show all loaded orders
-        displayAmazonOrders(amazonOrders);
-        return;
+    // Start with all orders
+    let filtered = amazonOrders;
+
+    // Apply confidence filter
+    if (minConfidence > 0) {
+        filtered = filtered.filter(order => {
+            // If order is matched, check confidence
+            if (order.matched_transaction_id) {
+                return (order.match_confidence || 0) >= minConfidence;
+            }
+            // Unmatched orders have 0 confidence, so they're excluded if minConfidence > 0
+            return false;
+        });
     }
 
-    // Filter orders based on search term
-    const filtered = amazonOrders.filter(order => {
+    // Apply search term filter if present
+    if (searchTerm) {
+        filtered = filtered.filter(order => {
         // Search in order ID
         if (order.order_id && order.order_id.toLowerCase().includes(searchTerm)) {
             return true;
@@ -3045,7 +3058,8 @@ function searchAmazonOrders() {
         }
 
         return false;
-    });
+        });
+    }
 
     displayAmazonOrders(filtered);
 }
