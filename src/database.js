@@ -794,7 +794,7 @@ export function updateMultipleTransactionCategories(transactionIds, category) {
 
   const sql = `
     UPDATE transactions
-    SET category = ?, confidence = 100, verified = 'Yes'
+    SET category = ?, confidence = 95, verified = 'No'
     WHERE transaction_id IN (${placeholders})
   `;
   console.log('SQL query:', sql);
