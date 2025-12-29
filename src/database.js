@@ -817,14 +817,8 @@ export function recategorizeExistingTransactions(onlyUncategorized = true) {
 
   for (const row of rows) {
     // Skip manually categorized transactions (confidence = 100)
-    // Allow re-categorizing auto-categorized transactions even if verified
+    // Re-categorize everything else, including auto-categorized transactions
     if (row.confidence === 100) {
-      skipped++;
-      continue;
-    }
-
-    // Skip if onlyUncategorized and it already has a category
-    if (onlyUncategorized && row.category) {
       skipped++;
       continue;
     }
