@@ -161,6 +161,9 @@ function navigateTo(page, updateHash = true) {
         case 'amazon':
             loadAmazonPage();
             break;
+        case 'link':
+            // Link page is static, no data to load
+            break;
     }
 }
 
@@ -949,6 +952,11 @@ function showCategoryDropdown(inputElementOrEvent, transactionIdParam = null) {
 
     // Close any existing dropdown
     closeAllDropdowns();
+
+    // Store transaction ID in the input element for later retrieval
+    if (transactionId && inputElement) {
+        inputElement.setAttribute('data-transaction-id', transactionId);
+    }
 
     currentDropdownInput = inputElement;
 
