@@ -336,8 +336,9 @@ app.post('/api/transactions/:transactionId/verify', async (req, res) => {
 app.post('/api/transactions/:transactionId/unverify', async (req, res) => {
   try {
     const { transactionId } = req.params;
+    const { originalConfidence } = req.body;
 
-    const result = database.unverifyTransactionCategory(transactionId);
+    const result = database.unverifyTransactionCategory(transactionId, originalConfidence);
     res.json(result);
   } catch (error) {
     console.error('Error unverifying transaction category:', error);

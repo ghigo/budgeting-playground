@@ -807,13 +807,16 @@ export function verifyTransactionCategory(transactionId) {
   return { success: true, category: tx.category };
 }
 
-export function unverifyTransactionCategory(transactionId) {
+export function unverifyTransactionCategory(transactionId, originalConfidence) {
+  // Restore original confidence (or default to 0 if not provided)
+  const confidenceToRestore = originalConfidence !== undefined ? originalConfidence : 0;
+
   const stmt = db.prepare(`
     UPDATE transactions
-    SET verified = 'No'
+    SET verified = 'No', confidence = ?
     WHERE transaction_id = ?
   `);
-  stmt.run(transactionId);
+  stmt.run(confidenceToRestore, transactionId);
 
   const tx = db.prepare('SELECT category FROM transactions WHERE transaction_id = ?').get(transactionId);
   return { success: true, category: tx.category };

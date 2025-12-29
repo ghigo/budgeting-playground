@@ -791,6 +791,7 @@ function applyTransactionFilters() {
 }
 
 function clearTransactionFilters() {
+    console.log('clearTransactionFilters called');
     const searchInput = document.getElementById('transactionSearch');
     if (searchInput) searchInput.value = '';
     if (document.getElementById('filterCategory')) document.getElementById('filterCategory').value = '';
@@ -799,15 +800,23 @@ function clearTransactionFilters() {
     if (document.getElementById('filterEndDate')) document.getElementById('filterEndDate').value = '';
 
     // Clear newly categorized filter
-    document.getElementById('newlyCategorizedBanner').style.display = 'none';
+    const banner = document.getElementById('newlyCategorizedBanner');
+    if (banner) banner.style.display = 'none';
     newlyCategorizedTransactionIds.clear();
 
     // Reset quick filter buttons to "All"
-    document.getElementById('showAllBtn').classList.remove('btn-secondary');
-    document.getElementById('showAllBtn').classList.add('btn-primary');
-    document.getElementById('showUnverifiedBtn').classList.remove('btn-primary');
-    document.getElementById('showUnverifiedBtn').classList.add('btn-secondary');
+    const showAllBtn = document.getElementById('showAllBtn');
+    const showUnverifiedBtn = document.getElementById('showUnverifiedBtn');
+    if (showAllBtn) {
+        showAllBtn.classList.remove('btn-secondary');
+        showAllBtn.classList.add('btn-primary');
+    }
+    if (showUnverifiedBtn) {
+        showUnverifiedBtn.classList.remove('btn-primary');
+        showUnverifiedBtn.classList.add('btn-secondary');
+    }
 
+    console.log('About to call loadTransactions with no filters');
     loadTransactions();
 }
 
@@ -2166,8 +2175,11 @@ async function approveAllVisibleTransactions() {
 
     showLoading();
     try {
-        // Store transaction IDs for undo
-        const transactionIds = unverifiedTransactions.map(tx => tx.transaction_id);
+        // Store transaction state for undo (ID and original confidence)
+        const transactionStates = unverifiedTransactions.map(tx => ({
+            transaction_id: tx.transaction_id,
+            originalConfidence: tx.confidence || 0
+        }));
 
         // Approve all transactions
         let approved = 0;
@@ -2186,12 +2198,13 @@ async function approveAllVisibleTransactions() {
             undoAction: async () => {
                 showLoading();
                 try {
-                    for (const txId of transactionIds) {
-                        await fetchAPI(`/api/transactions/${txId}/unverify`, {
-                            method: 'POST'
+                    for (const state of transactionStates) {
+                        await fetchAPI(`/api/transactions/${state.transaction_id}/unverify`, {
+                            method: 'POST',
+                            body: JSON.stringify({ originalConfidence: state.originalConfidence })
                         });
                     }
-                    showToast(`↶ Undid approval of ${transactionIds.length} transaction(s)`, 'info');
+                    showToast(`↶ Undid approval of ${transactionStates.length} transaction(s)`, 'info');
                     eventBus.emit('transactionsUpdated');
                 } catch (error) {
                     showToast('Failed to undo approval: ' + error.message, 'error');
@@ -2320,7 +2333,19 @@ document.addEventListener('DOMContentLoaded', () => {
                  window.getComputedStyle(transactionsSection).display !== 'none');
 
             if (isVisible) {
+                // Blur any focused input first
+                const activeElement = document.activeElement;
+                const isInputField = activeElement &&
+                    (activeElement.tagName === 'INPUT' ||
+                     activeElement.tagName === 'TEXTAREA' ||
+                     activeElement.tagName === 'SELECT');
+
+                if (isInputField) {
+                    activeElement.blur();
+                }
+
                 // Clear all filters and reload all transactions from server
+                console.log('ESC pressed - clearing all filters');
                 clearTransactionFilters();
             }
         }
