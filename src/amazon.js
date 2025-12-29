@@ -312,8 +312,8 @@ export function parseAmazonCSV(csvContent) {
   for (let i = 1; i < lines.length; i++) {
     const values = parseCSVLine(lines[i]);
 
-    if (values.length === 0) {
-      continue; // Skip empty lines
+    if (values.length === 0 || values.length < headers.length - 5) {
+      continue; // Skip empty or malformed lines
     }
 
     const row = {};
@@ -322,34 +322,67 @@ export function parseAmazonCSV(csvContent) {
     });
 
     // Extract order data (flexible field naming)
-    const orderId = row['Order ID'] || row['Order Number'] || row['order_id'];
-    const orderDate = row['Order Date'] || row['Purchase Date'] || row['order_date'];
-    const totalAmount = parseFloat((row['Total'] || row['Order Total'] || row['total'] || '0').replace(/[^0-9.-]/g, ''));
-    const itemTitle = row['Title'] || row['Product Name'] || row['Item'] || row['title'];
-    const itemPrice = parseFloat((row['Item Total'] || row['Price'] || row['price'] || '0').replace(/[^0-9.-]/g, ''));
-    const category = row['Category'] || row['Product Group'] || row['category'] || '';
+    const orderId = row['Order ID'] || row['Order Number'] || row['order_id'] || '';
+    const orderDate = row['Order Date'] || row['Purchase Date'] || row['order_date'] || '';
 
+    // Handle Amazon's "Total Owed" field and other variations
+    const totalOwed = row['Total Owed'] || row['Total'] || row['Order Total'] || row['total'] || '0';
+    const totalAmount = parseFloat(totalOwed.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+    // Get item details
+    const itemTitle = row['Product Name'] || row['Title'] || row['Item'] || row['title'] || '';
+
+    // Handle Amazon's "Unit Price" field
+    const unitPrice = row['Unit Price'] || row['Item Total'] || row['Price'] || row['price'] || '0';
+    const itemPrice = parseFloat(unitPrice.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+    const quantity = parseInt(row['Quantity'] || '1') || 1;
+    const category = row['Category'] || row['Product Group'] || row['category'] || '';
+    const asin = row['ASIN'] || '';
+    const seller = row['Seller'] || '';
+    const orderStatus = row['Order Status'] || row['Shipment Status'] || '';
+
+    // Validate essential fields
     if (!orderId || !orderDate) {
-      continue; // Skip invalid rows
+      console.log(`Skipping row ${i + 1}: Missing order ID or date`);
+      continue;
+    }
+
+    // Skip if this is a cancelled order with no items
+    if (orderStatus.toLowerCase().includes('cancel') && quantity === 0) {
+      continue;
+    }
+
+    // Parse and validate date
+    let parsedDate;
+    try {
+      parsedDate = standardizeDate(orderDate);
+    } catch (error) {
+      console.log(`Skipping row ${i + 1}: Invalid date format: ${orderDate}`);
+      continue;
     }
 
     // Group by order ID
     if (!orderMap.has(orderId)) {
       orderMap.set(orderId, {
         order_id: orderId,
-        order_date: standardizeDate(orderDate),
+        order_date: parsedDate,
         total_amount: totalAmount,
+        payment_method: row['Payment Instrument Type'] || '',
+        order_status: orderStatus,
         items: []
       });
     }
 
-    // Add item to order
-    if (itemTitle) {
+    // Add item to order (skip if no title)
+    if (itemTitle && itemTitle.trim().length > 0 && quantity > 0) {
       orderMap.get(orderId).items.push({
         title: itemTitle,
-        price: itemPrice || 0,
+        price: itemPrice,
+        quantity: quantity,
         category: category,
-        quantity: 1
+        asin: asin,
+        seller: seller
       });
     }
   }
