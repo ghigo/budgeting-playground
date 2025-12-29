@@ -538,6 +538,7 @@ let allCategories = [];
 let allTransactions = []; // Store all transactions for client-side search/filter
 let selectedTransactions = new Set(); // Track selected transaction IDs
 let newlyCategorizedTransactionIds = new Set(); // Track newly categorized transaction IDs
+let displayedTransactions = []; // Track currently displayed transactions
 
 async function loadTransactions(filters = {}) {
     showLoading();
@@ -641,6 +642,7 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
 
     if (!transactions || transactions.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-secondary);">No transactions found</td></tr>';
+        document.getElementById('approveAllBtn').style.display = 'none';
         return;
     }
 
@@ -648,6 +650,22 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
     let displayTransactions = [...transactions];
     if (sortByConfidence) {
         displayTransactions.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+    }
+
+    // Store displayed transactions
+    displayedTransactions = displayTransactions;
+
+    // Show "Approve All Visible" button if:
+    // 1. We're viewing a filtered view (not all transactions)
+    // 2. There are unverified transactions in the view
+    const isFilteredView = displayTransactions.length < allTransactions.length;
+    const hasUnverified = displayTransactions.some(tx => !tx.verified);
+    const approveAllBtn = document.getElementById('approveAllBtn');
+
+    if (isFilteredView && hasUnverified) {
+        approveAllBtn.style.display = 'block';
+    } else {
+        approveAllBtn.style.display = 'none';
     }
 
     tbody.innerHTML = displayTransactions.map(tx => {
@@ -2074,6 +2092,50 @@ async function applyBulkCategory() {
         }
     } catch (error) {
         showToast('Failed to update categories: ' + error.message, 'error');
+        console.error(error);
+    } finally {
+        hideLoading();
+    }
+}
+
+/**
+ * Approve all visible transactions in the current filtered view
+ */
+async function approveAllVisibleTransactions() {
+    // Get unverified transactions from the displayed set
+    const unverifiedTransactions = displayedTransactions.filter(tx => !tx.verified);
+
+    if (unverifiedTransactions.length === 0) {
+        showToast('No unverified transactions to approve', 'info');
+        return;
+    }
+
+    // Show confirmation dialog
+    const confirmed = confirm(
+        `Are you sure you want to approve ${unverifiedTransactions.length} transaction(s)?\n\n` +
+        `This will mark all visible unverified transactions as verified. This action cannot be undone.`
+    );
+
+    if (!confirmed) {
+        return;
+    }
+
+    showLoading();
+    try {
+        let approved = 0;
+        for (const tx of unverifiedTransactions) {
+            await fetchAPI(`/api/transactions/${tx.transaction_id}/verify`, {
+                method: 'POST'
+            });
+            approved++;
+        }
+
+        showToast(`✓ Approved ${approved} transaction(s)`, 'success');
+
+        // Emit events to update all views
+        eventBus.emit('transactionsUpdated');
+    } catch (error) {
+        showToast('Failed to approve transactions: ' + error.message, 'error');
         console.error(error);
     } finally {
         hideLoading();
