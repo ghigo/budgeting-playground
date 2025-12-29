@@ -616,7 +616,8 @@ async function loadTransactions(filters = {}) {
         allCategories = uniqueCategories;
         allTransactions = transactions; // Store for searching
         displayTransactionsTable(transactions);
-        updateTransactionFilters(transactions);
+        // Load all available filters (not just from current transactions)
+        await loadTransactionFilters();
         updateBulkActionsBar();
     } catch (error) {
         showToast('Failed to load transactions', 'error');
@@ -626,26 +627,9 @@ async function loadTransactions(filters = {}) {
     }
 }
 
-function updateTransactionFilters(transactions) {
-    // Populate category filter
-    const categoryFilter = document.getElementById('filterCategory');
-    if (categoryFilter) {
-        const categories = [...new Set(transactions.map(t => t.category).filter(Boolean))];
-        categoryFilter.innerHTML = '<option value="">All Categories</option>' +
-            categories.map(cat => `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`).join('');
-    }
-
-    // Populate account filter
-    const accountFilter = document.getElementById('filterAccount');
-    if (accountFilter) {
-        const accounts = [...new Set(transactions.map(t => t.account_name).filter(Boolean))];
-        accountFilter.innerHTML = '<option value="">All Accounts</option>' +
-            accounts.map(acc => `<option value="${escapeHtml(acc)}">${escapeHtml(acc)}</option>`).join('');
-    }
-}
-
 /**
  * Load fresh transaction filter data (accounts and categories)
+ * Shows ALL accounts and categories, not just those with transactions
  * Used by reactive updates when data changes
  */
 async function loadTransactionFilters() {
