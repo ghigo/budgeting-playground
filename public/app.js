@@ -733,7 +733,16 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
             <td>${escapeHtml(tx.description || tx.name)}</td>
             <td>
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <div class="searchable-dropdown-container" style="position: relative; flex: 1;">
+                    ${hasCategory ? (() => {
+                        const categoryObj = allCategories.find(c => c.name === tx.category);
+                        if (categoryObj) {
+                            return renderCategoryBadge(categoryObj, { inline: true });
+                        }
+                        return `<span class="category-badge" style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                            <span>📁</span>
+                            <span>${escapeHtml(tx.category)}</span>
+                        </span>`;
+                    })() : `<div class="searchable-dropdown-container" style="position: relative; flex: 1;">
                         <input type="text"
                                class="category-input ${isVerified ? 'verified' : ''}"
                                data-transaction-id="${tx.transaction_id}"
@@ -742,7 +751,8 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
                                readonly
                                onclick="showCategoryDropdown(this)"
                                autocomplete="off">
-                    </div>
+                    </div>`}
+                    ${hasCategory ? `<button class="btn-icon btn-secondary" onclick="showCategoryDropdown(event, '${tx.transaction_id}')" title="Change category" style="font-size: 0.9rem; padding: 0.25rem 0.5rem;">✏️</button>` : ''}
                     ${hasCategory && confidence > 0 ?
                         `<span style="
                             display: inline-block;
@@ -912,13 +922,38 @@ let currentDropdownInput = null;
 /**
  * Show searchable category dropdown
  */
-function showCategoryDropdown(inputElement) {
+function showCategoryDropdown(inputElementOrEvent, transactionIdParam = null) {
+    // Handle both direct input click and button click with event
+    let inputElement;
+    let transactionId;
+
+    if (typeof inputElementOrEvent === 'object' && inputElementOrEvent.target) {
+        // Called from button with event, need to find the transaction row
+        const event = inputElementOrEvent;
+        event.preventDefault();
+        event.stopPropagation();
+        transactionId = transactionIdParam;
+
+        // Find or create a container for the dropdown
+        const button = event.target.closest('button');
+        const container = button.parentElement;
+
+        // Create a temporary input-like element for the dropdown positioning
+        inputElement = document.createElement('div');
+        inputElement.setAttribute('data-transaction-id', transactionId);
+        inputElement.style.display = 'none';
+        container.appendChild(inputElement);
+    } else {
+        // Called from input element
+        inputElement = inputElementOrEvent;
+        transactionId = inputElement.getAttribute('data-transaction-id');
+    }
+
     // Close any existing dropdown
     closeAllDropdowns();
 
     currentDropdownInput = inputElement;
     const container = inputElement.parentElement;
-    const transactionId = inputElement.getAttribute('data-transaction-id');
 
     // Create dropdown element
     const dropdown = document.createElement('div');
@@ -977,7 +1012,10 @@ function buildCategoryList(categories, searchTerm = '') {
     topLevel.forEach(cat => {
         html.push(`
             <div class="category-dropdown-item" onclick="selectCategory('${escapeHtml(cat.name)}')">
-                <span class="category-name">${escapeHtml(cat.name)}</span>
+                <span class="category-name" style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 1.1rem;">${cat.icon || '📁'}</span>
+                    <span>${escapeHtml(cat.name)}</span>
+                </span>
             </div>
         `);
     });
@@ -1003,7 +1041,10 @@ function buildCategoryList(categories, searchTerm = '') {
         children.forEach(cat => {
             html.push(`
                 <div class="category-dropdown-item category-child" onclick="selectCategory('${escapeHtml(cat.name)}')">
-                    <span class="category-name">${escapeHtml(cat.name)}</span>
+                    <span class="category-name" style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-size: 1.1rem;">${cat.icon || '📁'}</span>
+                        <span>${escapeHtml(cat.name)}</span>
+                    </span>
                     <span class="category-parent">${escapeHtml(cat.parent_category)}</span>
                 </div>
             `);
@@ -1118,7 +1159,7 @@ function populateCategoryParentDropdown(categories) {
 
     select.innerHTML = '<option value="">No parent (top-level category)</option>' +
         topLevelCategories.map(cat => `
-            <option value="${escapeHtml(cat.name)}">${escapeHtml(cat.name)}</option>
+            <option value="${escapeHtml(cat.name)}">${cat.icon || '📁'} ${escapeHtml(cat.name)}</option>
         `).join('');
 }
 
@@ -1149,12 +1190,14 @@ function displayCategories(categories, spending) {
             <div class="category-item ${childCats.length > 0 ? 'has-children' : ''}">
                 <div class="category-row">
                     <div class="category-info">
-                        <span class="category-name">${escapeHtml(cat.name)}</span>
-                        <span class="category-stats">${catSpending.count} transactions · ${formatCurrency(catSpending.total)}</span>
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            ${renderCategoryBadge(cat, { inline: true })}
+                            <span class="category-stats">${catSpending.count} transactions · ${formatCurrency(catSpending.total)}</span>
+                        </div>
                     </div>
                     <div style="display: flex; gap: 0.5rem;">
                         <button class="btn-icon btn-primary" onclick="viewCategoryTransactions('${escapeHtml(cat.name)}')" title="View transactions">👁️</button>
-                        <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(cat.name)}', '${escapeHtml(cat.parent_category || '')}')" title="Edit category">✏️</button>
+                        <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(cat.name)}', '${escapeHtml(cat.parent_category || '')}', '${escapeHtml(cat.icon || '📁')}', '${escapeHtml(cat.color || '#6B7280')}')" title="Edit category">✏️</button>
                         <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(cat.name)}')" title="Delete category">🗑️</button>
                     </div>
                 </div>
@@ -1168,12 +1211,15 @@ function displayCategories(categories, spending) {
                     <div class="category-item child">
                         <div class="category-row">
                             <div class="category-info">
-                                <span class="category-name">↳ ${escapeHtml(child.name)}</span>
-                                <span class="category-stats">${childSpending.count} transactions · ${formatCurrency(childSpending.total)}</span>
+                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                    <span style="color: var(--text-secondary); margin-right: -0.5rem;">↳</span>
+                                    ${renderCategoryBadge(child, { inline: true })}
+                                    <span class="category-stats">${childSpending.count} transactions · ${formatCurrency(childSpending.total)}</span>
+                                </div>
                             </div>
                             <div style="display: flex; gap: 0.5rem;">
                                 <button class="btn-icon btn-primary" onclick="viewCategoryTransactions('${escapeHtml(child.name)}')" title="View transactions">👁️</button>
-                                <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(child.name)}', '${escapeHtml(child.parent_category || '')}')" title="Edit category">✏️</button>
+                                <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(child.name)}', '${escapeHtml(child.parent_category || '')}', '${escapeHtml(child.icon || '📁')}', '${escapeHtml(child.color || '#6B7280')}')" title="Edit category">✏️</button>
                                 <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(child.name)}')" title="Delete category">🗑️</button>
                             </div>
                         </div>
@@ -1195,12 +1241,15 @@ function displayCategories(categories, spending) {
                 <div class="category-item">
                     <div class="category-row">
                         <div class="category-info">
-                            <span class="category-name">${escapeHtml(orphan.name)} <span style="color: var(--text-secondary); font-size: 0.875rem;">(orphaned)</span></span>
-                            <span class="category-stats">${orphanSpending.count} transactions · ${formatCurrency(orphanSpending.total)}</span>
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                ${renderCategoryBadge(orphan, { inline: true })}
+                                <span style="color: var(--text-secondary); font-size: 0.875rem;">(orphaned)</span>
+                                <span class="category-stats">${orphanSpending.count} transactions · ${formatCurrency(orphanSpending.total)}</span>
+                            </div>
                         </div>
                         <div style="display: flex; gap: 0.5rem;">
                             <button class="btn-icon btn-primary" onclick="viewCategoryTransactions('${escapeHtml(orphan.name)}')" title="View transactions">👁️</button>
-                            <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(orphan.name)}', '${escapeHtml(orphan.parent_category || '')}')" title="Edit category">✏️</button>
+                            <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(orphan.name)}', '${escapeHtml(orphan.parent_category || '')}', '${escapeHtml(orphan.icon || '📁')}', '${escapeHtml(orphan.color || '#6B7280')}')" title="Edit category">✏️</button>
                             <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(orphan.name)}')" title="Delete category">🗑️</button>
                         </div>
                     </div>
@@ -1312,21 +1361,23 @@ async function addCategory() {
 
 let currentEditingCategory = null;
 
-function editCategory(categoryName, parentCategory) {
+function editCategory(categoryName, parentCategory, icon = '📁', color = '#6B7280') {
     currentEditingCategory = categoryName;
 
     // Populate modal fields
     document.getElementById('editCategoryName').value = categoryName;
+    document.getElementById('editCategoryIcon').value = icon || '📁';
+    document.getElementById('editCategoryColor').value = color || '#6B7280';
 
     // Populate parent category dropdown
     const parentSelect = document.getElementById('editCategoryParent');
     parentSelect.innerHTML = '<option value="">No parent (top-level category)</option>';
 
     // Get all categories to populate parent dropdown (exclude the category being edited)
-    allCategories.filter(cat => cat.name !== categoryName).forEach(cat => {
+    allCategories.filter(cat => cat.name !== categoryName && !cat.parent_category).forEach(cat => {
         const option = document.createElement('option');
         option.value = cat.name;
-        option.textContent = cat.name;
+        option.textContent = `${cat.icon || '📁'} ${cat.name}`;
         if (cat.name === parentCategory) {
             option.selected = true;
         }
@@ -1345,6 +1396,8 @@ function closeEditCategoryModal() {
 async function saveEditCategory() {
     const newName = document.getElementById('editCategoryName').value.trim();
     const newParent = document.getElementById('editCategoryParent').value;
+    const newIcon = document.getElementById('editCategoryIcon').value.trim() || '📁';
+    const newColor = document.getElementById('editCategoryColor').value || '#6B7280';
 
     if (!newName) {
         showToast('Please enter a category name', 'error');
@@ -1357,7 +1410,9 @@ async function saveEditCategory() {
             method: 'PUT',
             body: JSON.stringify({
                 name: newName,
-                parent_category: newParent || null
+                parent_category: newParent || null,
+                icon: newIcon,
+                color: newColor
             })
         });
 
@@ -1730,6 +1785,47 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Render a category badge with icon and color
+function renderCategoryBadge(category, options = {}) {
+    const { showIcon = true, inline = false } = options;
+    const icon = category.icon || '📁';
+    const color = category.color || '#6B7280';
+    const name = category.name;
+
+    // Calculate if we need white text based on background color (simple luminance check)
+    const textColor = getContrastColor(color);
+
+    return `
+        <span class="category-badge" style="
+            background-color: ${color};
+            color: ${textColor};
+            ${inline ? 'display: inline-flex;' : ''}
+            align-items: center;
+            gap: 0.25rem;
+        ">
+            ${showIcon ? `<span>${icon}</span>` : ''}
+            <span>${escapeHtml(name)}</span>
+        </span>
+    `;
+}
+
+// Get appropriate text color (white or black) based on background color
+function getContrastColor(hexColor) {
+    // Remove # if present
+    const hex = hexColor.replace('#', '');
+
+    // Convert to RGB
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
+
+    // Calculate relative luminance
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+    // Return white for dark backgrounds, black for light backgrounds
+    return luminance > 0.5 ? '#000000' : '#FFFFFF';
 }
 
 function showLoading() {

@@ -475,11 +475,23 @@
                     <input type="text" id="editCategoryName" class="form-input" style="width: 100%; padding: 0.75rem;" placeholder="Category name">
                 </div>
 
-                <div class="form-group" style="margin-bottom: 1.5rem;">
+                <div class="form-group" style="margin-bottom: 1rem;">
                     <label for="editCategoryParent">Parent Category:</label>
                     <select id="editCategoryParent" class="form-select" style="width: 100%; padding: 0.75rem;">
                         <option value="">No parent (top-level category)</option>
                     </select>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                    <div class="form-group">
+                        <label for="editCategoryIcon">Icon (Emoji):</label>
+                        <input type="text" id="editCategoryIcon" class="form-input" style="width: 100%; padding: 0.75rem; font-size: 1.5rem; text-align: center;" placeholder="📁" maxlength="2">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editCategoryColor">Color:</label>
+                        <input type="color" id="editCategoryColor" class="form-input" style="width: 100%; padding: 0.375rem; height: 3rem;" value="#6B7280">
+                    </div>
                 </div>
 
                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">

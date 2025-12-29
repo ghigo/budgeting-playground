@@ -208,13 +208,13 @@ app.get('/api/categories/spending', async (req, res) => {
 // Add a new category
 app.post('/api/categories', async (req, res) => {
   try {
-    const { name, parent_category } = req.body;
+    const { name, parent_category, icon, color } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Category name is required' });
     }
 
-    const result = database.addCategory(name, parent_category);
+    const result = database.addCategory(name, parent_category, icon, color);
     res.json(result);
   } catch (error) {
     console.error('Error adding category:', error);
@@ -226,13 +226,13 @@ app.post('/api/categories', async (req, res) => {
 app.put('/api/categories/:categoryName', async (req, res) => {
   try {
     const oldName = req.params.categoryName;
-    const { name: newName, parent_category } = req.body;
+    const { name: newName, parent_category, icon, color } = req.body;
 
     if (!newName) {
       return res.status(400).json({ error: 'Category name is required' });
     }
 
-    const result = database.updateCategory(oldName, newName, parent_category);
+    const result = database.updateCategory(oldName, newName, parent_category, icon, color);
     res.json(result);
   } catch (error) {
     console.error('Error updating category:', error);

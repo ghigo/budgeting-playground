@@ -87,7 +87,9 @@ function createTables() {
     CREATE TABLE IF NOT EXISTS categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
-      parent_category TEXT
+      parent_category TEXT,
+      icon TEXT DEFAULT '📁',
+      color TEXT DEFAULT '#6B7280'
     );
 
     -- Plaid Category Mappings
@@ -127,8 +129,136 @@ function createTables() {
     CREATE INDEX IF NOT EXISTS idx_accounts_item_id ON accounts(item_id);
   `);
 
+  // Run migrations to add new columns to existing tables
+  runMigrations();
+
   // Seed default data if tables are empty
   seedDefaultData();
+}
+
+/**
+ * Run database migrations
+ */
+function runMigrations() {
+  // Check if icon and color columns exist in categories table
+  const tableInfo = db.prepare("PRAGMA table_info(categories)").all();
+  const hasIcon = tableInfo.some(col => col.name === 'icon');
+  const hasColor = tableInfo.some(col => col.name === 'color');
+
+  if (!hasIcon) {
+    console.log('Adding icon column to categories table...');
+    db.exec("ALTER TABLE categories ADD COLUMN icon TEXT DEFAULT '📁'");
+  }
+
+  if (!hasColor) {
+    console.log('Adding color column to categories table...');
+    db.exec("ALTER TABLE categories ADD COLUMN color TEXT DEFAULT '#6B7280'");
+  }
+}
+
+/**
+ * Get a color palette for categories (vibrant, high contrast)
+ */
+function getCategoryColorPalette() {
+  return [
+    '#10B981', // Green - Groceries
+    '#F59E0B', // Amber - Restaurants
+    '#3B82F6', // Blue - Transportation
+    '#EF4444', // Red - Gas
+    '#8B5CF6', // Purple - Shopping
+    '#EC4899', // Pink - Entertainment
+    '#6366F1', // Indigo - Bills & Utilities
+    '#14B8A6', // Teal - Healthcare
+    '#06B6D4', // Cyan - Travel
+    '#22C55E', // Lime - Income
+    '#6B7280', // Gray - Transfer
+    '#84CC16', // Green-Yellow - Other
+  ];
+}
+
+/**
+ * Suggest an emoji icon based on category name
+ */
+function suggestIconForCategory(categoryName) {
+  const name = categoryName.toLowerCase();
+
+  // Common category mappings
+  const iconMap = {
+    'groceries': '🛒',
+    'food': '🍔',
+    'restaurants': '🍽️',
+    'dining': '🍴',
+    'transportation': '🚗',
+    'gas': '⛽',
+    'fuel': '⛽',
+    'shopping': '🛍️',
+    'entertainment': '🎬',
+    'bills': '📄',
+    'utilities': '💡',
+    'healthcare': '🏥',
+    'medical': '💊',
+    'travel': '✈️',
+    'income': '💰',
+    'salary': '💵',
+    'transfer': '🔄',
+    'rent': '🏠',
+    'mortgage': '🏠',
+    'insurance': '🛡️',
+    'education': '📚',
+    'fitness': '💪',
+    'gym': '🏋️',
+    'sports': '⚽',
+    'coffee': '☕',
+    'drinks': '🥤',
+    'alcohol': '🍺',
+    'clothing': '👕',
+    'electronics': '💻',
+    'phone': '📱',
+    'internet': '🌐',
+    'streaming': '📺',
+    'music': '🎵',
+    'pets': '🐕',
+    'gifts': '🎁',
+    'charity': '❤️',
+    'personal': '👤',
+    'beauty': '💄',
+    'car': '🚙',
+    'parking': '🅿️',
+    'taxi': '🚕',
+    'uber': '🚕',
+    'subscriptions': '📱',
+    'other': '📁'
+  };
+
+  // Check for exact matches or partial matches
+  for (const [key, icon] of Object.entries(iconMap)) {
+    if (name.includes(key)) {
+      return icon;
+    }
+  }
+
+  // Default icon
+  return '📁';
+}
+
+/**
+ * Get next available color from palette (avoiding recently used colors)
+ */
+function getNextCategoryColor() {
+  const palette = getCategoryColorPalette();
+  const existingCategories = db.prepare('SELECT color FROM categories').all();
+  const usedColors = new Set(existingCategories.map(c => c.color));
+
+  // Find first unused color
+  for (const color of palette) {
+    if (!usedColors.has(color)) {
+      return color;
+    }
+  }
+
+  // If all colors used, cycle back through palette
+  const colorIndex = existingCategories.length % palette.length;
+  return palette[colorIndex];
 }
 
 /**
@@ -140,25 +270,26 @@ function seedDefaultData() {
 
   if (categoryCount.count === 0) {
     console.log('Seeding default categories...');
+    const palette = getCategoryColorPalette();
     const defaultCategories = [
-      ['Groceries', ''],
-      ['Restaurants', ''],
-      ['Transportation', ''],
-      ['Gas', ''],
-      ['Shopping', ''],
-      ['Entertainment', ''],
-      ['Bills & Utilities', ''],
-      ['Healthcare', ''],
-      ['Travel', ''],
-      ['Income', ''],
-      ['Transfer', ''],
-      ['Other', '']
+      ['Groceries', '', '🛒', palette[0]],
+      ['Restaurants', '', '🍽️', palette[1]],
+      ['Transportation', '', '🚗', palette[2]],
+      ['Gas', '', '⛽', palette[3]],
+      ['Shopping', '', '🛍️', palette[4]],
+      ['Entertainment', '', '🎬', palette[5]],
+      ['Bills & Utilities', '', '💡', palette[6]],
+      ['Healthcare', '', '🏥', palette[7]],
+      ['Travel', '', '✈️', palette[8]],
+      ['Income', '', '💰', palette[9]],
+      ['Transfer', '', '🔄', palette[10]],
+      ['Other', '', '📁', palette[11]]
     ];
 
-    const stmt = db.prepare('INSERT INTO categories (name, parent_category) VALUES (?, ?)');
+    const stmt = db.prepare('INSERT INTO categories (name, parent_category, icon, color) VALUES (?, ?, ?, ?)');
     const insertMany = db.transaction((categories) => {
       for (const cat of categories) {
-        stmt.run(cat[0], cat[1]);
+        stmt.run(cat[0], cat[1], cat[2], cat[3]);
       }
     });
     insertMany(defaultCategories);
@@ -1074,14 +1205,18 @@ export function getCategories() {
   return unique;
 }
 
-export function addCategory(name, parentCategory = null) {
+export function addCategory(name, parentCategory = null, icon = null, color = null) {
+  // Auto-generate icon and color if not provided
+  const categoryIcon = icon || suggestIconForCategory(name);
+  const categoryColor = color || getNextCategoryColor();
+
   const stmt = db.prepare(`
-    INSERT INTO categories (name, parent_category) VALUES (?, ?)
+    INSERT INTO categories (name, parent_category, icon, color) VALUES (?, ?, ?, ?)
   `);
 
   try {
-    stmt.run(name, parentCategory || '');
-    return { success: true, name, parent_category: parentCategory };
+    stmt.run(name, parentCategory || '', categoryIcon, categoryColor);
+    return { success: true, name, parent_category: parentCategory, icon: categoryIcon, color: categoryColor };
   } catch (error) {
     if (error.message.includes('UNIQUE constraint')) {
       throw new Error('Category already exists');
@@ -1090,7 +1225,7 @@ export function addCategory(name, parentCategory = null) {
   }
 }
 
-export function updateCategory(oldName, newName, newParentCategory = null) {
+export function updateCategory(oldName, newName, newParentCategory = null, icon = null, color = null) {
   // Check if category exists
   const existingCategory = db.prepare('SELECT * FROM categories WHERE name = ?').get(oldName);
   if (!existingCategory) {
@@ -1105,15 +1240,19 @@ export function updateCategory(oldName, newName, newParentCategory = null) {
     }
   }
 
+  // Use existing icon/color if not provided
+  const categoryIcon = icon || existingCategory.icon || suggestIconForCategory(newName);
+  const categoryColor = color || existingCategory.color || getNextCategoryColor();
+
   // Use transaction to update both category and all related transactions
   const transaction = db.transaction(() => {
     // Update category
     const updateCategoryStmt = db.prepare(`
       UPDATE categories
-      SET name = ?, parent_category = ?
+      SET name = ?, parent_category = ?, icon = ?, color = ?
       WHERE name = ?
     `);
-    updateCategoryStmt.run(newName, newParentCategory || '', oldName);
+    updateCategoryStmt.run(newName, newParentCategory || '', categoryIcon, categoryColor, oldName);
 
     // Update all transactions that use this category
     const updateTransactionsStmt = db.prepare(`
@@ -1123,7 +1262,7 @@ export function updateCategory(oldName, newName, newParentCategory = null) {
     `);
     const result = updateTransactionsStmt.run(newName, oldName);
 
-    return { success: true, name: newName, parent_category: newParentCategory, transactionsUpdated: result.changes };
+    return { success: true, name: newName, parent_category: newParentCategory, icon: categoryIcon, color: categoryColor, transactionsUpdated: result.changes };
   });
 
   return transaction();
