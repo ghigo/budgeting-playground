@@ -802,6 +802,12 @@ function clearTransactionFilters() {
     document.getElementById('newlyCategorizedBanner').style.display = 'none';
     newlyCategorizedTransactionIds.clear();
 
+    // Reset quick filter buttons to "All"
+    document.getElementById('showAllBtn').classList.remove('btn-secondary');
+    document.getElementById('showAllBtn').classList.add('btn-primary');
+    document.getElementById('showUnverifiedBtn').classList.remove('btn-primary');
+    document.getElementById('showUnverifiedBtn').classList.add('btn-secondary');
+
     loadTransactions();
 }
 
@@ -2314,8 +2320,8 @@ document.addEventListener('DOMContentLoaded', () => {
                  window.getComputedStyle(transactionsSection).display !== 'none');
 
             if (isVisible) {
-                // Clear all filters and show all transactions
-                showAllTransactions();
+                // Clear all filters and reload all transactions from server
+                clearTransactionFilters();
             }
         }
     });
