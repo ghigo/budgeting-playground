@@ -505,7 +505,7 @@ app.post('/api/ai/learn', async (req, res) => {
 // Review all transactions and suggest improvements
 app.post('/api/ai/review-all', async (req, res) => {
   try {
-    const { confidenceThreshold = 100, limit = 100 } = req.body;
+    const { confidenceThreshold = 100, limit = 50 } = req.body;
 
     // Get database instance
     const db = database.getDatabase();
@@ -534,9 +534,9 @@ app.post('/api/ai/review-all', async (req, res) => {
       });
     }
 
-    // Get AI suggestions for each (with smaller batch size for better timeout handling)
+    // Get AI suggestions for each (batch size 10 for parallel processing)
     const suggestions = [];
-    const results = await aiCategorization.batchCategorize(transactions, { batchSize: 5 });
+    const results = await aiCategorization.batchCategorize(transactions, { batchSize: 10 });
 
     for (let i = 0; i < transactions.length; i++) {
       const transaction = transactions[i];

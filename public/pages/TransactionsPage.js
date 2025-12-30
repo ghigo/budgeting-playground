@@ -939,12 +939,12 @@ async function aiAutoCategorizeUncategorized() {
         showLoading('AI is reviewing transactions...');
 
         // Get AI suggestions for transactions with confidence < 100%
-        // Limit to 100 transactions to prevent timeout
+        // Limit to 50 transactions to prevent timeout with Mistral 7B
         const response = await fetchAPI('/api/ai/review-all', {
             method: 'POST',
             body: JSON.stringify({
                 confidenceThreshold: 100,
-                limit: 100
+                limit: 50
             })
         });
 
