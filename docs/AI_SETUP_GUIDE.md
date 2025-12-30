@@ -32,13 +32,19 @@ curl -fsSL https://ollama.com/install.sh | sh
 #### Windows
 Download from: https://ollama.com/download
 
-### Step 2: Start Ollama Server
+### Step 2: Start Ollama Server (Automatic!)
 
+**The server automatically starts Ollama for you!** 🎉
+
+When you start the expense tracker server, it will:
+1. Check if Ollama is installed
+2. Automatically start Ollama if it's not running
+3. Wait a few seconds for it to be ready
+
+You can also start it manually if needed:
 ```bash
 ollama serve
 ```
-
-Leave this running in a terminal window.
 
 ### Step 3: Pull the Phi-3 Mini Model
 

@@ -5,20 +5,70 @@
  */
 
 import * as database from '../src/database.js';
+import { spawn } from 'child_process';
+import { promisify } from 'util';
+import { exec } from 'child_process';
+
+const execAsync = promisify(exec);
 
 class AICategorization {
     constructor() {
         this.ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
         this.modelName = process.env.OLLAMA_MODEL || 'phi3:mini';
         this.isOllamaAvailable = false;
+        this.ollamaProcess = null;
         this.checkOllamaAvailability();
     }
 
     /**
-     * Check if Ollama is available
+     * Check if Ollama is installed on the system
+     */
+    async isOllamaInstalled() {
+        try {
+            await execAsync('which ollama');
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**
+     * Start Ollama server
+     */
+    async startOllama() {
+        if (this.ollamaProcess) {
+            console.log('ℹ Ollama process already started');
+            return;
+        }
+
+        try {
+            console.log('🚀 Starting Ollama server...');
+
+            // Spawn ollama serve in background
+            this.ollamaProcess = spawn('ollama', ['serve'], {
+                detached: true,
+                stdio: 'ignore'
+            });
+
+            // Don't keep parent process waiting for child
+            this.ollamaProcess.unref();
+
+            // Wait a bit for Ollama to start
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            console.log('✓ Ollama server started');
+        } catch (error) {
+            console.error('Failed to start Ollama:', error.message);
+            this.ollamaProcess = null;
+        }
+    }
+
+    /**
+     * Check if Ollama is available and start it if needed
      */
     async checkOllamaAvailability() {
         try {
+            // Try to connect to Ollama
             const response = await fetch(`${this.ollamaUrl}/api/tags`, {
                 signal: AbortSignal.timeout(2000)
             });
@@ -30,12 +80,51 @@ class AICategorization {
                 if (this.isOllamaAvailable) {
                     console.log('✓ Ollama is available with Phi-3 model');
                 } else {
-                    console.log('⚠ Ollama is running but Phi-3 model not found. Run: ollama pull phi3:mini');
+                    console.log('⚠ Ollama is running but Phi-3 model not found.');
+                    console.log('  To enable AI categorization, run: ollama pull phi3:mini');
                 }
+                return;
             }
         } catch (error) {
+            // Ollama is not responding - try to start it
+            console.log('ℹ Ollama not responding - checking if installed...');
+
+            const isInstalled = await this.isOllamaInstalled();
+
+            if (isInstalled) {
+                console.log('✓ Ollama is installed - attempting to start...');
+                await this.startOllama();
+
+                // Check again after starting
+                try {
+                    const response = await fetch(`${this.ollamaUrl}/api/tags`, {
+                        signal: AbortSignal.timeout(2000)
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.isOllamaAvailable = data.models?.some(m => m.name.includes('phi3'));
+
+                        if (this.isOllamaAvailable) {
+                            console.log('✓ Ollama started successfully with Phi-3 model');
+                        } else {
+                            console.log('⚠ Ollama started but Phi-3 model not found.');
+                            console.log('  To enable AI categorization, run: ollama pull phi3:mini');
+                        }
+                        return;
+                    }
+                } catch (retryError) {
+                    console.log('⚠ Failed to start Ollama automatically');
+                }
+            } else {
+                console.log('ℹ Ollama not installed. Install it to enable AI categorization:');
+                console.log('  Mac: brew install ollama');
+                console.log('  Linux: curl -fsSL https://ollama.com/install.sh | sh');
+                console.log('  Windows: https://ollama.com/download');
+            }
+
             this.isOllamaAvailable = false;
-            console.log('ℹ Ollama not available - using enhanced rule-based categorization');
+            console.log('ℹ Using enhanced rule-based categorization');
         }
     }
 
