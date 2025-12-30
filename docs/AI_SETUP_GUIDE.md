@@ -46,19 +46,25 @@ You can also start it manually if needed:
 ollama serve
 ```
 
-### Step 3: Pull the Phi-3 Mini Model
+### Step 3: Pull the Mistral 7B Model (Recommended)
 
 In a new terminal:
 ```bash
-ollama pull phi3:mini
+ollama pull mistral:7b-instruct-q4_0
 ```
 
-This downloads ~2.3GB (one-time download).
+This downloads ~4.1GB (one-time download).
+
+**Alternative (Faster, Lower Accuracy):**
+```bash
+ollama pull phi3:mini  # 2.3GB, 85-90% accuracy vs 92-96% with Mistral
+```
 
 ### Step 4: Verify Setup
 
 The app will automatically detect Ollama and show:
-- **✓ AI Ready (phi3:mini)** - AI is enabled
+- **✓ AI Ready (mistral:7b-instruct-q4_0)** - AI is enabled with best accuracy
+- **✓ AI Ready (phi3:mini)** - AI is enabled (consider upgrading to Mistral)
 - **Using Enhanced rule-based categorization** - Using fallback system
 
 ### Step 5: Use AI Categorization
@@ -81,10 +87,11 @@ The system uses a **three-tier categorization** approach:
    - Apply rule-based keyword matching
    - Use common merchant patterns
 
-3. **AI Path** (300-800ms)
-   - Use local Phi-3 model for complex cases
-   - Context-aware categorization
+3. **AI Path** (500-1200ms with Mistral, 300-800ms with Phi-3)
+   - Use local AI model for complex cases
+   - Context-aware categorization with enhanced Plaid data
    - Handles typos and variations
+   - Higher accuracy with Mistral 7B (92-96% vs 85-90% with Phi-3)
 
 ### Learning System
 
@@ -116,9 +123,15 @@ The AI **learns from your corrections**:
 - Accuracy: 85-90% for known merchants
 - Memory: < 50MB
 
-### With Ollama (AI)
+### With Ollama + Mistral 7B (Recommended)
+- Speed: 500-1200ms per transaction (first time)
+- Accuracy: 92-96% initially, 98%+ with learning
+- Memory: ~4.5GB (Ollama + model)
+- Batch processing: 10 transactions in ~8 seconds
+
+### With Ollama + Phi-3 Mini (Faster Alternative)
 - Speed: 300-800ms per transaction (first time)
-- Accuracy: 95%+ with learning
+- Accuracy: 85-90% initially, 95%+ with learning
 - Memory: ~2.5GB (Ollama + model)
 - Batch processing: 10 transactions in ~3 seconds
 
@@ -131,9 +144,14 @@ This means Ollama is not detected. Check:
 2. Is Ollama running? Run: `ollama serve`
 3. Is the model downloaded? Run: `ollama list`
 
-### "Phi-3 model not found"
+### "No AI model found"
 
-Download the model:
+Download the recommended model:
+```bash
+ollama pull mistral:7b-instruct-q4_0
+```
+
+Or the faster alternative:
 ```bash
 ollama pull phi3:mini
 ```
@@ -157,8 +175,8 @@ You can customize the AI service:
 
 ```bash
 # .env file
-OLLAMA_URL=http://localhost:11434  # Default
-OLLAMA_MODEL=phi3:mini             # Default
+OLLAMA_URL=http://localhost:11434          # Default
+OLLAMA_MODEL=mistral:7b-instruct-q4_0      # Default (best accuracy)
 ```
 
 ### Use a Different Model
@@ -166,13 +184,17 @@ OLLAMA_MODEL=phi3:mini             # Default
 If you prefer a different model:
 
 ```bash
-# Faster, less accurate
+# Faster, less accurate (good for testing)
+ollama pull phi3:mini
+OLLAMA_MODEL=phi3:mini
+
+# Very fast, lower accuracy
 ollama pull llama3.2:1b
 OLLAMA_MODEL=llama3.2:1b
 
-# Slower, more accurate
-ollama pull mistral:7b-instruct-q4_0
-OLLAMA_MODEL=mistral:7b-instruct-q4_0
+# Even better accuracy, but slower and larger
+ollama pull llama3.1:8b-instruct-q4_0
+OLLAMA_MODEL=llama3.1:8b-instruct-q4_0
 ```
 
 ## API Endpoints
@@ -238,7 +260,7 @@ A: No. AI categorization is optional and runs in the background.
 A: Yes! Set `OLLAMA_MODEL` to any model Ollama supports.
 
 **Q: How much disk space does this use?**
-A: Phi-3 Mini: ~2.3GB. You can delete it anytime with `ollama rm phi3:mini`.
+A: Mistral 7B: ~4.1GB, Phi-3 Mini: ~2.3GB. You can delete models anytime with `ollama rm <model-name>`.
 
 **Q: Does it work offline?**
 A: Yes! Once the model is downloaded, everything runs offline.

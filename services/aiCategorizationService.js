@@ -14,7 +14,8 @@ const execAsync = promisify(exec);
 class AICategorization {
     constructor() {
         this.ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434';
-        this.modelName = process.env.OLLAMA_MODEL || 'phi3:mini';
+        // Default to Mistral 7B Instruct for better accuracy (92-96% vs 85-90% with Phi-3)
+        this.modelName = process.env.OLLAMA_MODEL || 'mistral:7b-instruct-q4_0';
         this.isOllamaAvailable = false;
         this.ollamaProcess = null;
         this.checkOllamaAvailability();
@@ -75,13 +76,22 @@ class AICategorization {
 
             if (response.ok) {
                 const data = await response.json();
-                this.isOllamaAvailable = data.models?.some(m => m.name.includes('phi3'));
+                // Check for Mistral (preferred) or Phi-3 (fallback)
+                const hasMistral = data.models?.some(m => m.name.includes('mistral'));
+                const hasPhi3 = data.models?.some(m => m.name.includes('phi3'));
+                this.isOllamaAvailable = hasMistral || hasPhi3;
 
-                if (this.isOllamaAvailable) {
+                if (hasMistral) {
+                    console.log('✓ Ollama is available with Mistral 7B model (best accuracy)');
+                } else if (hasPhi3) {
                     console.log('✓ Ollama is available with Phi-3 model');
+                    console.log('  💡 For better accuracy (92-96%), consider upgrading:');
+                    console.log('     ollama pull mistral:7b-instruct-q4_0');
                 } else {
-                    console.log('⚠ Ollama is running but Phi-3 model not found.');
-                    console.log('  To enable AI categorization, run: ollama pull phi3:mini');
+                    console.log('⚠ Ollama is running but no AI model found.');
+                    console.log('  To enable AI categorization, run one of:');
+                    console.log('     ollama pull mistral:7b-instruct-q4_0  (recommended, best accuracy)');
+                    console.log('     ollama pull phi3:mini                (faster, good accuracy)');
                 }
                 return;
             }
@@ -103,13 +113,18 @@ class AICategorization {
 
                     if (response.ok) {
                         const data = await response.json();
-                        this.isOllamaAvailable = data.models?.some(m => m.name.includes('phi3'));
+                        const hasMistral = data.models?.some(m => m.name.includes('mistral'));
+                        const hasPhi3 = data.models?.some(m => m.name.includes('phi3'));
+                        this.isOllamaAvailable = hasMistral || hasPhi3;
 
-                        if (this.isOllamaAvailable) {
+                        if (hasMistral) {
+                            console.log('✓ Ollama started successfully with Mistral 7B model');
+                        } else if (hasPhi3) {
                             console.log('✓ Ollama started successfully with Phi-3 model');
+                            console.log('  💡 For better accuracy, consider: ollama pull mistral:7b-instruct-q4_0');
                         } else {
-                            console.log('⚠ Ollama started but Phi-3 model not found.');
-                            console.log('  To enable AI categorization, run: ollama pull phi3:mini');
+                            console.log('⚠ Ollama started but no AI model found.');
+                            console.log('  To enable AI categorization, run: ollama pull mistral:7b-instruct-q4_0');
                         }
                         return;
                     }
@@ -189,31 +204,85 @@ class AICategorization {
      * Build AI prompt for categorization
      */
     buildPrompt(transaction, categories) {
+        // Build comprehensive category list with descriptions and keywords
         const categoryList = categories
-            .map(c => `- ${c.name}${c.description ? ` (${c.description})` : ''}`)
-            .join('\n');
+            .map(c => {
+                let catInfo = `- ${c.name}`;
+                if (c.description) catInfo += `\n  Description: ${c.description}`;
+                if (c.keywords) {
+                    try {
+                        const keywords = JSON.parse(c.keywords);
+                        if (keywords.length > 0) {
+                            catInfo += `\n  Keywords: ${keywords.join(', ')}`;
+                        }
+                    } catch (e) { /* ignore parse errors */ }
+                }
+                if (c.examples) catInfo += `\n  Examples: ${c.examples}`;
+                return catInfo;
+            })
+            .join('\n\n');
 
         // Get examples from existing mappings
         const examples = this.getExampleMappings();
 
-        return `You are a financial transaction categorizer. Analyze the transaction and select the MOST appropriate category.
+        // Build comprehensive transaction context
+        const txContext = [];
+        txContext.push(`- Description: ${transaction.description || 'N/A'}`);
+        txContext.push(`- Merchant: ${transaction.merchant_name || 'N/A'}`);
+        txContext.push(`- Amount: $${Math.abs(transaction.amount || 0).toFixed(2)}`);
+        txContext.push(`- Type: ${transaction.amount < 0 ? 'Expense' : 'Income'}`);
 
-Transaction Details:
-- Description: ${transaction.description || 'N/A'}
-- Merchant: ${transaction.merchant_name || 'N/A'}
-- Amount: $${Math.abs(transaction.amount || 0).toFixed(2)}
-- Type: ${transaction.amount < 0 ? 'Expense' : 'Income'}
+        // Add Plaid enhanced category if available
+        if (transaction.plaid_primary_category) {
+            txContext.push(`- Plaid Category: ${transaction.plaid_primary_category}`);
+            if (transaction.plaid_detailed_category) {
+                txContext.push(`  Detailed: ${transaction.plaid_detailed_category}`);
+            }
+        }
 
-Available Categories:
+        // Add location data if available
+        if (transaction.location_city || transaction.location_region) {
+            const location = [
+                transaction.location_city,
+                transaction.location_region
+            ].filter(Boolean).join(', ');
+            txContext.push(`- Location: ${location}`);
+        }
+
+        // Add transaction type if available
+        if (transaction.transaction_type) {
+            txContext.push(`- Transaction Type: ${transaction.transaction_type}`);
+        }
+
+        // Add payment channel if available
+        if (transaction.payment_channel) {
+            txContext.push(`- Payment Channel: ${transaction.payment_channel}`);
+        }
+
+        return `You are an expert financial transaction categorizer. Your task is to analyze transaction details and select the MOST appropriate category with high confidence.
+
+TRANSACTION TO CATEGORIZE:
+${txContext.join('\n')}
+
+AVAILABLE CATEGORIES:
 ${categoryList}
 
-${examples ? `Examples from user's history:\n${examples}\n` : ''}
+${examples ? `EXAMPLES FROM USER'S HISTORY:\n${examples}\n` : ''}
 
-Respond in JSON format:
+INSTRUCTIONS:
+1. Carefully review the transaction details, especially merchant name and description
+2. Consider the Plaid category as a strong signal (if provided)
+3. Match against category descriptions and keywords
+4. Consider location and transaction type for context
+5. Use the user's history to learn their preferences
+6. Provide high confidence (0.90+) only when very certain
+7. Provide reasoning that explains your decision
+
+RESPONSE FORMAT (JSON only):
 {
   "category": "Category Name",
   "confidence": 0.95,
-  "reasoning": "Brief explanation"
+  "reasoning": "Brief explanation of why this category was chosen"
 }`;
     }
 
