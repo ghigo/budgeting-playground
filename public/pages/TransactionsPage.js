@@ -980,8 +980,12 @@ async function aiAutoCategorizeUncategorized() {
 async function showReCategorizationReview(suggestions, totalReviewed, totalAvailable, hasMore) {
     const Modal = (await import('../components/Modal.js')).default;
 
-    // Track selected suggestions
+    // Fetch categories for manual correction
+    const categories = await fetchAPI('/api/categories');
+
+    // Track selected suggestions and manual corrections
     let selectedSuggestions = new Set(suggestions.map((_, idx) => idx));
+    let manualCorrections = new Map(); // idx -> { category, wasAI }
 
     const modalContent = `
         <div class="recategorization-review">
@@ -1018,8 +1022,15 @@ async function showReCategorizationReview(suggestions, totalReviewed, totalAvail
                                     </div>
                                     <div class="suggestion-arrow">→</div>
                                     <div class="suggestion-to">
-                                        <span class="label">Suggested:</span>
-                                        <span class="category highlight">${escapeHtml(sugg.suggested_category)}</span>
+                                        <span class="label">Apply as:</span>
+                                        <select class="category-selector" data-suggestion-index="${idx}" data-original="${escapeHtml(sugg.suggested_category)}">
+                                            ${categories.map(cat => `
+                                                <option value="${escapeHtml(cat.name)}"
+                                                    ${cat.name === sugg.suggested_category ? 'selected' : ''}>
+                                                    ${escapeHtml(cat.name)}
+                                                </option>
+                                            `).join('')}
+                                        </select>
                                         <span class="confidence highlight">${sugg.suggested_confidence}%</span>
                                     </div>
                                 </div>
@@ -1155,6 +1166,35 @@ async function showReCategorizationReview(suggestions, totalReviewed, totalAvail
                 font-weight: 500;
             }
 
+            .category-selector {
+                padding: 0.4rem 0.75rem;
+                border: 2px solid #3b82f6;
+                border-radius: 4px;
+                font-size: 0.875rem;
+                font-weight: 500;
+                background: white;
+                color: #1e40af;
+                cursor: pointer;
+                transition: all 0.2s;
+                min-width: 150px;
+            }
+
+            .category-selector:hover {
+                background: #eff6ff;
+            }
+
+            .category-selector:focus {
+                outline: none;
+                border-color: #1e40af;
+                box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            }
+
+            .category-selector.manual-edit {
+                border-color: #f59e0b;
+                background: #fffbeb;
+                color: #92400e;
+            }
+
             .suggestion-from .confidence,
             .suggestion-to .confidence {
                 font-size: 0.75rem;
@@ -1233,25 +1273,97 @@ async function showReCategorizationReview(suggestions, totalReviewed, totalAvail
             });
         });
 
+        // Handle category selector changes (manual corrections)
+        modalElement.querySelectorAll('.category-selector').forEach(selector => {
+            selector.addEventListener('change', (e) => {
+                const idx = parseInt(e.target.dataset.suggestionIndex);
+                const originalCategory = e.target.dataset.original;
+                const newCategory = e.target.value;
+                const sugg = suggestions[idx];
+
+                if (newCategory !== originalCategory) {
+                    // Mark as manually corrected
+                    e.target.classList.add('manual-edit');
+                    manualCorrections.set(idx, {
+                        category: newCategory,
+                        wasAI: sugg.method === 'ai'
+                    });
+                } else {
+                    // Reverted to AI suggestion
+                    e.target.classList.remove('manual-edit');
+                    manualCorrections.delete(idx);
+                }
+            });
+        });
+
         // Handle apply button
         eventBus.once(`modal:${modal.id}:apply`, async () => {
-            const selectedSuggs = Array.from(selectedSuggestions).map(idx => suggestions[idx]);
+            const selectedSuggs = Array.from(selectedSuggestions).map(idx => {
+                const sugg = { ...suggestions[idx] };
+
+                // Get the selected category from the dropdown
+                const selector = modalElement.querySelector(`.category-selector[data-suggestion-index="${idx}"]`);
+                if (selector) {
+                    sugg.suggested_category = selector.value;
+                }
+
+                return sugg;
+            });
 
             if (selectedSuggs.length === 0) {
                 showToast('No changes selected', 'info');
                 return;
             }
 
-            showLoading(`Applying ${selectedSuggs.length} changes...`);
+            const manualCount = Array.from(selectedSuggestions)
+                .filter(idx => manualCorrections.has(idx)).length;
+
+            showLoading(`Applying ${selectedSuggs.length} changes${manualCount > 0 ? ` (${manualCount} manual)` : ''}...`);
 
             try {
+                // Apply the suggestions
                 const response = await fetchAPI('/api/ai/apply-suggestions', {
                     method: 'POST',
                     body: JSON.stringify({ suggestions: selectedSuggs })
                 });
 
+                // Send manual corrections to learning API
+                const learningPromises = [];
+                for (const idx of selectedSuggestions) {
+                    if (manualCorrections.has(idx)) {
+                        const sugg = suggestions[idx];
+                        const correction = manualCorrections.get(idx);
+
+                        learningPromises.push(
+                            fetchAPI('/api/ai/learn', {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    transaction: {
+                                        transaction_id: sugg.transaction_id,
+                                        description: sugg.description,
+                                        merchant_name: sugg.merchant_name,
+                                        amount: sugg.amount
+                                    },
+                                    userCategory: correction.category
+                                })
+                            }).catch(err => {
+                                console.error('Failed to record learning:', err);
+                                // Don't fail the whole operation if learning fails
+                            })
+                        );
+                    }
+                }
+
+                // Wait for all learning calls to complete
+                await Promise.all(learningPromises);
+
                 hideLoading();
-                showToast(`Successfully updated ${response.updated} transactions!`, 'success');
+
+                let message = `Successfully updated ${response.updated} transactions!`;
+                if (manualCount > 0) {
+                    message += ` AI learned from ${manualCount} correction${manualCount > 1 ? 's' : ''}.`;
+                }
+                showToast(message, 'success');
 
                 // Reload transactions
                 await loadTransactions();
