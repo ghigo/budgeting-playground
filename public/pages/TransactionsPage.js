@@ -938,33 +938,34 @@ async function aiAutoCategorizeUncategorized() {
     try {
         showLoading('AI is reviewing transactions...');
 
-        // Get AI suggestions for transactions with confidence < 100%
-        // Limit to 50 transactions to prevent timeout with Mistral 7B
-        const response = await fetchAPI('/api/ai/review-all', {
+        // Get first batch of suggestions (10 transactions for quick initial display)
+        const firstResponse = await fetchAPI('/api/ai/review-all', {
             method: 'POST',
             body: JSON.stringify({
                 confidenceThreshold: 100,
-                limit: 50
+                limit: 10,
+                offset: 0
             })
         });
 
         hideLoading();
 
-        if (response.suggestions_count === 0) {
-            let message = `Reviewed ${response.total_reviewed} transactions - no improvements found!`;
-            if (response.has_more) {
-                message += ` (${response.total_available - response.total_reviewed} more available - run again to review more)`;
-            }
-            showToast(message, 'success');
+        if (firstResponse.total_available === 0) {
+            showToast('All transactions are already categorized!', 'success');
             return;
         }
 
-        // Show review modal with suggestions
+        if (firstResponse.suggestions_count === 0 && !firstResponse.has_more) {
+            showToast(`Reviewed ${firstResponse.total_reviewed} transactions - no improvements found!`, 'success');
+            return;
+        }
+
+        // Show modal with first batch and continue loading more in background
         await showReCategorizationReview(
-            response.suggestions,
-            response.total_reviewed,
-            response.total_available,
-            response.has_more
+            firstResponse.suggestions,
+            firstResponse.total_available,
+            firstResponse.offset,
+            firstResponse.limit
         );
 
     } catch (error) {

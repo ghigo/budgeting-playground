@@ -505,18 +505,18 @@ app.post('/api/ai/learn', async (req, res) => {
 // Review all transactions and suggest improvements
 app.post('/api/ai/review-all', async (req, res) => {
   try {
-    const { confidenceThreshold = 100, limit = 50 } = req.body;
+    const { confidenceThreshold = 100, limit = 10, offset = 0 } = req.body;
 
     // Get database instance
     const db = database.getDatabase();
 
-    // Get all transactions with confidence < threshold (with limit to prevent timeout)
+    // Get all transactions with confidence < threshold (with limit and offset for progressive loading)
     const transactions = db.prepare(`
       SELECT * FROM transactions
       WHERE confidence < ?
       ORDER BY date DESC
-      LIMIT ?
-    `).all(confidenceThreshold, limit);
+      LIMIT ? OFFSET ?
+    `).all(confidenceThreshold, limit, offset);
 
     // Get total count for info
     const totalCount = db.prepare(`
@@ -558,6 +558,7 @@ app.post('/api/ai/review-all', async (req, res) => {
           date: transaction.date,
           description: transaction.description,
           merchant_name: transaction.merchant_name,
+          account_name: transaction.account_name,
           amount: transaction.amount,
           current_category: transaction.category,
           current_confidence: currentConfidence,
@@ -574,7 +575,9 @@ app.post('/api/ai/review-all', async (req, res) => {
       total_available: totalCount,
       suggestions_count: suggestions.length,
       suggestions,
-      has_more: totalCount > limit
+      offset: offset,
+      limit: limit,
+      has_more: (offset + limit) < totalCount
     });
   } catch (error) {
     console.error('Error reviewing transactions:', error);
