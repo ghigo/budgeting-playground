@@ -444,7 +444,11 @@ app.post('/api/ai/auto-categorize', async (req, res) => {
           ao.total_amount as amazon_total,
           ao.order_date as amazon_order_date,
           ao.match_confidence as amazon_match_confidence,
-          ao.order_status as amazon_order_status
+          ao.order_status as amazon_order_status,
+          ao.subtotal as amazon_subtotal,
+          ao.tax as amazon_tax,
+          ao.shipping as amazon_shipping,
+          ao.payment_method as amazon_payment_method
         FROM transactions t
         LEFT JOIN amazon_orders ao ON t.transaction_id = ao.matched_transaction_id
         WHERE t.category = 'Uncategorized' OR t.category IS NULL
@@ -458,11 +462,23 @@ app.post('/api/ai/auto-categorize', async (req, res) => {
           ao.total_amount as amazon_total,
           ao.order_date as amazon_order_date,
           ao.match_confidence as amazon_match_confidence,
-          ao.order_status as amazon_order_status
+          ao.order_status as amazon_order_status,
+          ao.subtotal as amazon_subtotal,
+          ao.tax as amazon_tax,
+          ao.shipping as amazon_shipping,
+          ao.payment_method as amazon_payment_method
         FROM transactions t
         LEFT JOIN amazon_orders ao ON t.transaction_id = ao.matched_transaction_id
         ORDER BY t.date DESC
       `).all();
+    }
+
+    // Fetch Amazon items for matched transactions
+    for (const tx of transactions) {
+      if (tx.amazon_order_id) {
+        const items = db.prepare('SELECT * FROM amazon_items WHERE order_id = ?').all(tx.amazon_order_id);
+        tx.amazon_items = items;
+      }
     }
 
     // Categorize them
@@ -535,13 +551,25 @@ app.post('/api/ai/review-all', async (req, res) => {
         ao.total_amount as amazon_total,
         ao.order_date as amazon_order_date,
         ao.match_confidence as amazon_match_confidence,
-        ao.order_status as amazon_order_status
+        ao.order_status as amazon_order_status,
+        ao.subtotal as amazon_subtotal,
+        ao.tax as amazon_tax,
+        ao.shipping as amazon_shipping,
+        ao.payment_method as amazon_payment_method
       FROM transactions t
       LEFT JOIN amazon_orders ao ON t.transaction_id = ao.matched_transaction_id
       WHERE t.confidence < ?
       ORDER BY t.date DESC
       LIMIT ? OFFSET ?
     `).all(confidenceThreshold, limit, offset);
+
+    // Fetch Amazon items for matched transactions
+    for (const tx of transactions) {
+      if (tx.amazon_order_id) {
+        const items = db.prepare('SELECT * FROM amazon_items WHERE order_id = ?').all(tx.amazon_order_id);
+        tx.amazon_items = items;
+      }
+    }
 
     // Get total count for info
     const totalCount = db.prepare(`

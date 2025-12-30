@@ -210,7 +210,69 @@ class AICategorization {
         const aiStartTime = Date.now();
         const prompt = this.buildPrompt(transaction, categories);
 
-        console.log(`      → AI call for: ${transaction.description?.substring(0, 40)}...`);
+        // Log all transaction data being sent to AI
+        console.log('\n========================================');
+        console.log('🤖 AI CATEGORIZATION REQUEST');
+        console.log('========================================');
+        console.log('Transaction ID:', transaction.transaction_id);
+        console.log('Description:', transaction.description);
+        console.log('Merchant:', transaction.merchant_name || 'N/A');
+        console.log('Amount:', transaction.amount);
+        console.log('Date:', transaction.date);
+        console.log('Account:', transaction.account_name || 'N/A');
+        console.log('\nPlaid Data:');
+        console.log('  Primary Category:', transaction.plaid_primary_category || 'N/A');
+        console.log('  Detailed Category:', transaction.plaid_detailed_category || 'N/A');
+        console.log('  Confidence:', transaction.plaid_confidence_level || 'N/A');
+        console.log('\nLocation:');
+        console.log('  City:', transaction.location_city || 'N/A');
+        console.log('  Region:', transaction.location_region || 'N/A');
+        console.log('  Address:', transaction.location_address || 'N/A');
+        console.log('\nTransaction Details:');
+        console.log('  Type:', transaction.transaction_type || 'N/A');
+        console.log('  Payment Channel:', transaction.payment_channel || 'N/A');
+        console.log('  Merchant Entity ID:', transaction.merchant_entity_id || 'N/A');
+        console.log('  Pending:', transaction.pending || 'N/A');
+        console.log('  Authorized Date:', transaction.authorized_datetime || 'N/A');
+        console.log('\nAmazon Order:');
+        if (transaction.amazon_order_id || transaction.amazon_order) {
+            const ao = transaction.amazon_order || {
+                order_id: transaction.amazon_order_id,
+                total_amount: transaction.amazon_total,
+                order_date: transaction.amazon_order_date,
+                match_confidence: transaction.amazon_match_confidence,
+                order_status: transaction.amazon_order_status,
+                subtotal: transaction.amazon_subtotal,
+                tax: transaction.amazon_tax,
+                shipping: transaction.amazon_shipping,
+                payment_method: transaction.amazon_payment_method
+            };
+            console.log('  Order ID:', ao.order_id);
+            console.log('  Total Amount:', ao.total_amount);
+            console.log('  Subtotal:', ao.subtotal || 'N/A');
+            console.log('  Tax:', ao.tax || 'N/A');
+            console.log('  Shipping:', ao.shipping || 'N/A');
+            console.log('  Order Date:', ao.order_date);
+            console.log('  Payment Method:', ao.payment_method || 'N/A');
+            console.log('  Match Confidence:', ao.match_confidence);
+            console.log('  Status:', ao.order_status);
+
+            if (transaction.amazon_items && transaction.amazon_items.length > 0) {
+                console.log('\n  Amazon Items (' + transaction.amazon_items.length + '):');
+                transaction.amazon_items.forEach((item, idx) => {
+                    console.log(`    ${idx + 1}. ${item.title}`);
+                    if (item.category) console.log(`       Category: ${item.category}`);
+                    console.log(`       Price: $${item.price}, Quantity: ${item.quantity || 1}`);
+                    if (item.seller) console.log(`       Seller: ${item.seller}`);
+                    if (item.return_status) console.log(`       ⚠️  RETURNED: ${item.return_status}`);
+                });
+            }
+        } else {
+            console.log('  No Amazon order matched');
+        }
+        console.log('\n--- AI PROMPT ---');
+        console.log(prompt);
+        console.log('--- END PROMPT ---\n');
 
         const response = await fetch(`${this.ollamaUrl}/api/generate`, {
             method: 'POST',
@@ -235,7 +297,12 @@ class AICategorization {
 
         const result = await response.json();
         const aiTime = Date.now() - aiStartTime;
-        console.log(`      ← AI response in ${aiTime}ms`);
+
+        console.log('--- AI RESPONSE ---');
+        console.log(result.response);
+        console.log('--- END RESPONSE ---');
+        console.log(`Response time: ${aiTime}ms`);
+        console.log('========================================\n');
 
         return this.parseAIResponse(result.response, categories);
     }
@@ -304,9 +371,34 @@ class AICategorization {
             const amazonOrder = transaction.amazon_order || {
                 order_id: transaction.amazon_order_id,
                 total_amount: transaction.amazon_total,
-                order_date: transaction.amazon_order_date
+                order_date: transaction.amazon_order_date,
+                subtotal: transaction.amazon_subtotal,
+                tax: transaction.amazon_tax,
+                shipping: transaction.amazon_shipping,
+                payment_method: transaction.amazon_payment_method,
+                order_status: transaction.amazon_order_status
             };
-            txContext.push(`- Amazon Order: ${amazonOrder.order_id} (${amazonOrder.order_date}, Total: $${amazonOrder.total_amount})`);
+            txContext.push(`- Amazon Order ID: ${amazonOrder.order_id}`);
+            txContext.push(`  Order Date: ${amazonOrder.order_date}`);
+            txContext.push(`  Total: $${amazonOrder.total_amount}${amazonOrder.subtotal ? ` (Subtotal: $${amazonOrder.subtotal}, Tax: $${amazonOrder.tax || 0}, Shipping: $${amazonOrder.shipping || 0})` : ''}`);
+            if (amazonOrder.payment_method) txContext.push(`  Payment: ${amazonOrder.payment_method}`);
+            if (amazonOrder.order_status) txContext.push(`  Status: ${amazonOrder.order_status}`);
+
+            // Add Amazon items if available
+            if (transaction.amazon_items && transaction.amazon_items.length > 0) {
+                txContext.push(`  Items in order (${transaction.amazon_items.length}):`);
+                transaction.amazon_items.forEach((item, idx) => {
+                    const itemDesc = [
+                        item.title,
+                        item.category ? `Category: ${item.category}` : null,
+                        `Price: $${item.price}`,
+                        item.quantity > 1 ? `Qty: ${item.quantity}` : null,
+                        item.seller ? `Seller: ${item.seller}` : null,
+                        item.return_status ? `RETURNED: ${item.return_status}` : null
+                    ].filter(Boolean).join(', ');
+                    txContext.push(`    ${idx + 1}. ${itemDesc}`);
+                });
+            }
         }
 
         return `You are an expert financial transaction categorizer. Your task is to analyze transaction details and select the MOST appropriate category with high confidence.
@@ -322,12 +414,15 @@ ${examples ? `EXAMPLES FROM USER'S HISTORY:\n${examples}\n` : ''}
 INSTRUCTIONS:
 1. Carefully review ALL transaction details: merchant, description, amount, location, payment channel
 2. Consider the Plaid category as a strong signal (if provided)
-3. If an Amazon order is linked, use that context for more specific categorization
+3. If an Amazon order is linked, USE THE AMAZON ITEMS to determine the most appropriate category:
+   - Look at item titles and categories (e.g., "Electronics", "Home & Kitchen", "Grocery")
+   - If multiple items, categorize based on the highest-value or most significant item
+   - Consider if items were returned (may affect categorization)
 4. Match against category descriptions and keywords
 5. Consider location and transaction type for context
 6. Use the user's history to learn their preferences
 7. Provide high confidence (0.90+) only when very certain
-8. Provide reasoning that explains your decision using the specific details you analyzed
+8. Provide reasoning that explains your decision using the specific details you analyzed (mention Amazon items if present)
 
 RESPONSE FORMAT (JSON only):
 {
