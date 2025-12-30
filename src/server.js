@@ -565,7 +565,20 @@ app.post('/api/ai/review-all', async (req, res) => {
           suggested_category: aiResult.category,
           suggested_confidence: Math.round(aiResult.confidence * 100),
           reasoning: aiResult.reasoning,
-          method: aiResult.method
+          method: aiResult.method,
+          // Include all transaction metadata for learning
+          payment_channel: transaction.payment_channel,
+          transaction_type: transaction.transaction_type,
+          plaid_primary_category: transaction.plaid_primary_category,
+          plaid_detailed_category: transaction.plaid_detailed_category,
+          plaid_confidence_level: transaction.plaid_confidence_level,
+          location_city: transaction.location_city,
+          location_region: transaction.location_region,
+          location_address: transaction.location_address,
+          merchant_entity_id: transaction.merchant_entity_id,
+          authorized_datetime: transaction.authorized_datetime,
+          pending: transaction.pending,
+          verified: transaction.verified
         });
       }
     }
@@ -1082,7 +1095,7 @@ app.get('*', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   const envEmoji = plaidEnvironment === 'production' ? '🟢' : '🟡';
   const envLabel = plaidEnvironment.toUpperCase();
 
@@ -1092,3 +1105,33 @@ app.listen(PORT, () => {
   console.log(`🔗 Link Account: http://localhost:${PORT}/link`);
   console.log('\nPress Ctrl+C to stop\n');
 });
+
+// Graceful shutdown handler
+async function gracefulShutdown(signal) {
+  console.log(`\n\n${signal} received, shutting down gracefully...`);
+
+  // Stop accepting new connections
+  server.close(() => {
+    console.log('✓ HTTP server closed');
+  });
+
+  try {
+    // Cleanup AI resources (unload Ollama model, stop processes)
+    await aiCategorization.cleanup();
+
+    // Close database connection
+    console.log('   Closing database connection...');
+    database.closeDatabase();
+    console.log('   ✓ Database connection closed');
+
+    console.log('\n✓ Graceful shutdown complete');
+    process.exit(0);
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+    process.exit(1);
+  }
+}
+
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

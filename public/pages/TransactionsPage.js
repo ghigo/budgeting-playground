@@ -978,73 +978,87 @@ async function aiAutoCategorizeUncategorized() {
 /**
  * Show re-categorization review modal
  */
-async function showReCategorizationReview(suggestions, totalReviewed, totalAvailable, hasMore) {
+async function showReCategorizationReview(initialSuggestions, totalAvailable, initialOffset, batchLimit) {
     const Modal = (await import('../components/Modal.js')).default;
 
     // Fetch categories for manual correction
     const categories = await fetchAPI('/api/categories');
 
-    // Track selected suggestions and manual corrections
-    let selectedSuggestions = new Set(suggestions.map((_, idx) => idx));
-    let manualCorrections = new Map(); // idx -> { category, wasAI }
+    // State management for progressive loading
+    let allSuggestions = [...initialSuggestions];
+    let currentOffset = initialOffset + batchLimit;
+    let isLoadingMore = false;
+    let appliedCount = 0;
+    let manualCorrections = new Map();
+
+    // Build suggestion item HTML
+    function buildSuggestionHTML(sugg, idx) {
+        return `
+            <div class="suggestion-item" data-transaction-id="${escapeHtml(sugg.transaction_id)}" data-index="${idx}">
+                <div class="suggestion-content">
+                    <div class="suggestion-details">
+                        <div class="suggestion-header">
+                            <span class="suggestion-date">${formatDate(sugg.date)}</span>
+                            <span class="suggestion-account">${escapeHtml(sugg.account_name || 'Unknown')}</span>
+                            <span class="suggestion-amount">${formatCurrency(sugg.amount)}</span>
+                        </div>
+                        <div class="suggestion-description">${escapeHtml(sugg.description)}</div>
+
+                        <div class="suggestion-change">
+                            <div class="suggestion-from">
+                                <span class="label">Current:</span>
+                                <span class="category">${escapeHtml(sugg.current_category || 'Uncategorized')}</span>
+                                <span class="confidence">${sugg.current_confidence}%</span>
+                            </div>
+                            <div class="suggestion-arrow">→</div>
+                            <div class="suggestion-to">
+                                <span class="label">Apply as:</span>
+                                <select class="category-selector" data-index="${idx}" data-original="${escapeHtml(sugg.suggested_category)}">
+                                    ${categories.map(cat => `
+                                        <option value="${escapeHtml(cat.name)}"
+                                            ${cat.name === sugg.suggested_category ? 'selected' : ''}>
+                                            ${escapeHtml(cat.name)}
+                                        </option>
+                                    `).join('')}
+                                </select>
+                                <span class="confidence highlight">${sugg.suggested_confidence}%</span>
+                            </div>
+                        </div>
+                        ${sugg.reasoning ? `
+                            <div class="suggestion-reasoning">
+                                <span class="reasoning-icon">${sugg.method === 'ai' ? '🤖' : '📋'}</span>
+                                <span class="reasoning-text">${escapeHtml(sugg.reasoning)}</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div class="suggestion-actions">
+                        <button class="btn-apply-single" data-index="${idx}">
+                            ✓ Apply
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
 
     const modalContent = `
         <div class="recategorization-review">
-            <div class="review-summary">
-                <p><strong>Reviewed:</strong> ${totalReviewed} of ${totalAvailable} transactions</p>
-                <p><strong>Suggested changes:</strong> ${suggestions.length} improvements found</p>
-                ${hasMore ? `
-                    <p style="color: #ff9800; font-size: 0.9em; margin-top: 0.5rem;">
-                        ⚠️ Showing first ${totalReviewed} transactions (${totalAvailable - totalReviewed} more available).
-                        Run AI Categorize again after applying these changes to review more.
-                    </p>
-                ` : ''}
+            <div class="review-summary" id="review-summary">
+                <p><strong>Total to review:</strong> ${totalAvailable} transactions</p>
+                <p><strong>Loaded:</strong> <span id="loaded-count">${initialSuggestions.length}</span> suggestions</p>
+                <p><strong>Applied:</strong> <span id="applied-count">0</span></p>
                 <p style="color: #666; font-size: 0.9em; margin-top: 0.5rem;">
-                    Select the changes you want to apply. Uncheck any you want to keep as-is.
+                    Review and apply suggestions individually or in batch. Scroll down to load more.
                 </p>
             </div>
 
-            <div class="suggestions-list">
-                ${suggestions.map((sugg, idx) => `
-                    <div class="suggestion-item" data-index="${idx}">
-                        <label class="suggestion-checkbox">
-                            <input type="checkbox" checked data-suggestion-index="${idx}">
-                            <div class="suggestion-details">
-                                <div class="suggestion-transaction">
-                                    <span class="suggestion-date">${formatDate(sugg.date)}</span>
-                                    <span class="suggestion-description">${escapeHtml(sugg.description)}</span>
-                                    <span class="suggestion-amount">${formatCurrency(sugg.amount)}</span>
-                                </div>
-                                <div class="suggestion-change">
-                                    <div class="suggestion-from">
-                                        <span class="label">Current:</span>
-                                        <span class="category">${escapeHtml(sugg.current_category || 'Uncategorized')}</span>
-                                        <span class="confidence">${sugg.current_confidence}%</span>
-                                    </div>
-                                    <div class="suggestion-arrow">→</div>
-                                    <div class="suggestion-to">
-                                        <span class="label">Apply as:</span>
-                                        <select class="category-selector" data-suggestion-index="${idx}" data-original="${escapeHtml(sugg.suggested_category)}">
-                                            ${categories.map(cat => `
-                                                <option value="${escapeHtml(cat.name)}"
-                                                    ${cat.name === sugg.suggested_category ? 'selected' : ''}>
-                                                    ${escapeHtml(cat.name)}
-                                                </option>
-                                            `).join('')}
-                                        </select>
-                                        <span class="confidence highlight">${sugg.suggested_confidence}%</span>
-                                    </div>
-                                </div>
-                                ${sugg.reasoning ? `
-                                    <div class="suggestion-reasoning">
-                                        <span class="reasoning-icon">${sugg.method === 'ai' ? '🤖' : '📋'}</span>
-                                        <span class="reasoning-text">${escapeHtml(sugg.reasoning)}</span>
-                                    </div>
-                                ` : ''}
-                            </div>
-                        </label>
-                    </div>
-                `).join('')}
+            <div class="suggestions-list" id="suggestions-list">
+                ${initialSuggestions.map((sugg, idx) => buildSuggestionHTML(sugg, idx)).join('')}
+            </div>
+
+            <div id="loading-more" class="loading-more" style="display: none;">
+                <div class="spinner"></div>
+                <span>Loading more suggestions...</span>
             </div>
         </div>
 
@@ -1060,6 +1074,9 @@ async function showReCategorizationReview(suggestions, totalReviewed, totalAvail
                 border-radius: 6px;
                 margin-bottom: 1.5rem;
                 border-left: 4px solid #3b82f6;
+                position: sticky;
+                top: 0;
+                z-index: 10;
             }
 
             .review-summary p {
@@ -1075,7 +1092,18 @@ async function showReCategorizationReview(suggestions, totalReviewed, totalAvail
             .suggestion-item {
                 border: 1px solid #e5e7eb;
                 border-radius: 6px;
-                transition: all 0.2s;
+                transition: all 0.3s;
+                background: white;
+            }
+
+            .suggestion-item.removing {
+                opacity: 0;
+                transform: translateX(100px);
+                height: 0;
+                margin: 0;
+                padding: 0;
+                border: none;
+                overflow: hidden;
             }
 
             .suggestion-item:hover {
@@ -1083,47 +1111,50 @@ async function showReCategorizationReview(suggestions, totalReviewed, totalAvail
                 box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
             }
 
-            .suggestion-checkbox {
+            .suggestion-content {
                 display: flex;
                 gap: 1rem;
                 padding: 1rem;
-                cursor: pointer;
-                margin: 0;
-            }
-
-            .suggestion-checkbox input[type="checkbox"] {
-                margin-top: 0.25rem;
-                flex-shrink: 0;
-                width: 18px;
-                height: 18px;
-                cursor: pointer;
             }
 
             .suggestion-details {
                 flex: 1;
+                min-width: 0;
             }
 
-            .suggestion-transaction {
+            .suggestion-header {
                 display: flex;
                 gap: 1rem;
-                margin-bottom: 0.75rem;
+                margin-bottom: 0.5rem;
                 flex-wrap: wrap;
+                align-items: center;
             }
 
             .suggestion-date {
                 color: #6b7280;
                 font-size: 0.875rem;
+                font-weight: 500;
+            }
+
+            .suggestion-account {
+                background: #e0e7ff;
+                color: #3730a3;
+                padding: 0.125rem 0.5rem;
+                border-radius: 3px;
+                font-size: 0.75rem;
+                font-weight: 500;
             }
 
             .suggestion-description {
                 font-weight: 500;
-                flex: 1;
-                min-width: 150px;
+                margin-bottom: 0.75rem;
+                font-size: 0.95rem;
             }
 
             .suggestion-amount {
                 font-weight: 600;
                 color: #1f2937;
+                margin-left: auto;
             }
 
             .suggestion-change {
@@ -1237,6 +1268,55 @@ async function showReCategorizationReview(suggestions, totalReviewed, totalAvail
                 font-style: italic;
                 line-height: 1.4;
             }
+
+            .suggestion-actions {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+            }
+
+            .btn-apply-single {
+                padding: 0.5rem 1rem;
+                background: #3b82f6;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: 500;
+                transition: all 0.2s;
+                white-space: nowrap;
+            }
+
+            .btn-apply-single:hover {
+                background: #2563eb;
+                transform: scale(1.05);
+            }
+
+            .btn-apply-single:active {
+                transform: scale(0.95);
+            }
+
+            .loading-more {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 0.5rem;
+                padding: 1rem;
+                color: #6b7280;
+            }
+
+            .spinner {
+                width: 20px;
+                height: 20px;
+                border: 3px solid #e5e7eb;
+                border-top-color: #3b82f6;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+            }
+
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
         </style>
     `;
 
@@ -1245,135 +1325,236 @@ async function showReCategorizationReview(suggestions, totalReviewed, totalAvail
         title: '🤖 AI Categorization Review',
         content: modalContent,
         actions: [
-            { action: 'cancel', label: 'Cancel', primary: false },
-            { action: 'apply', label: `Apply ${suggestions.length} Selected`, primary: true }
+            { action: 'cancel', label: 'Close', primary: false },
+            { action: 'apply-all', label: 'Apply All Remaining', primary: true }
         ],
         options: { size: 'large' }
     });
 
-    // Handle checkbox changes and apply button
     modal.show();
 
     const modalElement = document.getElementById('recategorization-review-modal');
-    if (modalElement) {
-        // Handle checkbox changes
-        modalElement.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
-            checkbox.addEventListener('change', (e) => {
-                const idx = parseInt(e.target.dataset.suggestionIndex);
-                if (e.target.checked) {
-                    selectedSuggestions.add(idx);
-                } else {
-                    selectedSuggestions.delete(idx);
-                }
+    const suggestionsList = document.getElementById('suggestions-list');
+    const loadingMore = document.getElementById('loading-more');
+    const reviewContainer = modalElement.querySelector('.recategorization-review');
 
-                // Update button text
-                const applyBtn = modalElement.querySelector('[data-action="apply"]');
-                if (applyBtn) {
-                    applyBtn.textContent = `Apply ${selectedSuggestions.size} Selected`;
-                }
-            });
-        });
+    // Helper: Update counts
+    function updateCounts() {
+        document.getElementById('loaded-count').textContent = allSuggestions.length;
+        document.getElementById('applied-count').textContent = appliedCount;
+    }
 
-        // Handle category selector changes (manual corrections)
-        modalElement.querySelectorAll('.category-selector').forEach(selector => {
-            selector.addEventListener('change', (e) => {
-                const idx = parseInt(e.target.dataset.suggestionIndex);
-                const originalCategory = e.target.dataset.original;
-                const newCategory = e.target.value;
-                const sugg = suggestions[idx];
+    // Helper: Apply single suggestion
+    async function applySuggestion(index) {
+        const sugg = allSuggestions[index];
+        const item = suggestionsList.querySelector(`[data-index="${index}"]`);
 
-                if (newCategory !== originalCategory) {
-                    // Mark as manually corrected
-                    e.target.classList.add('manual-edit');
-                    manualCorrections.set(idx, {
-                        category: newCategory,
-                        wasAI: sugg.method === 'ai'
-                    });
-                } else {
-                    // Reverted to AI suggestion
-                    e.target.classList.remove('manual-edit');
-                    manualCorrections.delete(idx);
-                }
-            });
-        });
+        if (!sugg || !item) return;
 
-        // Handle apply button
-        eventBus.once(`modal:${modal.id}:apply`, async () => {
-            const selectedSuggs = Array.from(selectedSuggestions).map(idx => {
-                const sugg = { ...suggestions[idx] };
+        // Get selected category
+        const selector = item.querySelector('.category-selector');
+        const selectedCategory = selector ? selector.value : sugg.suggested_category;
 
-                // Get the selected category from the dropdown
-                const selector = modalElement.querySelector(`.category-selector[data-suggestion-index="${idx}"]`);
-                if (selector) {
-                    sugg.suggested_category = selector.value;
-                }
+        const applySugg = { ...sugg, suggested_category: selectedCategory };
 
-                return sugg;
+        try {
+            // Apply the suggestion
+            await fetchAPI('/api/ai/apply-suggestions', {
+                method: 'POST',
+                body: JSON.stringify({ suggestions: [applySugg] })
             });
 
-            if (selectedSuggs.length === 0) {
-                showToast('No changes selected', 'info');
-                return;
+            // Check if manually corrected and send to learning
+            const originalCategory = selector?.dataset.original;
+            if (selector && selectedCategory !== originalCategory) {
+                await fetchAPI('/api/ai/learn', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        transaction: {
+                            transaction_id: sugg.transaction_id,
+                            date: sugg.date,
+                            description: sugg.description,
+                            merchant_name: sugg.merchant_name,
+                            account_name: sugg.account_name,
+                            amount: sugg.amount,
+                            // Include all transaction metadata for better learning
+                            payment_channel: sugg.payment_channel,
+                            transaction_type: sugg.transaction_type,
+                            plaid_primary_category: sugg.plaid_primary_category,
+                            plaid_detailed_category: sugg.plaid_detailed_category,
+                            plaid_confidence_level: sugg.plaid_confidence_level,
+                            location_city: sugg.location_city,
+                            location_region: sugg.location_region,
+                            location_address: sugg.location_address,
+                            merchant_entity_id: sugg.merchant_entity_id,
+                            authorized_datetime: sugg.authorized_datetime,
+                            pending: sugg.pending,
+                            verified: sugg.verified
+                        },
+                        userCategory: selectedCategory
+                    })
+                }).catch(console.error);
             }
 
-            const manualCount = Array.from(selectedSuggestions)
-                .filter(idx => manualCorrections.has(idx)).length;
+            // Remove from DOM with animation
+            item.classList.add('removing');
+            setTimeout(() => item.remove(), 300);
 
-            showLoading(`Applying ${selectedSuggs.length} changes${manualCount > 0 ? ` (${manualCount} manual)` : ''}...`);
+            // Update counts
+            appliedCount++;
+            updateCounts();
 
-            try {
-                // Apply the suggestions
-                const response = await fetchAPI('/api/ai/apply-suggestions', {
-                    method: 'POST',
-                    body: JSON.stringify({ suggestions: selectedSuggs })
+            // Reload transactions in background
+            loadTransactions().catch(console.error);
+
+        } catch (error) {
+            showToast('Failed to apply: ' + error.message, 'error');
+        }
+    }
+
+    // Helper: Load more suggestions
+    async function loadMoreSuggestions() {
+        if (isLoadingMore || currentOffset >= totalAvailable) return;
+
+        isLoadingMore = true;
+        loadingMore.style.display = 'flex';
+
+        try {
+            const response = await fetchAPI('/api/ai/review-all', {
+                method: 'POST',
+                body: JSON.stringify({
+                    confidenceThreshold: 100,
+                    limit: batchLimit,
+                    offset: currentOffset
+                })
+            });
+
+            if (response.suggestions && response.suggestions.length > 0) {
+                // Add new suggestions
+                const startIdx = allSuggestions.length;
+                allSuggestions = allSuggestions.concat(response.suggestions);
+
+                // Append to DOM
+                response.suggestions.forEach((sugg, i) => {
+                    const html = buildSuggestionHTML(sugg, startIdx + i);
+                    suggestionsList.insertAdjacentHTML('beforeend', html);
                 });
 
-                // Send manual corrections to learning API
-                const learningPromises = [];
-                for (const idx of selectedSuggestions) {
-                    if (manualCorrections.has(idx)) {
-                        const sugg = suggestions[idx];
-                        const correction = manualCorrections.get(idx);
+                // Attach event listeners to new items
+                attachEventListeners(startIdx);
 
-                        learningPromises.push(
-                            fetchAPI('/api/ai/learn', {
-                                method: 'POST',
-                                body: JSON.stringify({
-                                    transaction: {
-                                        transaction_id: sugg.transaction_id,
-                                        description: sugg.description,
-                                        merchant_name: sugg.merchant_name,
-                                        amount: sugg.amount
-                                    },
-                                    userCategory: correction.category
-                                })
-                            }).catch(err => {
-                                console.error('Failed to record learning:', err);
-                                // Don't fail the whole operation if learning fails
-                            })
-                        );
-                    }
+                currentOffset += batchLimit;
+                updateCounts();
+            }
+        } catch (error) {
+            console.error('Failed to load more:', error);
+            showToast('Failed to load more suggestions', 'error');
+        } finally {
+            isLoadingMore = false;
+            loadingMore.style.display = 'none';
+        }
+    }
+
+    // Attach event listeners (optionally only to new items from startIdx)
+    function attachEventListeners(startIdx = 0) {
+        // Individual apply buttons
+        const buttons = modalElement.querySelectorAll('.btn-apply-single');
+        buttons.forEach(btn => {
+            const index = parseInt(btn.dataset.index);
+            if (index < startIdx) return; // Skip already attached
+            if (btn.hasAttribute('data-listener')) return;
+            btn.setAttribute('data-listener', 'true');
+
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const idx = parseInt(e.target.dataset.index);
+                await applySuggestion(idx);
+            });
+        });
+
+        // Category selector changes
+        const selectors = modalElement.querySelectorAll('.category-selector');
+        selectors.forEach(selector => {
+            const index = parseInt(selector.dataset.index);
+            if (index < startIdx) return; // Skip already attached
+            if (selector.hasAttribute('data-listener')) return;
+            selector.setAttribute('data-listener', 'true');
+
+            selector.addEventListener('change', (e) => {
+                const originalCategory = e.target.dataset.original;
+                if (e.target.value !== originalCategory) {
+                    e.target.classList.add('manual-edit');
+                } else {
+                    e.target.classList.remove('manual-edit');
                 }
+            });
+        });
+    }
 
-                // Wait for all learning calls to complete
-                await Promise.all(learningPromises);
+    // Initial event listeners
+    attachEventListeners();
 
-                hideLoading();
-
-                let message = `Successfully updated ${response.updated} transactions!`;
-                if (manualCount > 0) {
-                    message += ` AI learned from ${manualCount} correction${manualCount > 1 ? 's' : ''}.`;
-                }
-                showToast(message, 'success');
-
-                // Reload transactions
-                await loadTransactions();
-            } catch (error) {
-                hideLoading();
-                showToast('Failed to apply changes: ' + error.message, 'error');
+    // Scroll listener for infinite loading
+    if (reviewContainer) {
+        reviewContainer.addEventListener('scroll', () => {
+            const { scrollTop, scrollHeight, clientHeight } = reviewContainer;
+            if (scrollHeight - scrollTop - clientHeight < 200) {
+                loadMoreSuggestions();
             }
         });
     }
+
+    // Apply all remaining button
+    eventBus.once(`modal:${modal.id}:apply-all`, async () => {
+        const remainingSuggestions = [];
+
+        // Get all remaining items with their selected categories
+        modalElement.querySelectorAll('.suggestion-item:not(.removing)').forEach(item => {
+            const idx = parseInt(item.dataset.index);
+            const sugg = allSuggestions[idx];
+            if (!sugg) return;
+
+            const selector = item.querySelector('.category-selector');
+            if (selector) {
+                remainingSuggestions.push({
+                    ...sugg,
+                    suggested_category: selector.value
+                });
+            } else {
+                remainingSuggestions.push(sugg);
+            }
+        });
+
+        if (remainingSuggestions.length === 0) {
+            showToast('No suggestions remaining', 'info');
+            return;
+        }
+
+        showLoading(`Applying ${remainingSuggestions.length} remaining suggestions...`);
+
+        try {
+            await fetchAPI('/api/ai/apply-suggestions', {
+                method: 'POST',
+                body: JSON.stringify({ suggestions: remainingSuggestions })
+            });
+
+            hideLoading();
+            showToast(`Successfully applied ${remainingSuggestions.length} suggestions!`, 'success');
+
+            modal.close();
+            await loadTransactions();
+        } catch (error) {
+            hideLoading();
+            showToast('Failed to apply all: ' + error.message, 'error');
+        }
+    });
+
+    // Start loading more in background after a short delay
+    setTimeout(() => {
+        if (currentOffset < totalAvailable) {
+            loadMoreSuggestions();
+        }
+    }, 1000);
 }
 
 /**

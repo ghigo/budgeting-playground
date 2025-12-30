@@ -8,8 +8,18 @@ import * as database from '../src/database.js';
 import { spawn } from 'child_process';
 import { promisify } from 'util';
 import { exec } from 'child_process';
+import http from 'http';
 
 const execAsync = promisify(exec);
+
+// HTTP agent with connection pooling for better resource management
+const httpAgent = new http.Agent({
+    keepAlive: true,
+    maxSockets: 5,          // Limit concurrent connections to Ollama
+    maxFreeSockets: 2,      // Keep 2 idle sockets open for reuse
+    timeout: 60000,         // Close idle connections after 60s
+    keepAliveMsecs: 30000   // Send keep-alive probes every 30s
+});
 
 class AICategorization {
     constructor() {
@@ -18,6 +28,7 @@ class AICategorization {
         this.modelName = process.env.OLLAMA_MODEL || 'mistral:7b-instruct-q4_0';
         this.isOllamaAvailable = false;
         this.ollamaProcess = null;
+        this.httpAgent = httpAgent;  // Use connection pooling agent
         this.checkOllamaAvailability();
     }
 
@@ -90,7 +101,8 @@ class AICategorization {
         try {
             // Try to connect to Ollama
             const response = await fetch(`${this.ollamaUrl}/api/tags`, {
-                signal: AbortSignal.timeout(2000)
+                signal: AbortSignal.timeout(2000),
+                agent: this.httpAgent
             });
 
             if (response.ok) {
@@ -127,7 +139,8 @@ class AICategorization {
                 // Check again after starting
                 try {
                     const response = await fetch(`${this.ollamaUrl}/api/tags`, {
-                        signal: AbortSignal.timeout(2000)
+                        signal: AbortSignal.timeout(2000),
+                        agent: this.httpAgent
                     });
 
                     if (response.ok) {
@@ -206,12 +219,14 @@ class AICategorization {
                 model: this.modelName,
                 prompt: prompt,
                 stream: false,
+                keep_alive: "2m",  // Keep model loaded for 2 minutes to serve subsequent requests efficiently
                 options: {
                     temperature: 0.1,  // Low for consistency
                     num_predict: 100   // Limit response length
                 }
             }),
-            signal: AbortSignal.timeout(30000)  // Increased to 30s for Mistral 7B
+            signal: AbortSignal.timeout(30000),  // Increased to 30s for Mistral 7B
+            agent: this.httpAgent  // Use connection pooling for better resource management
         });
 
         if (!response.ok) {
@@ -591,20 +606,55 @@ RESPONSE FORMAT (JSON only):
         console.log(`   Memory at end: ${Math.round(memEnd.heapUsed / 1024 / 1024)}MB heap, ${Math.round(memEnd.rss / 1024 / 1024)}MB RSS`);
         console.log(`   Memory delta: ${Math.round((memEnd.heapUsed - memStart.heapUsed) / 1024 / 1024)}MB\n`);
 
+        // Unload model after batch to free resources
+        // The model will auto-reload on next request
+        await this.unloadModel().catch(err => console.error('Failed to unload model:', err));
+
         return results;
     }
 
     /**
      * Learn from user corrections
      * Updates merchant mappings based on user's category choices
+     * Now uses ALL transaction information for better learning
      */
     async learnFromCorrection(transaction, userCategory) {
         if (!transaction.merchant_name) return;
 
         try {
+            // Log comprehensive transaction context for learning
+            const learningContext = {
+                merchant_name: transaction.merchant_name,
+                category: userCategory,
+                amount: transaction.amount,
+                date: transaction.date,
+                account_name: transaction.account_name,
+                payment_channel: transaction.payment_channel,
+                transaction_type: transaction.transaction_type,
+                location: {
+                    city: transaction.location_city,
+                    region: transaction.location_region,
+                    address: transaction.location_address
+                },
+                plaid: {
+                    primary_category: transaction.plaid_primary_category,
+                    detailed_category: transaction.plaid_detailed_category,
+                    confidence_level: transaction.plaid_confidence_level
+                },
+                merchant_entity_id: transaction.merchant_entity_id
+            };
+
+            console.log('📚 Learning from user correction:');
+            console.log(`   Merchant: "${transaction.merchant_name}" → ${userCategory}`);
+            console.log(`   Context: ${JSON.stringify(learningContext, null, 2)}`);
+
             // Save merchant mapping (creates or updates)
             database.saveMerchantMapping(transaction.merchant_name, userCategory);
-            console.log(`Learned: "${transaction.merchant_name}" → ${userCategory}`);
+
+            // TODO: Future enhancement - store full transaction examples in a separate table
+            // This would allow pattern matching on location, amount ranges, payment channels, etc.
+
+            console.log(`✓ Learned: "${transaction.merchant_name}" → ${userCategory}`);
         } catch (error) {
             console.error('Failed to learn from correction:', error);
         }
@@ -622,6 +672,66 @@ RESPONSE FORMAT (JSON only):
             modelName: this.modelName,
             fallbackMethod: 'Enhanced rule-based categorization'
         };
+    }
+
+    /**
+     * Unload Ollama model to free up resources
+     * This immediately releases GPU/CPU memory used by the model
+     */
+    async unloadModel() {
+        if (!this.isOllamaAvailable) return;
+
+        try {
+            console.log('🧹 Unloading Ollama model to free resources...');
+
+            // Send a generate request with keep_alive: 0 to immediately unload
+            await fetch(`${this.ollamaUrl}/api/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: this.modelName,
+                    prompt: '',
+                    keep_alive: 0  // Immediately unload the model
+                }),
+                signal: AbortSignal.timeout(5000),
+                agent: this.httpAgent
+            });
+
+            console.log('✓ Ollama model unloaded successfully');
+        } catch (error) {
+            console.error('Failed to unload Ollama model:', error.message);
+        }
+    }
+
+    /**
+     * Cleanup resources - called on server shutdown
+     */
+    async cleanup() {
+        console.log('🧹 Cleaning up AI categorization service...');
+
+        // Unload the model
+        await this.unloadModel();
+
+        // Destroy HTTP agent to close all connections
+        if (this.httpAgent) {
+            console.log('   Closing HTTP connections...');
+            this.httpAgent.destroy();
+            console.log('   ✓ HTTP connections closed');
+        }
+
+        // Kill Ollama process if we started it
+        if (this.ollamaProcess) {
+            try {
+                console.log('   Stopping Ollama process...');
+                this.ollamaProcess.kill('SIGTERM');
+                this.ollamaProcess = null;
+                console.log('   ✓ Ollama process stopped');
+            } catch (error) {
+                console.error('   Failed to stop Ollama process:', error.message);
+            }
+        }
+
+        console.log('✓ AI categorization service cleanup complete');
     }
 }
 
