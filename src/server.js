@@ -10,6 +10,7 @@ import { plaidEnvironment } from './plaid.js';
 import * as sync from './sync.js';
 import * as sheets from './sheets.js';
 import * as amazon from './amazon.js';
+import aiCategorization from '../services/aiCategorizationService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -372,6 +373,126 @@ app.post('/api/transactions/recategorize', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error recategorizing transactions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// AI CATEGORIZATION
+// ============================================================================
+
+// Get AI categorization service status
+app.get('/api/ai/status', async (req, res) => {
+  try {
+    const status = await aiCategorization.getStatus();
+    res.json(status);
+  } catch (error) {
+    console.error('Error getting AI status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Categorize a single transaction using AI
+app.post('/api/ai/categorize', async (req, res) => {
+  try {
+    const { transaction } = req.body;
+
+    if (!transaction) {
+      return res.status(400).json({ error: 'Transaction data required' });
+    }
+
+    const result = await aiCategorization.categorizeTransaction(transaction);
+    res.json(result);
+  } catch (error) {
+    console.error('Error categorizing transaction:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Batch categorize multiple transactions
+app.post('/api/ai/categorize/batch', async (req, res) => {
+  try {
+    const { transactions, options = {} } = req.body;
+
+    if (!transactions || !Array.isArray(transactions)) {
+      return res.status(400).json({ error: 'Transactions array required' });
+    }
+
+    const results = await aiCategorization.batchCategorize(transactions, options);
+    res.json({ results, count: results.length });
+  } catch (error) {
+    console.error('Error batch categorizing transactions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Auto-categorize all uncategorized transactions with AI
+app.post('/api/ai/auto-categorize', async (req, res) => {
+  try {
+    const { onlyUncategorized = true, updateDatabase = false } = req.body;
+
+    // Get uncategorized or all transactions
+    let transactions;
+    if (onlyUncategorized) {
+      transactions = database.db.prepare(`
+        SELECT * FROM transactions
+        WHERE category = 'Uncategorized' OR category IS NULL
+        ORDER BY date DESC
+      `).all();
+    } else {
+      transactions = database.db.prepare(`
+        SELECT * FROM transactions
+        ORDER BY date DESC
+      `).all();
+    }
+
+    // Categorize them
+    const results = await aiCategorization.batchCategorize(transactions);
+
+    // Optionally update database
+    let updated = 0;
+    if (updateDatabase) {
+      for (let i = 0; i < transactions.length; i++) {
+        const transaction = transactions[i];
+        const result = results[i];
+
+        // Only update if confidence is high enough
+        if (result.confidence >= 0.7) {
+          database.db.prepare(`
+            UPDATE transactions
+            SET category = ?
+            WHERE id = ?
+          `).run(result.category, transaction.id);
+          updated++;
+        }
+      }
+    }
+
+    res.json({
+      total: transactions.length,
+      categorized: results.length,
+      updated,
+      results
+    });
+  } catch (error) {
+    console.error('Error auto-categorizing transactions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Learn from user correction
+app.post('/api/ai/learn', async (req, res) => {
+  try {
+    const { transaction, userCategory } = req.body;
+
+    if (!transaction || !userCategory) {
+      return res.status(400).json({ error: 'Transaction and userCategory required' });
+    }
+
+    await aiCategorization.learnFromCorrection(transaction, userCategory);
+    res.json({ success: true, message: 'Learning updated' });
+  } catch (error) {
+    console.error('Error learning from correction:', error);
     res.status(500).json({ error: error.message });
   }
 });

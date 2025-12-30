@@ -8,6 +8,8 @@ import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, showLoadin
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
 import { debounce } from '../utils/helpers.js';
+import { aiCategorization } from '../services/aiCategorizationClient.js';
+import { showConfirmModal } from '../components/Modal.js';
 
 // Module state
 let allCategories = [];
@@ -53,6 +55,9 @@ export function initializeTransactionsPage(deps) {
     window.closeSimilarTransactionsModal = closeSimilarTransactionsModal;
     window.toggleAllSimilarTransactions = toggleAllSimilarTransactions;
     window.applyCategoryToSimilar = applyCategoryToSimilar;
+
+    // Initialize AI status badge
+    updateAIStatusBadge();
 }
 
 // ============================================================================
@@ -904,6 +909,112 @@ async function approveAllVisibleTransactions() {
         hideLoading();
     }
 }
+
+// ============================================================================
+// AI CATEGORIZATION FUNCTIONS
+// ============================================================================
+
+/**
+ * Update AI status badge
+ */
+async function updateAIStatusBadge() {
+    const badge = document.getElementById('aiStatusBadge');
+    if (!badge) return;
+
+    const status = await aiCategorization.checkStatus();
+    badge.textContent = aiCategorization.getStatusMessage();
+
+    if (status.aiAvailable) {
+        badge.style.color = '#27ae60';
+    } else {
+        badge.style.color = '#666';
+    }
+}
+
+/**
+ * AI auto-categorize uncategorized transactions
+ */
+async function aiAutoCategorizeUncategorized() {
+    try {
+        // Check AI status
+        const status = await aiCategorization.checkStatus();
+
+        // Count uncategorized transactions
+        const uncategorized = allTransactions.filter(tx =>
+            !tx.category || tx.category === 'Uncategorized'
+        );
+
+        if (uncategorized.length === 0) {
+            showToast('No uncategorized transactions found', 'info');
+            return;
+        }
+
+        // Show confirmation dialog
+        const methodLabel = status.aiAvailable ? 'AI model' : 'enhanced rule-based system';
+
+        showConfirmModal(
+            'AI Auto-Categorize',
+            `Categorize ${uncategorized.length} uncategorized transaction(s) using ${methodLabel}?`,
+            async () => {
+                showLoading('AI is categorizing transactions...');
+
+                try {
+                    const result = await aiCategorization.autoCategorize({
+                        onlyUncategorized: true,
+                        updateDatabase: true
+                    });
+
+                    showToast(
+                        `Categorized ${result.updated} of ${result.total} transactions`,
+                        'success'
+                    );
+
+                    // Reload transactions
+                    await loadTransactions();
+                } catch (error) {
+                    showToast(`Auto-categorization failed: ${error.message}`, 'error');
+                } finally {
+                    hideLoading();
+                }
+            }
+        );
+    } catch (error) {
+        console.error('AI auto-categorize error:', error);
+        showToast('Failed to start auto-categorization', 'error');
+    }
+}
+
+/**
+ * AI suggest category for a specific transaction
+ */
+async function aiSuggestCategory(transactionId) {
+    const transaction = allTransactions.find(tx => tx.transaction_id === transactionId);
+
+    if (!transaction) {
+        showToast('Transaction not found', 'error');
+        return;
+    }
+
+    // Show AI suggestion modal
+    await aiCategorization.showSuggestionModal(transaction, async (result) => {
+        // Apply the suggested category
+        try {
+            await fetchAPI(`/api/transactions/${transactionId}/category`, {
+                method: 'PATCH',
+                body: JSON.stringify({ category: result.category })
+            });
+
+            showToast(`Category updated to ${result.category}`, 'success');
+            await loadTransactions();
+        } catch (error) {
+            showToast(`Failed to update category: ${error.message}`, 'error');
+        }
+    });
+}
+
+// Expose functions globally for onclick handlers
+window.aiAutoCategorizeUncategorized = aiAutoCategorizeUncategorized;
+window.aiSuggestCategory = aiSuggestCategory;
 
 // Export module
 export default {

@@ -216,9 +216,15 @@
                             <button onclick="showAllTransactions()" class="btn btn-secondary" id="showAllBtn">All</button>
                             <button onclick="applyUnverifiedFilter()" class="btn btn-secondary" id="showUnverifiedBtn">Unverified</button>
                         </div>
-                        <button onclick="approveAllVisibleTransactions()" class="btn btn-success" id="approveAllBtn" style="display: none;">
-                            ✓ Approve All Visible
-                        </button>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <span id="aiStatusBadge" style="font-size: 0.85em; color: #666;"></span>
+                            <button onclick="aiAutoCategorizeUncategorized()" class="btn btn-primary" id="aiCategorizeBtn">
+                                🤖 AI Categorize
+                            </button>
+                            <button onclick="approveAllVisibleTransactions()" class="btn btn-success" id="approveAllBtn" style="display: none;">
+                                ✓ Approve All Visible
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Filters -->
