@@ -299,6 +299,16 @@ class AICategorization {
             txContext.push(`- Payment Channel: ${transaction.payment_channel}`);
         }
 
+        // Add Amazon order information if matched
+        if (transaction.amazon_order_id || transaction.amazon_order) {
+            const amazonOrder = transaction.amazon_order || {
+                order_id: transaction.amazon_order_id,
+                total_amount: transaction.amazon_total,
+                order_date: transaction.amazon_order_date
+            };
+            txContext.push(`- Amazon Order: ${amazonOrder.order_id} (${amazonOrder.order_date}, Total: $${amazonOrder.total_amount})`);
+        }
+
         return `You are an expert financial transaction categorizer. Your task is to analyze transaction details and select the MOST appropriate category with high confidence.
 
 TRANSACTION TO CATEGORIZE:
@@ -310,13 +320,14 @@ ${categoryList}
 ${examples ? `EXAMPLES FROM USER'S HISTORY:\n${examples}\n` : ''}
 
 INSTRUCTIONS:
-1. Carefully review the transaction details, especially merchant name and description
+1. Carefully review ALL transaction details: merchant, description, amount, location, payment channel
 2. Consider the Plaid category as a strong signal (if provided)
-3. Match against category descriptions and keywords
-4. Consider location and transaction type for context
-5. Use the user's history to learn their preferences
-6. Provide high confidence (0.90+) only when very certain
-7. Provide reasoning that explains your decision
+3. If an Amazon order is linked, use that context for more specific categorization
+4. Match against category descriptions and keywords
+5. Consider location and transaction type for context
+6. Use the user's history to learn their preferences
+7. Provide high confidence (0.90+) only when very certain
+8. Provide reasoning that explains your decision using the specific details you analyzed
 
 RESPONSE FORMAT (JSON only):
 {

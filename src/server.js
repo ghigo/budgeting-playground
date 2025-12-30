@@ -434,18 +434,34 @@ app.post('/api/ai/auto-categorize', async (req, res) => {
     // Get database instance
     const db = database.getDatabase();
 
-    // Get uncategorized or all transactions
+    // Get uncategorized or all transactions (with Amazon order info)
     let transactions;
     if (onlyUncategorized) {
       transactions = db.prepare(`
-        SELECT * FROM transactions
-        WHERE category = 'Uncategorized' OR category IS NULL
-        ORDER BY date DESC
+        SELECT
+          t.*,
+          ao.order_id as amazon_order_id,
+          ao.total_amount as amazon_total,
+          ao.order_date as amazon_order_date,
+          ao.match_confidence as amazon_match_confidence,
+          ao.order_status as amazon_order_status
+        FROM transactions t
+        LEFT JOIN amazon_orders ao ON t.transaction_id = ao.matched_transaction_id
+        WHERE t.category = 'Uncategorized' OR t.category IS NULL
+        ORDER BY t.date DESC
       `).all();
     } else {
       transactions = db.prepare(`
-        SELECT * FROM transactions
-        ORDER BY date DESC
+        SELECT
+          t.*,
+          ao.order_id as amazon_order_id,
+          ao.total_amount as amazon_total,
+          ao.order_date as amazon_order_date,
+          ao.match_confidence as amazon_match_confidence,
+          ao.order_status as amazon_order_status
+        FROM transactions t
+        LEFT JOIN amazon_orders ao ON t.transaction_id = ao.matched_transaction_id
+        ORDER BY t.date DESC
       `).all();
     }
 
@@ -511,10 +527,19 @@ app.post('/api/ai/review-all', async (req, res) => {
     const db = database.getDatabase();
 
     // Get all transactions with confidence < threshold (with limit and offset for progressive loading)
+    // Include Amazon order information if matched
     const transactions = db.prepare(`
-      SELECT * FROM transactions
-      WHERE confidence < ?
-      ORDER BY date DESC
+      SELECT
+        t.*,
+        ao.order_id as amazon_order_id,
+        ao.total_amount as amazon_total,
+        ao.order_date as amazon_order_date,
+        ao.match_confidence as amazon_match_confidence,
+        ao.order_status as amazon_order_status
+      FROM transactions t
+      LEFT JOIN amazon_orders ao ON t.transaction_id = ao.matched_transaction_id
+      WHERE t.confidence < ?
+      ORDER BY t.date DESC
       LIMIT ? OFFSET ?
     `).all(confidenceThreshold, limit, offset);
 
@@ -578,7 +603,15 @@ app.post('/api/ai/review-all', async (req, res) => {
           merchant_entity_id: transaction.merchant_entity_id,
           authorized_datetime: transaction.authorized_datetime,
           pending: transaction.pending,
-          verified: transaction.verified
+          verified: transaction.verified,
+          // Amazon order information (if matched)
+          amazon_order: transaction.amazon_order_id ? {
+            order_id: transaction.amazon_order_id,
+            total_amount: transaction.amazon_total,
+            order_date: transaction.amazon_order_date,
+            match_confidence: transaction.amazon_match_confidence,
+            order_status: transaction.amazon_order_status
+          } : null
         });
       }
     }

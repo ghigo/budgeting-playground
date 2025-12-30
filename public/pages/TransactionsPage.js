@@ -1014,6 +1014,17 @@ async function showReCategorizationReview(initialSuggestions, totalAvailable, in
 
     // Build suggestion item HTML
     function buildSuggestionHTML(sugg, idx) {
+        // Build metadata display
+        const metadata = [];
+        if (sugg.merchant_name) metadata.push(`Merchant: ${escapeHtml(sugg.merchant_name)}`);
+        if (sugg.plaid_primary_category) metadata.push(`Plaid: ${escapeHtml(sugg.plaid_primary_category)}${sugg.plaid_detailed_category ? ` → ${escapeHtml(sugg.plaid_detailed_category)}` : ''}`);
+        if (sugg.location_city || sugg.location_region) {
+            const loc = [sugg.location_city, sugg.location_region].filter(Boolean).join(', ');
+            metadata.push(`Location: ${escapeHtml(loc)}`);
+        }
+        if (sugg.payment_channel) metadata.push(`Channel: ${escapeHtml(sugg.payment_channel)}`);
+        if (sugg.transaction_type) metadata.push(`Type: ${escapeHtml(sugg.transaction_type)}`);
+
         return `
             <div class="suggestion-item" data-transaction-id="${escapeHtml(sugg.transaction_id)}" data-index="${idx}">
                 <div class="suggestion-content">
@@ -1024,6 +1035,20 @@ async function showReCategorizationReview(initialSuggestions, totalAvailable, in
                             <span class="suggestion-amount">${formatCurrency(sugg.amount)}</span>
                         </div>
                         <div class="suggestion-description">${escapeHtml(sugg.description)}</div>
+
+                        ${sugg.amazon_order ? `
+                            <div class="suggestion-amazon-badge">
+                                <span style="background: #FF9900; color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+                                    📦 Amazon Order ${escapeHtml(sugg.amazon_order.order_id.substring(0, 12))}... • ${formatCurrency(sugg.amazon_order.total_amount)}
+                                </span>
+                            </div>
+                        ` : ''}
+
+                        ${metadata.length > 0 ? `
+                            <div class="suggestion-metadata">
+                                ${metadata.map(m => `<span class="metadata-tag">${m}</span>`).join('')}
+                            </div>
+                        ` : ''}
 
                         <div class="suggestion-change">
                             <div class="suggestion-from">
@@ -1168,8 +1193,28 @@ async function showReCategorizationReview(initialSuggestions, totalAvailable, in
 
             .suggestion-description {
                 font-weight: 500;
-                margin-bottom: 0.75rem;
+                margin-bottom: 0.5rem;
                 font-size: 0.95rem;
+            }
+
+            .suggestion-amazon-badge {
+                margin-bottom: 0.5rem;
+            }
+
+            .suggestion-metadata {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+                margin-bottom: 0.75rem;
+            }
+
+            .metadata-tag {
+                font-size: 0.75rem;
+                padding: 0.25rem 0.5rem;
+                background: #f3f4f6;
+                color: #4b5563;
+                border-radius: 3px;
+                border: 1px solid #e5e7eb;
             }
 
             .suggestion-amount {
