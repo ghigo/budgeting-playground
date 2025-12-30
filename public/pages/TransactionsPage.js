@@ -98,7 +98,7 @@ export async function loadTransactions(filters = {}) {
     }
 }
 
-async function loadTransactionFilters() {
+export async function loadTransactionFilters() {
     try {
         const [accounts, categories] = await Promise.all([
             fetchAPI('/api/accounts'),

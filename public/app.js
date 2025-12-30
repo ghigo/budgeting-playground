@@ -8,7 +8,7 @@ import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, getContras
 import { fetchAPI } from './services/api.js';
 import { initializeDashboardPage, loadDashboard } from './pages/DashboardPage.js';
 import { initializeAccountsPage, loadAccounts } from './pages/AccountsPage.js';
-import { initializeTransactionsPage, loadTransactions, applyTransactionFilters } from './pages/TransactionsPage.js';
+import { initializeTransactionsPage, loadTransactions, applyTransactionFilters, loadTransactionFilters } from './pages/TransactionsPage.js';
 import { initializeAmazonPage, loadAmazonPage, handleAmazonFileUpload } from './pages/AmazonPage.js';
 import { initializeCategoriesPage, loadCategories } from './pages/CategoriesPage.js';
 import { initializeMappingsPage, loadMappings } from './pages/MappingsPage.js';
