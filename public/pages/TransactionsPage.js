@@ -580,7 +580,7 @@ async function selectCategory(categoryName) {
 
     try {
         const result = await fetchAPI(`/api/transactions/${transactionId}/category`, {
-            method: 'POST',
+            method: 'PATCH',
             body: JSON.stringify({ category: categoryName })
         });
 
@@ -686,7 +686,7 @@ async function applyCategoryToSimilar() {
 
     try {
         const result = await fetchAPI('/api/transactions/bulk/category', {
-            method: 'POST',
+            method: 'PATCH',
             body: JSON.stringify({
                 transactionIds,
                 category
@@ -852,7 +852,7 @@ async function applyBulkCategory() {
     showLoading();
     try {
         const result = await fetchAPI('/api/transactions/bulk/category', {
-            method: 'POST',
+            method: 'PATCH',
             body: JSON.stringify({
                 transactionIds: Array.from(selectedTransactions),
                 category
