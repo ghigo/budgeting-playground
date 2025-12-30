@@ -184,6 +184,9 @@ function runMigrations() {
   const tableInfo = db.prepare("PRAGMA table_info(categories)").all();
   const hasIcon = tableInfo.some(col => col.name === 'icon');
   const hasColor = tableInfo.some(col => col.name === 'color');
+  const hasDescription = tableInfo.some(col => col.name === 'description');
+  const hasKeywords = tableInfo.some(col => col.name === 'keywords');
+  const hasExamples = tableInfo.some(col => col.name === 'examples');
 
   let columnsAdded = false;
 
@@ -199,6 +202,109 @@ function runMigrations() {
     columnsAdded = true;
   }
 
+  if (!hasDescription) {
+    console.log('Adding description column to categories table...');
+    db.exec("ALTER TABLE categories ADD COLUMN description TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasKeywords) {
+    console.log('Adding keywords column to categories table...');
+    db.exec("ALTER TABLE categories ADD COLUMN keywords TEXT");  // JSON array
+    columnsAdded = true;
+  }
+
+  if (!hasExamples) {
+    console.log('Adding examples column to categories table...');
+    db.exec("ALTER TABLE categories ADD COLUMN examples TEXT");
+    columnsAdded = true;
+  }
+
+  // Check if enhanced Plaid fields exist in transactions table
+  const transactionsInfo = db.prepare("PRAGMA table_info(transactions)").all();
+  const hasPlaidPrimaryCategory = transactionsInfo.some(col => col.name === 'plaid_primary_category');
+  const hasPlaidDetailedCategory = transactionsInfo.some(col => col.name === 'plaid_detailed_category');
+  const hasPlaidConfidence = transactionsInfo.some(col => col.name === 'plaid_confidence_level');
+  const hasLocationCity = transactionsInfo.some(col => col.name === 'location_city');
+  const hasLocationRegion = transactionsInfo.some(col => col.name === 'location_region');
+  const hasLocationAddress = transactionsInfo.some(col => col.name === 'location_address');
+  const hasTransactionType = transactionsInfo.some(col => col.name === 'transaction_type');
+  const hasAuthorizedDatetime = transactionsInfo.some(col => col.name === 'authorized_datetime');
+  const hasMerchantEntityId = transactionsInfo.some(col => col.name === 'merchant_entity_id');
+  const hasCategorizationReasoning = transactionsInfo.some(col => col.name === 'categorization_reasoning');
+
+  if (!hasPlaidPrimaryCategory) {
+    console.log('Adding Plaid enhanced category fields to transactions table...');
+    db.exec("ALTER TABLE transactions ADD COLUMN plaid_primary_category TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasPlaidDetailedCategory) {
+    db.exec("ALTER TABLE transactions ADD COLUMN plaid_detailed_category TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasPlaidConfidence) {
+    db.exec("ALTER TABLE transactions ADD COLUMN plaid_confidence_level TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasLocationCity) {
+    console.log('Adding location fields to transactions table...');
+    db.exec("ALTER TABLE transactions ADD COLUMN location_city TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasLocationRegion) {
+    db.exec("ALTER TABLE transactions ADD COLUMN location_region TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasLocationAddress) {
+    db.exec("ALTER TABLE transactions ADD COLUMN location_address TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasTransactionType) {
+    console.log('Adding transaction metadata fields...');
+    db.exec("ALTER TABLE transactions ADD COLUMN transaction_type TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasAuthorizedDatetime) {
+    db.exec("ALTER TABLE transactions ADD COLUMN authorized_datetime TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasMerchantEntityId) {
+    db.exec("ALTER TABLE transactions ADD COLUMN merchant_entity_id TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasCategorizationReasoning) {
+    console.log('Adding AI categorization reasoning field...');
+    db.exec("ALTER TABLE transactions ADD COLUMN categorization_reasoning TEXT");
+    columnsAdded = true;
+  }
+
+  // Create transaction_splits table if it doesn't exist
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS transaction_splits (
+      id TEXT PRIMARY KEY,
+      parent_transaction_id TEXT NOT NULL,
+      split_index INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      category TEXT,
+      description TEXT,
+      reasoning TEXT,
+      source TEXT DEFAULT 'manual',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (parent_transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_transaction_splits_parent ON transaction_splits(parent_transaction_id);
+  `);
+
   // Check if account_name column exists in amazon_orders table
   const amazonOrdersInfo = db.prepare("PRAGMA table_info(amazon_orders)").all();
   const hasAccountName = amazonOrdersInfo.some(col => col.name === 'account_name');
@@ -213,6 +319,40 @@ function runMigrations() {
   if (!hasMatchVerified) {
     console.log('Adding match_verified column to amazon_orders table...');
     db.exec("ALTER TABLE amazon_orders ADD COLUMN match_verified TEXT DEFAULT 'No'");
+    columnsAdded = true;
+  }
+
+  // Update merchant_mappings table to track accuracy
+  const merchantMappingsInfo = db.prepare("PRAGMA table_info(merchant_mappings)").all();
+  const hasUsageCount = merchantMappingsInfo.some(col => col.name === 'usage_count');
+  const hasAccuracyRate = merchantMappingsInfo.some(col => col.name === 'accuracy_rate');
+
+  // Rename match_count to usage_count if needed
+  if (!hasUsageCount) {
+    const hasMatchCount = merchantMappingsInfo.some(col => col.name === 'match_count');
+    if (hasMatchCount) {
+      console.log('Renaming match_count to usage_count in merchant_mappings...');
+      // SQLite doesn't support renaming columns easily, so we'll just add the new one
+      db.exec("ALTER TABLE merchant_mappings ADD COLUMN usage_count INTEGER DEFAULT 1");
+      // Copy data if both exist
+      try {
+        db.exec("UPDATE merchant_mappings SET usage_count = match_count WHERE usage_count IS NULL");
+      } catch (e) {
+        // Ignore if match_count doesn't exist
+      }
+      columnsAdded = true;
+    } else {
+      db.exec("ALTER TABLE merchant_mappings ADD COLUMN usage_count INTEGER DEFAULT 1");
+      columnsAdded = true;
+    }
+  }
+
+  if (!hasAccuracyRate) {
+    console.log('Adding accuracy tracking to merchant_mappings...');
+    db.exec("ALTER TABLE merchant_mappings ADD COLUMN accuracy_rate REAL DEFAULT 1.0");
+    db.exec("ALTER TABLE merchant_mappings ADD COLUMN correct_count INTEGER DEFAULT 0");
+    db.exec("ALTER TABLE merchant_mappings ADD COLUMN incorrect_count INTEGER DEFAULT 0");
+    db.exec("ALTER TABLE merchant_mappings ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))");
     columnsAdded = true;
   }
 
@@ -574,8 +714,11 @@ export function saveTransactions(transactions, categorizationData) {
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO transactions (
       transaction_id, date, description, merchant_name, account_name,
-      amount, category, confidence, verified, pending, payment_channel, notes, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      amount, category, confidence, verified, pending, payment_channel, notes, created_at,
+      plaid_primary_category, plaid_detailed_category, plaid_confidence_level,
+      location_city, location_region, location_address,
+      transaction_type, authorized_datetime, merchant_entity_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let inserted = 0;
@@ -592,6 +735,23 @@ export function saveTransactions(transactions, categorizationData) {
         confidence = result.confidence;
       }
 
+      // Extract Plaid personal_finance_category
+      const pfc = tx.personal_finance_category || {};
+      const plaidPrimary = pfc.primary || null;
+      const plaidDetailed = pfc.detailed || null;
+      const plaidConfidence = pfc.confidence_level || null;
+
+      // Extract location data
+      const location = tx.location || {};
+      const locationCity = location.city || null;
+      const locationRegion = location.region || null;
+      const locationAddress = location.address || null;
+
+      // Extract transaction metadata
+      const transactionType = tx.transaction_type || null;
+      const authorizedDatetime = tx.authorized_datetime || tx.authorized_date || null;
+      const merchantEntityId = tx.merchant_entity_id || null;
+
       const info = stmt.run(
         tx.transaction_id,
         tx.date,
@@ -604,7 +764,16 @@ export function saveTransactions(transactions, categorizationData) {
         'No',
         tx.pending ? 'Yes' : 'No',
         tx.payment_channel || '',
-        ''
+        '',
+        plaidPrimary,
+        plaidDetailed,
+        plaidConfidence,
+        locationCity,
+        locationRegion,
+        locationAddress,
+        transactionType,
+        authorizedDatetime,
+        merchantEntityId
       );
 
       if (info.changes > 0) {
