@@ -7,6 +7,7 @@
 import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
+import { debounce } from '../utils/helpers.js';
 
 // Module state
 let allCategories = [];
@@ -41,7 +42,7 @@ export function initializeTransactionsPage(deps) {
     window.approveAllVisibleTransactions = approveAllVisibleTransactions;
     window.viewCategoryTransactions = viewCategoryTransactions;
     window.applyTransactionFilters = applyTransactionFilters;
-    window.searchTransactions = searchTransactions;
+    window.searchTransactions = debouncedSearch; // Use debounced version for better performance
     window.clearTransactionFilters = clearTransactionFilters;
     window.showAllTransactions = showAllTransactions;
     window.applyUnverifiedFilter = applyUnverifiedFilter;
@@ -271,6 +272,9 @@ function searchTransactions() {
 
     displayTransactionsTable(filtered);
 }
+
+// Create debounced version for better performance
+const debouncedSearch = debounce(searchTransactions, 300);
 
 export function applyTransactionFilters() {
     const filters = {

@@ -5,6 +5,7 @@
 
 import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
+import { debounce } from '../utils/helpers.js';
 
 // Module state
 let amazonOrders = [];
@@ -22,13 +23,16 @@ export function initializeAmazonPage(deps) {
     fetchAPI = deps.fetchAPI;
     navigateTo = deps.navigateTo;
 
+    // Create debounced search for better performance
+    const debouncedSearch = debounce(searchAmazonOrders, 300);
+
     // Expose functions globally for onclick handlers
     window.handleAmazonFileUpload = handleAmazonFileUpload;
     window.verifyAmazonMatch = verifyAmazonMatch;
     window.unverifyAmazonMatch = unverifyAmazonMatch;
     window.unmatchAmazonOrder = unmatchAmazonOrder;
     window.runAmazonAutoMatch = runAmazonAutoMatch;
-    window.searchAmazonOrders = searchAmazonOrders;
+    window.searchAmazonOrders = debouncedSearch; // Use debounced version
     window.applyAmazonFilters = applyAmazonFilters;
     window.clearAmazonFilters = clearAmazonFilters;
     window.selectTimeRange = selectTimeRange;
