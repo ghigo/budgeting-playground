@@ -932,55 +932,315 @@ async function updateAIStatusBadge() {
 }
 
 /**
- * AI auto-categorize uncategorized transactions
+ * AI auto-categorize - Review ALL transactions and suggest improvements
  */
 async function aiAutoCategorizeUncategorized() {
     try {
-        // Check AI status
-        const status = await aiCategorization.checkStatus();
+        showLoading('AI is reviewing all transactions...');
 
-        // Count uncategorized transactions
-        const uncategorized = allTransactions.filter(tx =>
-            !tx.category || tx.category === 'Uncategorized'
-        );
+        // Get AI suggestions for all transactions with confidence < 100%
+        const response = await fetchAPI('/api/ai/review-all', {
+            method: 'POST',
+            body: JSON.stringify({ confidenceThreshold: 100 })
+        });
 
-        if (uncategorized.length === 0) {
-            showToast('No uncategorized transactions found', 'info');
+        hideLoading();
+
+        if (response.suggestions_count === 0) {
+            showToast(`Reviewed ${response.total_reviewed} transactions - no improvements found!`, 'success');
             return;
         }
 
-        // Show confirmation dialog
-        const methodLabel = status.aiAvailable ? 'AI model' : 'enhanced rule-based system';
+        // Show review modal with suggestions
+        await showReCategorizationReview(response.suggestions, response.total_reviewed);
 
-        showConfirmModal(
-            'AI Auto-Categorize',
-            `Categorize ${uncategorized.length} uncategorized transaction(s) using ${methodLabel}?`,
-            async () => {
-                showLoading('AI is categorizing transactions...');
-
-                try {
-                    const result = await aiCategorization.autoCategorize({
-                        onlyUncategorized: true,
-                        updateDatabase: true
-                    });
-
-                    showToast(
-                        `Categorized ${result.updated} of ${result.total} transactions`,
-                        'success'
-                    );
-
-                    // Reload transactions
-                    await loadTransactions();
-                } catch (error) {
-                    showToast(`Auto-categorization failed: ${error.message}`, 'error');
-                } finally {
-                    hideLoading();
-                }
-            }
-        );
     } catch (error) {
-        console.error('AI auto-categorize error:', error);
-        showToast('Failed to start auto-categorization', 'error');
+        hideLoading();
+        console.error('AI review error:', error);
+        showToast('Failed to review transactions: ' + error.message, 'error');
+    }
+}
+
+/**
+ * Show re-categorization review modal
+ */
+async function showReCategorizationReview(suggestions, totalReviewed) {
+    const Modal = (await import('../components/Modal.js')).default;
+
+    // Track selected suggestions
+    let selectedSuggestions = new Set(suggestions.map((_, idx) => idx));
+
+    const modalContent = `
+        <div class="recategorization-review">
+            <div class="review-summary">
+                <p><strong>Reviewed:</strong> ${totalReviewed} transactions</p>
+                <p><strong>Suggested changes:</strong> ${suggestions.length} improvements found</p>
+                <p style="color: #666; font-size: 0.9em; margin-top: 0.5rem;">
+                    Select the changes you want to apply. Uncheck any you want to keep as-is.
+                </p>
+            </div>
+
+            <div class="suggestions-list">
+                ${suggestions.map((sugg, idx) => `
+                    <div class="suggestion-item" data-index="${idx}">
+                        <label class="suggestion-checkbox">
+                            <input type="checkbox" checked data-suggestion-index="${idx}">
+                            <div class="suggestion-details">
+                                <div class="suggestion-transaction">
+                                    <span class="suggestion-date">${formatDate(sugg.date)}</span>
+                                    <span class="suggestion-description">${escapeHtml(sugg.description)}</span>
+                                    <span class="suggestion-amount">${formatCurrency(sugg.amount)}</span>
+                                </div>
+                                <div class="suggestion-change">
+                                    <div class="suggestion-from">
+                                        <span class="label">Current:</span>
+                                        <span class="category">${escapeHtml(sugg.current_category || 'Uncategorized')}</span>
+                                        <span class="confidence">${sugg.current_confidence}%</span>
+                                    </div>
+                                    <div class="suggestion-arrow">→</div>
+                                    <div class="suggestion-to">
+                                        <span class="label">Suggested:</span>
+                                        <span class="category highlight">${escapeHtml(sugg.suggested_category)}</span>
+                                        <span class="confidence highlight">${sugg.suggested_confidence}%</span>
+                                    </div>
+                                </div>
+                                ${sugg.reasoning ? `
+                                    <div class="suggestion-reasoning">
+                                        <span class="reasoning-icon">${sugg.method === 'ai' ? '🤖' : '📋'}</span>
+                                        <span class="reasoning-text">${escapeHtml(sugg.reasoning)}</span>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </label>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+
+        <style>
+            .recategorization-review {
+                max-height: 70vh;
+                overflow-y: auto;
+            }
+
+            .review-summary {
+                background: #f0f9ff;
+                padding: 1rem;
+                border-radius: 6px;
+                margin-bottom: 1.5rem;
+                border-left: 4px solid #3b82f6;
+            }
+
+            .review-summary p {
+                margin: 0.25rem 0;
+            }
+
+            .suggestions-list {
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .suggestion-item {
+                border: 1px solid #e5e7eb;
+                border-radius: 6px;
+                transition: all 0.2s;
+            }
+
+            .suggestion-item:hover {
+                border-color: #3b82f6;
+                box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+            }
+
+            .suggestion-checkbox {
+                display: flex;
+                gap: 1rem;
+                padding: 1rem;
+                cursor: pointer;
+                margin: 0;
+            }
+
+            .suggestion-checkbox input[type="checkbox"] {
+                margin-top: 0.25rem;
+                flex-shrink: 0;
+                width: 18px;
+                height: 18px;
+                cursor: pointer;
+            }
+
+            .suggestion-details {
+                flex: 1;
+            }
+
+            .suggestion-transaction {
+                display: flex;
+                gap: 1rem;
+                margin-bottom: 0.75rem;
+                flex-wrap: wrap;
+            }
+
+            .suggestion-date {
+                color: #6b7280;
+                font-size: 0.875rem;
+            }
+
+            .suggestion-description {
+                font-weight: 500;
+                flex: 1;
+                min-width: 150px;
+            }
+
+            .suggestion-amount {
+                font-weight: 600;
+                color: #1f2937;
+            }
+
+            .suggestion-change {
+                display: flex;
+                gap: 1rem;
+                align-items: center;
+                background: #f9fafb;
+                padding: 0.75rem;
+                border-radius: 4px;
+                margin-bottom: 0.5rem;
+                flex-wrap: wrap;
+            }
+
+            .suggestion-from,
+            .suggestion-to {
+                display: flex;
+                gap: 0.5rem;
+                align-items: center;
+            }
+
+            .suggestion-from .label,
+            .suggestion-to .label {
+                font-size: 0.75rem;
+                color: #6b7280;
+                text-transform: uppercase;
+            }
+
+            .suggestion-from .category {
+                padding: 0.25rem 0.75rem;
+                background: #e5e7eb;
+                border-radius: 4px;
+                font-size: 0.875rem;
+            }
+
+            .suggestion-to .category.highlight {
+                padding: 0.25rem 0.75rem;
+                background: #3b82f6;
+                color: white;
+                border-radius: 4px;
+                font-size: 0.875rem;
+                font-weight: 500;
+            }
+
+            .suggestion-from .confidence,
+            .suggestion-to .confidence {
+                font-size: 0.75rem;
+                padding: 0.125rem 0.5rem;
+                border-radius: 3px;
+                background: #f3f4f6;
+                color: #6b7280;
+            }
+
+            .suggestion-to .confidence.highlight {
+                background: #10b981;
+                color: white;
+                font-weight: 600;
+            }
+
+            .suggestion-arrow {
+                color: #3b82f6;
+                font-weight: bold;
+                font-size: 1.25rem;
+            }
+
+            .suggestion-reasoning {
+                display: flex;
+                gap: 0.5rem;
+                padding: 0.5rem;
+                background: #fffbeb;
+                border-radius: 4px;
+                border-left: 3px solid #f59e0b;
+                align-items: start;
+            }
+
+            .reasoning-icon {
+                flex-shrink: 0;
+            }
+
+            .reasoning-text {
+                font-size: 0.875rem;
+                color: #78350f;
+                font-style: italic;
+                line-height: 1.4;
+            }
+        </style>
+    `;
+
+    const modal = new Modal({
+        id: 'recategorization-review-modal',
+        title: '🤖 AI Categorization Review',
+        content: modalContent,
+        actions: [
+            { action: 'cancel', label: 'Cancel', primary: false },
+            { action: 'apply', label: `Apply ${suggestions.length} Selected`, primary: true }
+        ],
+        options: { size: 'large' }
+    });
+
+    // Handle checkbox changes and apply button
+    modal.show();
+
+    const modalElement = document.getElementById('recategorization-review-modal');
+    if (modalElement) {
+        // Handle checkbox changes
+        modalElement.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                const idx = parseInt(e.target.dataset.suggestionIndex);
+                if (e.target.checked) {
+                    selectedSuggestions.add(idx);
+                } else {
+                    selectedSuggestions.delete(idx);
+                }
+
+                // Update button text
+                const applyBtn = modalElement.querySelector('[data-action="apply"]');
+                if (applyBtn) {
+                    applyBtn.textContent = `Apply ${selectedSuggestions.size} Selected`;
+                }
+            });
+        });
+
+        // Handle apply button
+        eventBus.once(`modal:${modal.id}:apply`, async () => {
+            const selectedSuggs = Array.from(selectedSuggestions).map(idx => suggestions[idx]);
+
+            if (selectedSuggs.length === 0) {
+                showToast('No changes selected', 'info');
+                return;
+            }
+
+            showLoading(`Applying ${selectedSuggs.length} changes...`);
+
+            try {
+                const response = await fetchAPI('/api/ai/apply-suggestions', {
+                    method: 'POST',
+                    body: JSON.stringify({ suggestions: selectedSuggs })
+                });
+
+                hideLoading();
+                showToast(`Successfully updated ${response.updated} transactions!`, 'success');
+
+                // Reload transactions
+                await loadTransactions();
+            } catch (error) {
+                hideLoading();
+                showToast('Failed to apply changes: ' + error.message, 'error');
+            }
+        });
     }
 }
 

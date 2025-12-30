@@ -497,6 +497,108 @@ app.post('/api/ai/learn', async (req, res) => {
   }
 });
 
+// Review all transactions and suggest improvements
+app.post('/api/ai/review-all', async (req, res) => {
+  try {
+    const { confidenceThreshold = 100 } = req.body;
+
+    // Get all transactions with confidence < threshold
+    const transactions = database.db.prepare(`
+      SELECT * FROM transactions
+      WHERE confidence < ?
+      ORDER BY date DESC
+    `).all(confidenceThreshold);
+
+    console.log(`Reviewing ${transactions.length} transactions with confidence < ${confidenceThreshold}%`);
+
+    // Get AI suggestions for each
+    const suggestions = [];
+    const results = await aiCategorization.batchCategorize(transactions);
+
+    for (let i = 0; i < transactions.length; i++) {
+      const transaction = transactions[i];
+      const aiResult = results[i];
+
+      // Only suggest if:
+      // 1. Category is different
+      // 2. AI confidence is higher than current confidence
+      // 3. AI confidence >= 70%
+      const currentConfidence = transaction.confidence || 0;
+      const shouldSuggest =
+        aiResult.category !== transaction.category &&
+        aiResult.confidence >= 0.7 &&
+        aiResult.confidence * 100 > currentConfidence;
+
+      if (shouldSuggest) {
+        suggestions.push({
+          transaction_id: transaction.transaction_id,
+          date: transaction.date,
+          description: transaction.description,
+          merchant_name: transaction.merchant_name,
+          amount: transaction.amount,
+          current_category: transaction.category,
+          current_confidence: currentConfidence,
+          suggested_category: aiResult.category,
+          suggested_confidence: Math.round(aiResult.confidence * 100),
+          reasoning: aiResult.reasoning,
+          method: aiResult.method
+        });
+      }
+    }
+
+    res.json({
+      total_reviewed: transactions.length,
+      suggestions_count: suggestions.length,
+      suggestions
+    });
+  } catch (error) {
+    console.error('Error reviewing transactions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Apply re-categorization suggestions
+app.post('/api/ai/apply-suggestions', async (req, res) => {
+  try {
+    const { suggestions } = req.body;
+
+    if (!suggestions || !Array.isArray(suggestions)) {
+      return res.status(400).json({ error: 'Suggestions array required' });
+    }
+
+    let updated = 0;
+    const updateStmt = database.db.prepare(`
+      UPDATE transactions
+      SET category = ?,
+          confidence = ?,
+          categorization_reasoning = ?
+      WHERE transaction_id = ?
+    `);
+
+    const transaction = database.db.transaction((suggs) => {
+      for (const suggestion of suggs) {
+        updateStmt.run(
+          suggestion.suggested_category,
+          suggestion.suggested_confidence,
+          suggestion.reasoning,
+          suggestion.transaction_id
+        );
+        updated++;
+      }
+    });
+
+    transaction(suggestions);
+
+    res.json({
+      success: true,
+      updated
+    });
+  } catch (error) {
+    console.error('Error applying suggestions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============================================================================
 // CATEGORY MAPPINGS & RULES
 // ============================================================================
