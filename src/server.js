@@ -741,7 +741,12 @@ app.post('/api/amazon/orders/:orderId/unverify', (req, res) => {
 app.post('/api/amazon/auto-match', async (req, res) => {
   try {
     const result = await amazon.autoMatchAmazonOrders();
-    res.json(result);
+    // Extract order IDs from matches for frontend highlighting
+    const matchedOrderIds = result.matches ? result.matches.map(m => m.order_id) : [];
+    res.json({
+      ...result,
+      matchedOrderIds
+    });
   } catch (error) {
     console.error('Error auto-matching Amazon orders:', error);
     res.status(500).json({ error: error.message });

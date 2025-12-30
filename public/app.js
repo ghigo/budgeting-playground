@@ -555,10 +555,6 @@ async function syncInstitution(itemId, institutionName) {
 }
 
 async function removeInstitution(itemId, institutionName) {
-    if (!confirm(`Are you sure you want to remove ${institutionName}?\n\nThis will permanently delete:\n• The institution\n• All associated accounts\n• All associated transactions\n\nThis action cannot be undone.`)) {
-        return;
-    }
-
     showLoading();
 
     try {
@@ -566,7 +562,7 @@ async function removeInstitution(itemId, institutionName) {
             method: 'DELETE'
         });
 
-        showToast(`${result.institution} removed successfully! Deleted ${result.accountsRemoved} account(s) and ${result.transactionsRemoved} transaction(s).`, 'success');
+        showToast(`${result.institution} removed! Deleted ${result.accountsRemoved} account(s) and ${result.transactionsRemoved} transaction(s). You can re-link your account anytime.`, 'success');
 
         // Emit events to update all views
         eventBus.emit('accountsUpdated');
@@ -585,6 +581,7 @@ let allTransactions = []; // Store all transactions for client-side search/filte
 let selectedTransactions = new Set(); // Track selected transaction IDs
 let newlyCategorizedTransactionIds = new Set(); // Track newly categorized transaction IDs
 let displayedTransactions = []; // Track currently displayed transactions
+let newlyMatchedAmazonOrderIds = new Set(); // Track newly matched Amazon order IDs
 
 async function loadTransactions(filters = {}) {
     showLoading();
@@ -1751,15 +1748,10 @@ async function backfillHistoricalTransactions() {
     const btn = document.getElementById('backfillBtn');
     const originalHTML = btn.innerHTML;
 
-    // Confirm before starting (this can take a while)
-    if (!confirm('This will fetch up to 2 years of historical transactions for all linked accounts. This may take several minutes. Continue?')) {
-        return;
-    }
-
     btn.disabled = true;
     btn.innerHTML = '<span class="icon">⏳</span> Backfilling...';
 
-    showToast('Starting historical backfill... This may take a few minutes.', 'info');
+    showToast('Fetching up to 2 years of historical transactions... This may take a few minutes.', 'info');
 
     try {
         const result = await fetchAPI('/api/backfill', { method: 'POST' });
@@ -2011,12 +2003,8 @@ async function checkSheetsStatus() {
  * Sync data to Google Sheets
  */
 async function syncToGoogleSheets() {
-    if (!confirm('This will sync all your local data to Google Sheets. This may take a moment. Continue?')) {
-        return;
-    }
-
     try {
-        showToast('Starting sync to Google Sheets...', 'info');
+        showToast('Syncing all data to Google Sheets...', 'info');
 
         const result = await fetchAPI('/api/sheets/sync', {
             method: 'POST'
@@ -2131,9 +2119,9 @@ async function saveSheetConfig() {
 
             // Only ask to sync now if this is the first time configuring
             if (result.configured && !isReconfiguring) {
-                if (confirm('Configuration saved! Would you like to sync your data to Google Sheets now?')) {
-                    await syncToGoogleSheets();
-                }
+                // Auto-sync for first-time configuration
+                showToast('Configuration saved! Syncing data...', 'success');
+                await syncToGoogleSheets();
             }
         } else {
             showToast(`Configuration failed: ${result.error}`, 'error');
@@ -3032,9 +3020,13 @@ function displayAmazonOrders(orders) {
 
     orders.forEach(order => {
         const isMatched = order.matched_transaction_id !== null;
+        const isNewlyMatched = newlyMatchedAmazonOrderIds.has(order.order_id);
         const matchBadge = isMatched
-            ? `<span style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">✓ Matched (${order.match_confidence}%)</span>`
+            ? `<span style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">✓ Matched (${order.match_confidence}%)</span>${isNewlyMatched ? ` <span style="background: #3b82f6; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">🆕 NEW</span>` : ''}`
             : `<span style="background: #f59e0b; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">⚠ Unmatched</span>`;
+
+        // Add highlight border for newly matched orders
+        const cardStyle = isNewlyMatched ? 'border: 3px solid #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);' : '';
 
         // Build items list HTML
         let itemsHtml = '';
@@ -3120,7 +3112,7 @@ function displayAmazonOrders(orders) {
         }
 
         html += `
-            <div class="card">
+            <div class="card" style="${cardStyle}">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1.5rem;">
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
@@ -3206,10 +3198,6 @@ async function handleAmazonFileUpload(event) {
 }
 
 async function runAmazonAutoMatch() {
-    if (!confirm('Run auto-match algorithm to find matching bank transactions for your Amazon orders?')) {
-        return;
-    }
-
     showLoading();
     showToast('Running auto-match algorithm...', 'info');
 
@@ -3224,6 +3212,14 @@ async function runAmazonAutoMatch() {
             `• Still unmatched: ${result.unmatched} orders`,
             'success'
         );
+
+        // Store newly matched order IDs for highlighting
+        newlyMatchedAmazonOrderIds.clear();
+        if (result.matchedOrderIds && result.matchedOrderIds.length > 0) {
+            result.matchedOrderIds.forEach(orderId => {
+                newlyMatchedAmazonOrderIds.add(orderId);
+            });
+        }
 
         await loadAmazonPage();
     } catch (error) {
@@ -3267,17 +3263,44 @@ async function unverifyAmazonMatch(orderId) {
 }
 
 async function unmatchAmazonOrder(orderId) {
-    if (!confirm('Remove this match? The order will become unmatched and can be auto-matched again.')) {
+    // First, get the current match data so we can undo if needed
+    const order = amazonOrders.find(o => o.order_id === orderId);
+    if (!order || !order.matched_transaction_id) {
+        showToast('Order is not matched', 'error');
         return;
     }
 
+    const previousMatch = {
+        transactionId: order.matched_transaction_id,
+        confidence: order.match_confidence || 0
+    };
+
     try {
+        // Perform unmatch immediately
         const result = await fetchAPI(`/api/amazon/orders/${orderId}/unlink`, {
             method: 'POST'
         });
 
         if (result.success) {
-            showToast('Order unmatched', 'success');
+            // Show toast with undo option
+            showToast('Order unmatched', 'success', {
+                undoAction: async () => {
+                    // Undo: re-link the order
+                    try {
+                        await fetchAPI(`/api/amazon/orders/${orderId}/link`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                transactionId: previousMatch.transactionId
+                            })
+                        });
+                        showToast('Match restored', 'success');
+                        await loadAmazonPage();
+                    } catch (error) {
+                        console.error('Error restoring match:', error);
+                        showToast(`Failed to restore match: ${error.message}`, 'error');
+                    }
+                }
+            });
             await loadAmazonPage();
         }
     } catch (error) {
