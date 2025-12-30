@@ -67,7 +67,26 @@ class AICategorization {
     /**
      * Check if Ollama is available and start it if needed
      */
+    /**
+     * Check how many Ollama processes are running
+     */
+    async checkOllamaProcesses() {
+        try {
+            const { stdout } = await execAsync('pgrep -c ollama || echo 0');
+            const count = parseInt(stdout.trim());
+            if (count > 1) {
+                console.log(`⚠️  WARNING: ${count} Ollama processes detected (expected 1)`);
+            }
+            return count;
+        } catch (error) {
+            return 0;
+        }
+    }
+
     async checkOllamaAvailability() {
+        // Check for multiple Ollama processes
+        await this.checkOllamaProcesses();
+
         try {
             // Try to connect to Ollama
             const response = await fetch(`${this.ollamaUrl}/api/tags`, {
@@ -175,7 +194,10 @@ class AICategorization {
      * Categorize using Ollama AI
      */
     async categorizeWithAI(transaction, categories) {
+        const aiStartTime = Date.now();
         const prompt = this.buildPrompt(transaction, categories);
+
+        console.log(`      → AI call for: ${transaction.description?.substring(0, 40)}...`);
 
         const response = await fetch(`${this.ollamaUrl}/api/generate`, {
             method: 'POST',
@@ -189,7 +211,7 @@ class AICategorization {
                     num_predict: 100   // Limit response length
                 }
             }),
-            signal: AbortSignal.timeout(5000)
+            signal: AbortSignal.timeout(30000)  // Increased to 30s for Mistral 7B
         });
 
         if (!response.ok) {
@@ -197,6 +219,9 @@ class AICategorization {
         }
 
         const result = await response.json();
+        const aiTime = Date.now() - aiStartTime;
+        console.log(`      ← AI response in ${aiTime}ms`);
+
         return this.parseAIResponse(result.response, categories);
     }
 
@@ -520,10 +545,19 @@ RESPONSE FORMAT (JSON only):
         const results = [];
 
         // Categorize in batches to avoid overwhelming the AI
-        const batchSize = options.batchSize || 10;
+        // Reduced to 3 for Mistral 7B to prevent memory issues with parallel requests
+        const batchSize = options.batchSize || 3;
+
+        console.log(`\n🔄 Starting batch categorization: ${transactions.length} transactions, batch size: ${batchSize}`);
+        const startTime = Date.now();
+        const memStart = process.memoryUsage();
+        console.log(`   Memory at start: ${Math.round(memStart.heapUsed / 1024 / 1024)}MB heap, ${Math.round(memStart.rss / 1024 / 1024)}MB RSS`);
 
         for (let i = 0; i < transactions.length; i += batchSize) {
             const batch = transactions.slice(i, i + batchSize);
+            const batchStartTime = Date.now();
+
+            console.log(`\n   Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(transactions.length / batchSize)} (${batch.length} transactions)...`);
 
             const batchResults = await Promise.all(
                 batch.map(transaction =>
@@ -533,11 +567,29 @@ RESPONSE FORMAT (JSON only):
 
             results.push(...batchResults);
 
+            const batchTime = Date.now() - batchStartTime;
+            const methods = batchResults.reduce((acc, r) => {
+                acc[r.method] = (acc[r.method] || 0) + 1;
+                return acc;
+            }, {});
+
+            console.log(`   ✓ Batch completed in ${batchTime}ms`);
+            console.log(`   Methods used: ${JSON.stringify(methods)}`);
+
+            const memCurrent = process.memoryUsage();
+            console.log(`   Memory: ${Math.round(memCurrent.heapUsed / 1024 / 1024)}MB heap, ${Math.round(memCurrent.rss / 1024 / 1024)}MB RSS`);
+
             // Add small delay between batches to avoid rate limiting
             if (i + batchSize < transactions.length) {
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
         }
+
+        const totalTime = Date.now() - startTime;
+        const memEnd = process.memoryUsage();
+        console.log(`\n✅ Batch categorization complete: ${transactions.length} transactions in ${totalTime}ms (${Math.round(totalTime / transactions.length)}ms/transaction)`);
+        console.log(`   Memory at end: ${Math.round(memEnd.heapUsed / 1024 / 1024)}MB heap, ${Math.round(memEnd.rss / 1024 / 1024)}MB RSS`);
+        console.log(`   Memory delta: ${Math.round((memEnd.heapUsed - memStart.heapUsed) / 1024 / 1024)}MB\n`);
 
         return results;
     }

@@ -534,9 +534,9 @@ app.post('/api/ai/review-all', async (req, res) => {
       });
     }
 
-    // Get AI suggestions for each (batch size 10 for parallel processing)
+    // Get AI suggestions for each (batch size 3 to prevent memory issues with Mistral 7B)
     const suggestions = [];
-    const results = await aiCategorization.batchCategorize(transactions, { batchSize: 10 });
+    const results = await aiCategorization.batchCategorize(transactions, { batchSize: 3 });
 
     for (let i = 0; i < transactions.length; i++) {
       const transaction = transactions[i];
