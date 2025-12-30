@@ -431,16 +431,19 @@ app.post('/api/ai/auto-categorize', async (req, res) => {
   try {
     const { onlyUncategorized = true, updateDatabase = false } = req.body;
 
+    // Get database instance
+    const db = database.getDatabase();
+
     // Get uncategorized or all transactions
     let transactions;
     if (onlyUncategorized) {
-      transactions = database.db.prepare(`
+      transactions = db.prepare(`
         SELECT * FROM transactions
         WHERE category = 'Uncategorized' OR category IS NULL
         ORDER BY date DESC
       `).all();
     } else {
-      transactions = database.db.prepare(`
+      transactions = db.prepare(`
         SELECT * FROM transactions
         ORDER BY date DESC
       `).all();
@@ -452,17 +455,19 @@ app.post('/api/ai/auto-categorize', async (req, res) => {
     // Optionally update database
     let updated = 0;
     if (updateDatabase) {
+      const updateStmt = db.prepare(`
+        UPDATE transactions
+        SET category = ?
+        WHERE id = ?
+      `);
+
       for (let i = 0; i < transactions.length; i++) {
         const transaction = transactions[i];
         const result = results[i];
 
         // Only update if confidence is high enough
         if (result.confidence >= 0.7) {
-          database.db.prepare(`
-            UPDATE transactions
-            SET category = ?
-            WHERE id = ?
-          `).run(result.category, transaction.id);
+          updateStmt.run(result.category, transaction.id);
           updated++;
         }
       }
@@ -502,8 +507,11 @@ app.post('/api/ai/review-all', async (req, res) => {
   try {
     const { confidenceThreshold = 100 } = req.body;
 
+    // Get database instance
+    const db = database.getDatabase();
+
     // Get all transactions with confidence < threshold
-    const transactions = database.db.prepare(`
+    const transactions = db.prepare(`
       SELECT * FROM transactions
       WHERE confidence < ?
       ORDER BY date DESC
@@ -566,8 +574,11 @@ app.post('/api/ai/apply-suggestions', async (req, res) => {
       return res.status(400).json({ error: 'Suggestions array required' });
     }
 
+    // Get database instance
+    const db = database.getDatabase();
+
     let updated = 0;
-    const updateStmt = database.db.prepare(`
+    const updateStmt = db.prepare(`
       UPDATE transactions
       SET category = ?,
           confidence = ?,
@@ -575,7 +586,7 @@ app.post('/api/ai/apply-suggestions', async (req, res) => {
       WHERE transaction_id = ?
     `);
 
-    const transaction = database.db.transaction((suggs) => {
+    const transaction = db.transaction((suggs) => {
       for (const suggestion of suggs) {
         updateStmt.run(
           suggestion.suggested_category,
