@@ -5,15 +5,13 @@
 import { eventBus } from './services/eventBus.js';
 import { showToast, showSuccess, showError } from './services/toast.js';
 import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, getContrastColor, showLoading, hideLoading } from './utils/formatters.js';
+import { fetchAPI } from './services/api.js';
 import { initializeDashboardPage, loadDashboard } from './pages/DashboardPage.js';
 import { initializeAccountsPage, loadAccounts } from './pages/AccountsPage.js';
 import { initializeTransactionsPage, loadTransactions, applyTransactionFilters } from './pages/TransactionsPage.js';
 import { initializeAmazonPage, loadAmazonPage, handleAmazonFileUpload } from './pages/AmazonPage.js';
 import { initializeCategoriesPage, loadCategories } from './pages/CategoriesPage.js';
 import { initializeMappingsPage, loadMappings } from './pages/MappingsPage.js';
-
-// API Base URL
-const API_URL = '';
 
 // State
 let plaidHandler = null;
@@ -331,26 +329,9 @@ async function backfillHistoricalTransactions() {
     }
 }
 
-// Utility Functions
-async function fetchAPI(endpoint, options = {}) {
-    const response = await fetch(API_URL + endpoint, {
-        headers: {
-            'Content-Type': 'application/json',
-            ...options.headers
-        },
-        ...options
-    });
-
-    if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Request failed' }));
-        throw new Error(error.error || `HTTP ${response.status}`);
-    }
-
-    return response.json();
-}
-
+// Note: fetchAPI is now imported from services/api.js
 // Note: formatCurrency, formatDate, escapeHtml, renderCategoryBadge,
-// getContrastColor, showLoading, hideLoading are now imported from utils/formatters.js
+// getContrastColor, showLoading, hideLoading are imported from utils/formatters.js
 
 // Check and display environment
 async function checkEnvironment() {
