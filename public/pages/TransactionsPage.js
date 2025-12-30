@@ -272,7 +272,7 @@ function searchTransactions() {
     displayTransactionsTable(filtered);
 }
 
-function applyTransactionFilters() {
+export function applyTransactionFilters() {
     const filters = {
         category: document.getElementById('filterCategory')?.value || '',
         account: document.getElementById('filterAccount')?.value || '',
