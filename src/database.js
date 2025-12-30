@@ -1488,18 +1488,18 @@ export function getCategories() {
   return unique;
 }
 
-export function addCategory(name, parentCategory = null, icon = null, color = null) {
+export function addCategory(name, parentCategory = null, icon = null, color = null, description = null) {
   // Auto-generate icon and color if not provided
   const categoryIcon = icon || suggestIconForCategory(name);
   const categoryColor = color || getNextCategoryColor();
 
   const stmt = db.prepare(`
-    INSERT INTO categories (name, parent_category, icon, color) VALUES (?, ?, ?, ?)
+    INSERT INTO categories (name, parent_category, icon, color, description) VALUES (?, ?, ?, ?, ?)
   `);
 
   try {
-    stmt.run(name, parentCategory || '', categoryIcon, categoryColor);
-    return { success: true, name, parent_category: parentCategory, icon: categoryIcon, color: categoryColor };
+    stmt.run(name, parentCategory || '', categoryIcon, categoryColor, description || '');
+    return { success: true, name, parent_category: parentCategory, icon: categoryIcon, color: categoryColor, description };
   } catch (error) {
     if (error.message.includes('UNIQUE constraint')) {
       throw new Error('Category already exists');
@@ -1508,7 +1508,7 @@ export function addCategory(name, parentCategory = null, icon = null, color = nu
   }
 }
 
-export function updateCategory(oldName, newName, newParentCategory = null, icon = null, color = null) {
+export function updateCategory(oldName, newName, newParentCategory = null, icon = null, color = null, description = null) {
   // Check if category exists
   const existingCategory = db.prepare('SELECT * FROM categories WHERE name = ?').get(oldName);
   if (!existingCategory) {
@@ -1523,19 +1523,20 @@ export function updateCategory(oldName, newName, newParentCategory = null, icon 
     }
   }
 
-  // Use existing icon/color if not provided
+  // Use existing values if not provided
   const categoryIcon = icon || existingCategory.icon || suggestIconForCategory(newName);
   const categoryColor = color || existingCategory.color || getNextCategoryColor();
+  const categoryDescription = description !== null ? description : existingCategory.description || '';
 
   // Use transaction to update both category and all related transactions
   const transaction = db.transaction(() => {
     // Update category
     const updateCategoryStmt = db.prepare(`
       UPDATE categories
-      SET name = ?, parent_category = ?, icon = ?, color = ?
+      SET name = ?, parent_category = ?, icon = ?, color = ?, description = ?
       WHERE name = ?
     `);
-    updateCategoryStmt.run(newName, newParentCategory || '', categoryIcon, categoryColor, oldName);
+    updateCategoryStmt.run(newName, newParentCategory || '', categoryIcon, categoryColor, categoryDescription, oldName);
 
     // Update all transactions that use this category
     const updateTransactionsStmt = db.prepare(`
@@ -1545,7 +1546,7 @@ export function updateCategory(oldName, newName, newParentCategory = null, icon 
     `);
     const result = updateTransactionsStmt.run(newName, oldName);
 
-    return { success: true, name: newName, parent_category: newParentCategory, icon: categoryIcon, color: categoryColor, transactionsUpdated: result.changes };
+    return { success: true, name: newName, parent_category: newParentCategory, icon: categoryIcon, color: categoryColor, description: categoryDescription, transactionsUpdated: result.changes };
   });
 
   return transaction();

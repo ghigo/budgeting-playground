@@ -1684,15 +1684,17 @@ async function showAmazonOrderDetails(orderId) {
         `;
 
         const modal = new Modal({
+            id: `amazon-order-${orderId}`,
             title: '📦 Amazon Order Details',
             content,
-            buttons: [
+            actions: [
                 {
+                    action: 'close',
                     label: 'Close',
-                    variant: 'secondary',
-                    onClick: () => modal.close()
+                    primary: false
                 }
-            ]
+            ],
+            options: { size: 'large' }
         });
 
         modal.show();
@@ -1705,37 +1707,44 @@ async function showAmazonOrderDetails(orderId) {
 async function resetAllAmazonMatchings() {
     try {
         const Modal = (await import('../components/Modal.js')).default;
+        const { eventBus } = await import('../services/eventBus.js');
+
+        const modalId = `reset-amazon-${Date.now()}`;
 
         const modal = new Modal({
+            id: modalId,
             title: '⚠️ Reset Amazon Matchings',
             content: `
                 <p>Are you sure you want to reset all Amazon order matchings?</p>
                 <p style="color: #ea580c; margin-top: 1rem;">This will unlink all transactions from Amazon orders. This action cannot be undone.</p>
             `,
-            buttons: [
+            actions: [
                 {
+                    action: 'cancel',
                     label: 'Cancel',
-                    variant: 'secondary',
-                    onClick: () => modal.close()
+                    primary: false
                 },
                 {
+                    action: 'confirm',
                     label: 'Reset All',
-                    variant: 'danger',
-                    onClick: async () => {
-                        try {
-                            const result = await fetchAPI('/api/amazon/reset-matchings', {
-                                method: 'POST'
-                            });
-
-                            modal.close();
-                            showToast(result.message || 'All Amazon matchings have been reset', 'success');
-                            await loadTransactions(); // Reload transactions to update display
-                        } catch (error) {
-                            showToast('Failed to reset matchings: ' + error.message, 'error');
-                        }
-                    }
+                    primary: true
                 }
-            ]
+            ],
+            options: { size: 'small' }
+        });
+
+        // Handle confirmation
+        eventBus.once(`modal:${modalId}:confirm`, async () => {
+            try {
+                const result = await fetchAPI('/api/amazon/reset-matchings', {
+                    method: 'POST'
+                });
+
+                showToast(result.message || 'All Amazon matchings have been reset', 'success');
+                await loadTransactions(); // Reload transactions to update display
+            } catch (error) {
+                showToast('Failed to reset matchings: ' + error.message, 'error');
+            }
         });
 
         modal.show();

@@ -229,9 +229,11 @@ function displayCategorySpendingChart(spending) {
 async function addCategory() {
     const nameInput = document.getElementById('newCategoryName');
     const parentSelect = document.getElementById('newCategoryParent');
+    const descriptionInput = document.getElementById('newCategoryDescription');
 
     const name = nameInput.value.trim();
     const parent = parentSelect.value;
+    const description = descriptionInput.value.trim();
 
     if (!name) {
         showToast('Please enter a category name', 'error');
@@ -243,13 +245,15 @@ async function addCategory() {
             method: 'POST',
             body: JSON.stringify({
                 name: name,
-                parent_category: parent || null
+                parent_category: parent || null,
+                description: description
             })
         });
 
         showToast('Category added successfully', 'success');
         nameInput.value = '';
         parentSelect.value = '';
+        descriptionInput.value = '';
 
         // Emit events to update all views
         eventBus.emit('categoriesUpdated');
@@ -259,13 +263,18 @@ async function addCategory() {
     }
 }
 
-function editCategory(categoryName, parentCategory, icon = '📁', color = '#6B7280') {
+function editCategory(categoryName, parentCategory, icon = '📁', color = '#6B7280', description = '') {
     currentEditingCategory = categoryName;
+
+    // Find the full category object to get description
+    const category = allCategories.find(cat => cat.name === categoryName);
+    const categoryDescription = category?.description || description || '';
 
     // Populate modal fields
     document.getElementById('editCategoryName').value = categoryName;
     document.getElementById('editCategoryIcon').value = icon || '📁';
     document.getElementById('editCategoryColor').value = color || '#6B7280';
+    document.getElementById('editCategoryDescription').value = categoryDescription;
 
     // Populate parent category dropdown
     const parentSelect = document.getElementById('editCategoryParent');
@@ -296,6 +305,7 @@ async function saveEditCategory() {
     const newParent = document.getElementById('editCategoryParent').value;
     const newIcon = document.getElementById('editCategoryIcon').value.trim() || '📁';
     const newColor = document.getElementById('editCategoryColor').value || '#6B7280';
+    const newDescription = document.getElementById('editCategoryDescription').value.trim();
 
     if (!newName) {
         showToast('Please enter a category name', 'error');
@@ -310,7 +320,8 @@ async function saveEditCategory() {
                 name: newName,
                 parent_category: newParent || null,
                 icon: newIcon,
-                color: newColor
+                color: newColor,
+                description: newDescription
             })
         });
 
