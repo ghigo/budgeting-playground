@@ -1,38 +1,17 @@
+// ============================================================================
+// Imports - Modular Architecture
+// ============================================================================
+
+import { eventBus } from './services/eventBus.js';
+import { showToast, showSuccess, showError } from './services/toast.js';
+import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, getContrastColor, showLoading, hideLoading } from './utils/formatters.js';
+
 // API Base URL
 const API_URL = '';
 
 // State
 let plaidHandler = null;
 let currentPage = 'dashboard';
-
-// ============================================================================
-// Event Bus for Reactive State Management
-// ============================================================================
-
-class EventBus {
-    constructor() {
-        this.listeners = {};
-    }
-
-    on(event, callback) {
-        if (!this.listeners[event]) {
-            this.listeners[event] = [];
-        }
-        this.listeners[event].push(callback);
-    }
-
-    off(event, callback) {
-        if (!this.listeners[event]) return;
-        this.listeners[event] = this.listeners[event].filter(cb => cb !== callback);
-    }
-
-    emit(event, data) {
-        if (!this.listeners[event]) return;
-        this.listeners[event].forEach(callback => callback(data));
-    }
-}
-
-const eventBus = new EventBus();
 
 // Setup automatic view updates
 function setupReactiveUpdates() {
@@ -1786,78 +1765,8 @@ async function fetchAPI(endpoint, options = {}) {
     return response.json();
 }
 
-function formatCurrency(amount) {
-    const num = parseFloat(amount);
-    if (isNaN(num)) return '$0.00';
-
-    const formatted = Math.abs(num).toLocaleString('en-US', {
-        style: 'currency',
-        currency: 'USD'
-    });
-
-    return num < 0 ? `-${formatted}` : formatted;
-}
-
-function formatDate(dateString) {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// Render a category badge with icon and color
-function renderCategoryBadge(category, options = {}) {
-    const { showIcon = true, inline = false } = options;
-    const icon = category.icon || '📁';
-    const color = category.color || '#6B7280';
-    const name = category.name;
-
-    // Calculate if we need white text based on background color (simple luminance check)
-    const textColor = getContrastColor(color);
-
-    return `
-        <span class="category-badge" style="
-            background-color: ${color};
-            color: ${textColor};
-            ${inline ? 'display: inline-flex;' : ''}
-            align-items: center;
-            gap: 0.25rem;
-        ">
-            ${showIcon ? `<span>${icon}</span>` : ''}
-            <span>${escapeHtml(name)}</span>
-        </span>
-    `;
-}
-
-// Get appropriate text color (white or black) based on background color
-function getContrastColor(hexColor) {
-    // Remove # if present
-    const hex = hexColor.replace('#', '');
-
-    // Convert to RGB
-    const r = parseInt(hex.substr(0, 2), 16);
-    const g = parseInt(hex.substr(2, 2), 16);
-    const b = parseInt(hex.substr(4, 2), 16);
-
-    // Calculate relative luminance
-    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-
-    // Return white for dark backgrounds, black for light backgrounds
-    return luminance > 0.5 ? '#000000' : '#FFFFFF';
-}
-
-function showLoading() {
-    document.getElementById('loadingOverlay').classList.remove('hidden');
-}
-
-function hideLoading() {
-    document.getElementById('loadingOverlay').classList.add('hidden');
-}
+// Note: formatCurrency, formatDate, escapeHtml, renderCategoryBadge,
+// getContrastColor, showLoading, hideLoading are now imported from utils/formatters.js
 
 // Check and display environment
 async function checkEnvironment() {
@@ -1876,75 +1785,7 @@ async function checkEnvironment() {
     }
 }
 
-function showToast(message, type = 'info', options = {}) {
-    const container = document.getElementById('toastContainer');
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-
-    // If there's an undo action, create a toast with message and undo button
-    if (options.undoAction) {
-        toast.style.display = 'flex';
-        toast.style.alignItems = 'center';
-        toast.style.justifyContent = 'space-between';
-        toast.style.gap = '1rem';
-        toast.style.cursor = 'default';
-        toast.style.padding = '1rem 1.25rem';
-
-        const messageSpan = document.createElement('span');
-        messageSpan.textContent = message;
-        messageSpan.style.flex = '1';
-        toast.appendChild(messageSpan);
-
-        const undoBtn = document.createElement('button');
-        undoBtn.textContent = 'UNDO';
-        undoBtn.style.padding = '0.5rem 1rem';
-        undoBtn.style.fontSize = '0.875rem';
-        undoBtn.style.fontWeight = '600';
-        undoBtn.style.background = 'white';
-        undoBtn.style.color = '#16a34a';
-        undoBtn.style.border = 'none';
-        undoBtn.style.borderRadius = '6px';
-        undoBtn.style.cursor = 'pointer';
-        undoBtn.style.whiteSpace = 'nowrap';
-        undoBtn.style.transition = 'all 0.2s ease';
-        undoBtn.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-
-        // Hover effects
-        undoBtn.addEventListener('mouseenter', () => {
-            undoBtn.style.background = '#f0f0f0';
-            undoBtn.style.transform = 'scale(1.05)';
-        });
-        undoBtn.addEventListener('mouseleave', () => {
-            undoBtn.style.background = 'white';
-            undoBtn.style.transform = 'scale(1)';
-        });
-
-        undoBtn.addEventListener('click', async () => {
-            clearTimeout(timeoutId);
-            toast.remove();
-            await options.undoAction();
-        });
-
-        toast.appendChild(undoBtn);
-    } else {
-        toast.textContent = message;
-        toast.style.cursor = 'pointer';
-        toast.title = 'Click to dismiss';
-
-        // Click to dismiss immediately (only for non-undo toasts)
-        toast.addEventListener('click', () => {
-            clearTimeout(timeoutId);
-            toast.remove();
-        });
-    }
-
-    container.appendChild(toast);
-
-    // Auto-dismiss after 10 seconds
-    const timeoutId = setTimeout(() => {
-        toast.remove();
-    }, 10000);
-}
+// Note: showToast is now imported from services/toast.js
 
 // ============================================================================
 // Google Sheets Sync Functions
