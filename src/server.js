@@ -505,23 +505,38 @@ app.post('/api/ai/learn', async (req, res) => {
 // Review all transactions and suggest improvements
 app.post('/api/ai/review-all', async (req, res) => {
   try {
-    const { confidenceThreshold = 100 } = req.body;
+    const { confidenceThreshold = 100, limit = 100 } = req.body;
 
     // Get database instance
     const db = database.getDatabase();
 
-    // Get all transactions with confidence < threshold
+    // Get all transactions with confidence < threshold (with limit to prevent timeout)
     const transactions = db.prepare(`
       SELECT * FROM transactions
       WHERE confidence < ?
       ORDER BY date DESC
-    `).all(confidenceThreshold);
+      LIMIT ?
+    `).all(confidenceThreshold, limit);
 
-    console.log(`Reviewing ${transactions.length} transactions with confidence < ${confidenceThreshold}%`);
+    // Get total count for info
+    const totalCount = db.prepare(`
+      SELECT COUNT(*) as count FROM transactions WHERE confidence < ?
+    `).get(confidenceThreshold).count;
 
-    // Get AI suggestions for each
+    console.log(`Reviewing ${transactions.length} of ${totalCount} transactions with confidence < ${confidenceThreshold}%`);
+
+    if (transactions.length === 0) {
+      return res.json({
+        total_reviewed: 0,
+        total_available: totalCount,
+        suggestions_count: 0,
+        suggestions: []
+      });
+    }
+
+    // Get AI suggestions for each (with smaller batch size for better timeout handling)
     const suggestions = [];
-    const results = await aiCategorization.batchCategorize(transactions);
+    const results = await aiCategorization.batchCategorize(transactions, { batchSize: 5 });
 
     for (let i = 0; i < transactions.length; i++) {
       const transaction = transactions[i];
@@ -556,8 +571,10 @@ app.post('/api/ai/review-all', async (req, res) => {
 
     res.json({
       total_reviewed: transactions.length,
+      total_available: totalCount,
       suggestions_count: suggestions.length,
-      suggestions
+      suggestions,
+      has_more: totalCount > limit
     });
   } catch (error) {
     console.error('Error reviewing transactions:', error);

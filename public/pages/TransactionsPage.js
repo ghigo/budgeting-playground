@@ -936,23 +936,36 @@ async function updateAIStatusBadge() {
  */
 async function aiAutoCategorizeUncategorized() {
     try {
-        showLoading('AI is reviewing all transactions...');
+        showLoading('AI is reviewing transactions...');
 
-        // Get AI suggestions for all transactions with confidence < 100%
+        // Get AI suggestions for transactions with confidence < 100%
+        // Limit to 100 transactions to prevent timeout
         const response = await fetchAPI('/api/ai/review-all', {
             method: 'POST',
-            body: JSON.stringify({ confidenceThreshold: 100 })
+            body: JSON.stringify({
+                confidenceThreshold: 100,
+                limit: 100
+            })
         });
 
         hideLoading();
 
         if (response.suggestions_count === 0) {
-            showToast(`Reviewed ${response.total_reviewed} transactions - no improvements found!`, 'success');
+            let message = `Reviewed ${response.total_reviewed} transactions - no improvements found!`;
+            if (response.has_more) {
+                message += ` (${response.total_available - response.total_reviewed} more available - run again to review more)`;
+            }
+            showToast(message, 'success');
             return;
         }
 
         // Show review modal with suggestions
-        await showReCategorizationReview(response.suggestions, response.total_reviewed);
+        await showReCategorizationReview(
+            response.suggestions,
+            response.total_reviewed,
+            response.total_available,
+            response.has_more
+        );
 
     } catch (error) {
         hideLoading();
@@ -964,7 +977,7 @@ async function aiAutoCategorizeUncategorized() {
 /**
  * Show re-categorization review modal
  */
-async function showReCategorizationReview(suggestions, totalReviewed) {
+async function showReCategorizationReview(suggestions, totalReviewed, totalAvailable, hasMore) {
     const Modal = (await import('../components/Modal.js')).default;
 
     // Track selected suggestions
@@ -973,8 +986,14 @@ async function showReCategorizationReview(suggestions, totalReviewed) {
     const modalContent = `
         <div class="recategorization-review">
             <div class="review-summary">
-                <p><strong>Reviewed:</strong> ${totalReviewed} transactions</p>
+                <p><strong>Reviewed:</strong> ${totalReviewed} of ${totalAvailable} transactions</p>
                 <p><strong>Suggested changes:</strong> ${suggestions.length} improvements found</p>
+                ${hasMore ? `
+                    <p style="color: #ff9800; font-size: 0.9em; margin-top: 0.5rem;">
+                        ⚠️ Showing first ${totalReviewed} transactions (${totalAvailable - totalReviewed} more available).
+                        Run AI Categorize again after applying these changes to review more.
+                    </p>
+                ` : ''}
                 <p style="color: #666; font-size: 0.9em; margin-top: 0.5rem;">
                     Select the changes you want to apply. Uncheck any you want to keep as-is.
                 </p>
