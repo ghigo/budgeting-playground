@@ -987,6 +987,75 @@ app.post('/api/amazon/auto-match', async (req, res) => {
   }
 });
 
+// ============================================================================
+// TRANSACTION SPLITTING ENDPOINTS
+// ============================================================================
+
+// Get split suggestions for a transaction
+app.get('/api/transactions/:transactionId/split-suggestions', (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const suggestions = database.suggestTransactionSplits(transactionId);
+    res.json(suggestions);
+  } catch (error) {
+    console.error('Error getting split suggestions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create transaction splits
+app.post('/api/transactions/:transactionId/splits', (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const { splits } = req.body;
+
+    if (!splits || !Array.isArray(splits)) {
+      return res.status(400).json({ error: 'Splits array required' });
+    }
+
+    const result = database.createTransactionSplits(transactionId, splits);
+    res.json(result);
+  } catch (error) {
+    console.error('Error creating transaction splits:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get transaction splits
+app.get('/api/transactions/:transactionId/splits', (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const splits = database.getTransactionSplits(transactionId);
+    res.json({ splits });
+  } catch (error) {
+    console.error('Error getting transaction splits:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete transaction splits
+app.delete('/api/transactions/:transactionId/splits', (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const result = database.deleteTransactionSplits(transactionId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error deleting transaction splits:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all transactions with splits
+app.get('/api/transactions/with-splits', (req, res) => {
+  try {
+    const transactions = database.getTransactionsWithSplits();
+    res.json(transactions);
+  } catch (error) {
+    console.error('Error getting transactions with splits:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Serve index.html for all other routes (SPA)
 app.get('*', (req, res) => {
   res.sendFile(join(__dirname, '../public/index.html'));

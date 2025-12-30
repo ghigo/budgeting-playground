@@ -1937,3 +1937,173 @@ export function getAmazonOrderStats() {
     categoryBreakdown
   };
 }
+
+// ============================================================================
+// TRANSACTION SPLITTING
+// ============================================================================
+
+/**
+ * Suggest transaction splits based on Amazon items
+ * @param {string} transactionId - Transaction ID
+ * @returns {Object} - Suggested splits with reasoning
+ */
+export function suggestTransactionSplits(transactionId) {
+  // Get the transaction
+  const transaction = db.prepare(`
+    SELECT t.*, o.order_id
+    FROM transactions t
+    LEFT JOIN amazon_orders o ON t.transaction_id = o.matched_transaction_id
+    WHERE t.transaction_id = ?
+  `).get(transactionId);
+
+  if (!transaction) {
+    throw new Error('Transaction not found');
+  }
+
+  // If not linked to Amazon order, can't auto-suggest
+  if (!transaction.order_id) {
+    return {
+      canSplit: false,
+      reason: 'Transaction not linked to Amazon order',
+      suggestions: []
+    };
+  }
+
+  // Get Amazon items for this order
+  const items = db.prepare(`
+    SELECT * FROM amazon_items
+    WHERE order_id = ?
+    ORDER BY price DESC
+  `).all(transaction.order_id);
+
+  if (items.length <= 1) {
+    return {
+      canSplit: false,
+      reason: 'Order has only one item',
+      suggestions: []
+    };
+  }
+
+  // Group items by category
+  const categoryGroups = {};
+  items.forEach(item => {
+    const category = item.category || 'Uncategorized';
+    if (!categoryGroups[category]) {
+      categoryGroups[category] = {
+        category,
+        items: [],
+        total: 0
+      };
+    }
+    categoryGroups[category].items.push(item);
+    categoryGroups[category].total += (item.price || 0) * (item.quantity || 1);
+  });
+
+  // Create split suggestions
+  const suggestions = Object.values(categoryGroups).map(group => ({
+    category: group.category,
+    amount: -Math.abs(group.total), // Negative for expense
+    items: group.items.map(item => item.title || 'Unknown item'),
+    item_count: group.items.length,
+    reasoning: `${group.items.length} item(s) in ${group.category}`
+  }));
+
+  return {
+    canSplit: true,
+    transaction_id: transactionId,
+    original_amount: transaction.amount,
+    suggestions,
+    total_suggested: suggestions.reduce((sum, s) => sum + Math.abs(s.amount), 0)
+  };
+}
+
+/**
+ * Create transaction splits
+ * @param {string} transactionId - Parent transaction ID
+ * @param {Array} splits - Array of split data
+ */
+export function createTransactionSplits(transactionId, splits) {
+  // Delete existing splits for this transaction
+  db.prepare('DELETE FROM transaction_splits WHERE parent_transaction_id = ?')
+    .run(transactionId);
+
+  if (!splits || splits.length === 0) {
+    return { created: 0 };
+  }
+
+  const stmt = db.prepare(`
+    INSERT INTO transaction_splits (
+      id, parent_transaction_id, split_index, amount, category, description, reasoning, source, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `);
+
+  const insertMany = db.transaction((splitList) => {
+    splitList.forEach((split, index) => {
+      const id = `split_${transactionId}_${index}`;
+      stmt.run(
+        id,
+        transactionId,
+        index,
+        split.amount,
+        split.category,
+        split.description || null,
+        split.reasoning || null,
+        split.source || 'manual'
+      );
+    });
+  });
+
+  insertMany(splits);
+
+  return { created: splits.length };
+}
+
+/**
+ * Get transaction splits
+ * @param {string} transactionId - Parent transaction ID
+ * @returns {Array} - Array of splits
+ */
+export function getTransactionSplits(transactionId) {
+  return db.prepare(`
+    SELECT * FROM transaction_splits
+    WHERE parent_transaction_id = ?
+    ORDER BY split_index
+  `).all(transactionId);
+}
+
+/**
+ * Delete transaction splits
+ * @param {string} transactionId - Parent transaction ID
+ */
+export function deleteTransactionSplits(transactionId) {
+  const result = db.prepare('DELETE FROM transaction_splits WHERE parent_transaction_id = ?')
+    .run(transactionId);
+
+  return { deleted: result.changes };
+}
+
+/**
+ * Get all transactions with splits
+ * @returns {Array} - Array of transaction IDs that have splits
+ */
+export function getTransactionsWithSplits() {
+  return db.prepare(`
+    SELECT DISTINCT parent_transaction_id as transaction_id
+    FROM transaction_splits
+  `).all();
+}
+
+/**
+ * Check if transaction has splits
+ * @param {string} transactionId - Transaction ID
+ * @returns {boolean}
+ */
+export function hasTransactionSplits(transactionId) {
+  const result = db.prepare(`
+    SELECT COUNT(*) as count
+    FROM transaction_splits
+    WHERE parent_transaction_id = ?
+  `).get(transactionId);
+
+  return result.count > 0;
+}
