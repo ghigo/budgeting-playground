@@ -3051,9 +3051,20 @@ function displayAmazonOrders(orders) {
                     ? `<a href="${itemUrl}" target="_blank" style="color: var(--primary); text-decoration: none; hover:text-decoration: underline;">${escapeHtml(item.title)}</a>`
                     : escapeHtml(item.title);
 
+                // Construct product image URL using ASIN (if available)
+                const imageUrl = item.asin ? `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.jpg` : null;
+
                 itemsHtml += `
-                    <div style="display: flex; justify-content: space-between; gap: 1rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
-                        <div style="flex: 1;">
+                    <div style="display: flex; gap: 1rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                        ${imageUrl ? `
+                            <div style="flex-shrink: 0;">
+                                <img src="${imageUrl}"
+                                     alt="${escapeHtml(item.title)}"
+                                     style="width: 60px; height: 60px; object-fit: contain; border-radius: 4px; background: white; padding: 2px;"
+                                     onerror="this.style.display='none'">
+                            </div>
+                        ` : ''}
+                        <div style="flex: 1; min-width: 0;">
                             <div style="font-size: 0.9rem; margin-bottom: 0.25rem;">
                                 ${titleHtml}
                                 ${itemUrl ? ' <span style="font-size: 0.75rem;">🔗</span>' : ''}
