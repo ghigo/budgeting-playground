@@ -298,7 +298,7 @@ function runMigrations() {
       description TEXT,
       reasoning TEXT,
       source TEXT DEFAULT 'manual',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL,
       FOREIGN KEY (parent_transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE
     );
 
@@ -352,7 +352,9 @@ function runMigrations() {
     db.exec("ALTER TABLE merchant_mappings ADD COLUMN accuracy_rate REAL DEFAULT 1.0");
     db.exec("ALTER TABLE merchant_mappings ADD COLUMN correct_count INTEGER DEFAULT 0");
     db.exec("ALTER TABLE merchant_mappings ADD COLUMN incorrect_count INTEGER DEFAULT 0");
-    db.exec("ALTER TABLE merchant_mappings ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))");
+    db.exec("ALTER TABLE merchant_mappings ADD COLUMN updated_at TEXT");
+    // Update existing rows to set current timestamp
+    db.exec("UPDATE merchant_mappings SET updated_at = datetime('now') WHERE updated_at IS NULL");
     columnsAdded = true;
   }
 
