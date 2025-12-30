@@ -2883,3 +2883,56 @@ function searchAmazonOrders() {
 
     displayAmazonOrders(filtered);
 }
+
+// ============================================================================
+// Expose functions to global scope for onclick handlers
+// ============================================================================
+// Note: With ES6 modules, functions are scoped to the module. Functions called
+// from inline onclick handlers need to be exposed on the window object.
+
+// Navigation
+window.navigateTo = navigateTo;
+
+// Transaction functions
+window.showCategoryDropdown = showCategoryDropdown;
+window.selectCategory = selectCategory;
+window.verifyCategory = verifyCategory;
+window.unverifyCategory = unverifyCategory;
+window.toggleTransactionSelection = toggleTransactionSelection;
+window.toggleAllTransactionSelection = toggleAllTransactionSelection;
+window.clearSelection = clearSelection;
+window.bulkCategorize = bulkCategorize;
+window.approveAllVisibleTransactions = approveAllVisibleTransactions;
+window.viewCategoryTransactions = viewCategoryTransactions;
+window.applyTransactionFilters = applyTransactionFilters;
+window.searchTransactions = searchTransactions;
+window.clearTransactionFilters = clearTransactionFilters;
+window.showAllTransactions = showAllTransactions;
+window.showUnverifiedTransactions = showUnverifiedTransactions;
+
+// Category functions
+window.editCategory = editCategory;
+window.saveCategory = saveCategory;
+window.closeEditCategoryModal = closeEditCategoryModal;
+window.deleteCategory = deleteCategory;
+window.addCategory = addCategory;
+
+// Amazon functions
+window.verifyAmazonMatch = verifyAmazonMatch;
+window.unverifyAmazonMatch = unverifyAmazonMatch;
+window.unmatchAmazonOrder = unmatchAmazonOrder;
+window.runAmazonAutoMatch = runAmazonAutoMatch;
+window.searchAmazonOrders = searchAmazonOrders;
+window.applyAmazonFilters = applyAmazonFilters;
+window.clearAmazonFilters = clearAmazonFilters;
+
+// Google Sheets functions
+window.syncToGoogleSheets = syncToGoogleSheets;
+window.showSheetsConfigModal = showSheetsConfigModal;
+window.closeSheetsConfigModal = closeSheetsConfigModal;
+window.saveSheetConfig = saveSheetConfig;
+
+// Plaid/Account functions
+window.initiatePlaidLink = initiatePlaidLink;
+window.syncTransactions = syncTransactions;
+window.backfillHistoricalTransactions = backfillHistoricalTransactions;
