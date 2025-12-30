@@ -647,30 +647,42 @@ export function saveAccount(account, institutionName) {
 // ============================================================================
 
 export function getTransactions(limit = 50, filters = {}) {
-  let sql = 'SELECT * FROM transactions WHERE 1=1';
+  // Join with amazon_orders to include matching information
+  let sql = `
+    SELECT
+      t.*,
+      ao.order_id as amazon_order_id,
+      ao.total_amount as amazon_total,
+      ao.order_date as amazon_order_date,
+      ao.match_confidence as amazon_match_confidence,
+      ao.order_status as amazon_order_status
+    FROM transactions t
+    LEFT JOIN amazon_orders ao ON t.transaction_id = ao.matched_transaction_id
+    WHERE 1=1
+  `;
   const params = [];
 
   if (filters.category) {
-    sql += ' AND category = ?';
+    sql += ' AND t.category = ?';
     params.push(filters.category);
   }
 
   if (filters.account) {
-    sql += ' AND account_name = ?';
+    sql += ' AND t.account_name = ?';
     params.push(filters.account);
   }
 
   if (filters.startDate) {
-    sql += ' AND date >= ?';
+    sql += ' AND t.date >= ?';
     params.push(filters.startDate);
   }
 
   if (filters.endDate) {
-    sql += ' AND date <= ?';
+    sql += ' AND t.date <= ?';
     params.push(filters.endDate);
   }
 
-  sql += ' ORDER BY date DESC LIMIT ?';
+  sql += ' ORDER BY t.date DESC LIMIT ?';
   params.push(limit);
 
   const transactions = db.prepare(sql).all(...params);
@@ -678,7 +690,15 @@ export function getTransactions(limit = 50, filters = {}) {
     ...tx,
     amount: parseFloat(tx.amount),
     confidence: parseInt(tx.confidence) || 0,
-    verified: tx.verified === 'Yes'
+    verified: tx.verified === 'Yes',
+    // Amazon order information (if matched)
+    amazon_order: tx.amazon_order_id ? {
+      order_id: tx.amazon_order_id,
+      total_amount: parseFloat(tx.amazon_total),
+      order_date: tx.amazon_order_date,
+      match_confidence: parseInt(tx.amazon_match_confidence) || 0,
+      order_status: tx.amazon_order_status
+    } : null
   }));
 }
 
@@ -1894,6 +1914,30 @@ export function unverifyAmazonMatch(orderId) {
 
   const order = db.prepare('SELECT * FROM amazon_orders WHERE order_id = ?').get(orderId);
   return { success: true, order };
+}
+
+/**
+ * Reset all Amazon order matchings
+ * Unlinks all matched transactions from Amazon orders
+ */
+export function resetAllAmazonMatchings() {
+  const stmt = db.prepare(`
+    UPDATE amazon_orders
+    SET matched_transaction_id = NULL,
+        match_confidence = 0,
+        match_verified = 'No',
+        updated_at = datetime('now')
+    WHERE matched_transaction_id IS NOT NULL
+  `);
+
+  const result = stmt.run();
+  console.log(`Reset ${result.changes} Amazon order matchings`);
+
+  return {
+    success: true,
+    count: result.changes,
+    message: `Reset ${result.changes} Amazon order matchings`
+  };
 }
 
 /**

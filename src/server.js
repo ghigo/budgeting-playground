@@ -1020,6 +1020,17 @@ app.post('/api/amazon/auto-match', async (req, res) => {
   }
 });
 
+// Reset all Amazon matchings
+app.post('/api/amazon/reset-matchings', (req, res) => {
+  try {
+    const result = database.resetAllAmazonMatchings();
+    res.json(result);
+  } catch (error) {
+    console.error('Error resetting Amazon matchings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============================================================================
 // TRANSACTION SPLITTING ENDPOINTS
 // ============================================================================

@@ -196,7 +196,28 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
                        onchange="toggleTransactionSelection('${tx.transaction_id}')">
             </td>
             <td>${formatDate(tx.date)}</td>
-            <td>${escapeHtml(tx.description || tx.name)}</td>
+            <td>
+                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                    <span>${escapeHtml(tx.description || tx.name)}</span>
+                    ${tx.amazon_order ? `
+                        <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem;">
+                            <span style="background: #FF9900; color: white; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 0.75rem;">
+                                📦 Amazon
+                            </span>
+                            <span style="color: #666;">
+                                Order ${escapeHtml(tx.amazon_order.order_id.substring(0, 15))}...
+                                ${tx.amazon_order.total_amount ? ` • ${formatCurrency(tx.amazon_order.total_amount)}` : ''}
+                            </span>
+                            <button
+                                onclick="showAmazonOrderDetails('${escapeHtml(tx.amazon_order.order_id)}')"
+                                style="padding: 2px 8px; font-size: 0.75rem; background: #f0f0f0; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;"
+                                title="View order details">
+                                Details
+                            </button>
+                        </div>
+                    ` : ''}
+                </div>
+            </td>
             <td>
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                     ${hasCategory ? (() => {
@@ -1585,9 +1606,150 @@ async function aiSuggestCategory(transactionId) {
     });
 }
 
+// ============================================================================
+// Amazon Order Details
+// ============================================================================
+
+async function showAmazonOrderDetails(orderId) {
+    try {
+        const Modal = (await import('../components/Modal.js')).default;
+
+        // Fetch order details with items
+        const order = await fetchAPI(`/api/amazon/orders/${orderId}`);
+
+        if (!order || !order.items) {
+            showToast('Order not found', 'error');
+            return;
+        }
+
+        // Build items list HTML
+        const itemsHtml = order.items.map(item => `
+            <div style="padding: 1rem; border-bottom: 1px solid #eee; display: flex; gap: 1rem;">
+                ${item.image_url ? `<img src="${escapeHtml(item.image_url)}" style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px;" alt="Product">` : ''}
+                <div style="flex: 1;">
+                    <div style="font-weight: 500; margin-bottom: 0.25rem;">${escapeHtml(item.title)}</div>
+                    ${item.category ? `<div style="font-size: 0.85rem; color: #666; margin-bottom: 0.25rem;">Category: ${escapeHtml(item.category)}</div>` : ''}
+                    ${item.seller ? `<div style="font-size: 0.85rem; color: #666; margin-bottom: 0.25rem;">Seller: ${escapeHtml(item.seller)}</div>` : ''}
+                    <div style="font-size: 0.85rem; color: #666;">
+                        Quantity: ${item.quantity || 1} • Price: ${formatCurrency(item.price)}
+                    </div>
+                    ${item.return_status ? `<div style="margin-top: 0.5rem; color: #ea580c; font-size: 0.85rem;">⚠️ ${escapeHtml(item.return_status)}</div>` : ''}
+                </div>
+            </div>
+        `).join('');
+
+        const content = `
+            <div style="max-height: 70vh; overflow-y: auto;">
+                <div style="padding: 1rem; background: #f9fafb; border-bottom: 2px solid #e5e7eb;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-weight: 600;">Order ID:</span>
+                        <span>${escapeHtml(order.order_id)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-weight: 600;">Order Date:</span>
+                        <span>${formatDate(order.order_date)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                        <span style="font-weight: 600;">Total Amount:</span>
+                        <span style="font-weight: 700; font-size: 1.1rem; color: #16a34a;">${formatCurrency(order.total_amount)}</span>
+                    </div>
+                    ${order.subtotal ? `<div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem; font-size: 0.9rem;">
+                        <span>Subtotal:</span>
+                        <span>${formatCurrency(order.subtotal)}</span>
+                    </div>` : ''}
+                    ${order.tax ? `<div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem; font-size: 0.9rem;">
+                        <span>Tax:</span>
+                        <span>${formatCurrency(order.tax)}</span>
+                    </div>` : ''}
+                    ${order.shipping ? `<div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem; font-size: 0.9rem;">
+                        <span>Shipping:</span>
+                        <span>${formatCurrency(order.shipping)}</span>
+                    </div>` : ''}
+                    ${order.payment_method ? `<div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem; font-size: 0.9rem;">
+                        <span>Payment Method:</span>
+                        <span>${escapeHtml(order.payment_method)}</span>
+                    </div>` : ''}
+                    ${order.order_status ? `<div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem; font-size: 0.9rem;">
+                        <span>Status:</span>
+                        <span style="color: ${order.order_status.toLowerCase().includes('cancel') ? '#dc2626' : '#16a34a'};">${escapeHtml(order.order_status)}</span>
+                    </div>` : ''}
+                </div>
+
+                <div style="padding: 1rem; background: #f9fafb; border-bottom: 1px solid #e5e7eb;">
+                    <h4 style="margin: 0 0 0.5rem 0;">Items (${order.items.length})</h4>
+                </div>
+
+                ${itemsHtml}
+            </div>
+        `;
+
+        const modal = new Modal({
+            title: '📦 Amazon Order Details',
+            content,
+            buttons: [
+                {
+                    label: 'Close',
+                    variant: 'secondary',
+                    onClick: () => modal.close()
+                }
+            ]
+        });
+
+        modal.show();
+    } catch (error) {
+        console.error('Error fetching Amazon order details:', error);
+        showToast('Failed to load order details', 'error');
+    }
+}
+
+async function resetAllAmazonMatchings() {
+    try {
+        const Modal = (await import('../components/Modal.js')).default;
+
+        const modal = new Modal({
+            title: '⚠️ Reset Amazon Matchings',
+            content: `
+                <p>Are you sure you want to reset all Amazon order matchings?</p>
+                <p style="color: #ea580c; margin-top: 1rem;">This will unlink all transactions from Amazon orders. This action cannot be undone.</p>
+            `,
+            buttons: [
+                {
+                    label: 'Cancel',
+                    variant: 'secondary',
+                    onClick: () => modal.close()
+                },
+                {
+                    label: 'Reset All',
+                    variant: 'danger',
+                    onClick: async () => {
+                        try {
+                            const result = await fetchAPI('/api/amazon/reset-matchings', {
+                                method: 'POST'
+                            });
+
+                            modal.close();
+                            showToast(result.message || 'All Amazon matchings have been reset', 'success');
+                            await loadTransactions(); // Reload transactions to update display
+                        } catch (error) {
+                            showToast('Failed to reset matchings: ' + error.message, 'error');
+                        }
+                    }
+                }
+            ]
+        });
+
+        modal.show();
+    } catch (error) {
+        console.error('Error resetting Amazon matchings:', error);
+        showToast('Failed to reset matchings', 'error');
+    }
+}
+
 // Expose functions globally for onclick handlers
 window.aiAutoCategorizeUncategorized = aiAutoCategorizeUncategorized;
 window.aiSuggestCategory = aiSuggestCategory;
+window.showAmazonOrderDetails = showAmazonOrderDetails;
+window.resetAllAmazonMatchings = resetAllAmazonMatchings;
 
 // Export module
 export default {
