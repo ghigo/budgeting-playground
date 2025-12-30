@@ -109,13 +109,9 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
       reasons.push(`${daysDiff} days later`);
     }
 
-    // 4. Not already matched (10 points)
-    if (!transaction.amazon_order_id) {
-      confidence += 10;
-      reasons.push('Transaction not already matched');
-    }
-
     // Update best match if this is better
+    // Maximum possible score: 100 (50 amount + 30 merchant + 20 date)
+    // Minimum threshold: 60% (requires good amount + merchant + reasonable date)
     if (confidence > highestConfidence && confidence >= 60) {
       highestConfidence = confidence;
       bestMatch = {
