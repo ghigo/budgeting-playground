@@ -2901,18 +2901,22 @@ window.unverifyCategory = unverifyCategory;
 window.toggleTransactionSelection = toggleTransactionSelection;
 window.toggleAllTransactionSelection = toggleAllTransactionSelection;
 window.clearSelection = clearSelection;
-window.bulkCategorize = bulkCategorize;
+window.showBulkCategoryModal = showBulkCategoryModal;
+window.bulkVerifyTransactions = bulkVerifyTransactions;
+window.closeBulkCategoryModal = closeBulkCategoryModal;
+window.applyBulkCategory = applyBulkCategory;
 window.approveAllVisibleTransactions = approveAllVisibleTransactions;
 window.viewCategoryTransactions = viewCategoryTransactions;
 window.applyTransactionFilters = applyTransactionFilters;
 window.searchTransactions = searchTransactions;
 window.clearTransactionFilters = clearTransactionFilters;
 window.showAllTransactions = showAllTransactions;
-window.showUnverifiedTransactions = showUnverifiedTransactions;
+window.applyUnverifiedFilter = applyUnverifiedFilter;
+window.showNewlyCategorizedTransactions = showNewlyCategorizedTransactions;
 
 // Category functions
 window.editCategory = editCategory;
-window.saveCategory = saveCategory;
+window.saveEditCategory = saveEditCategory;
 window.closeEditCategoryModal = closeEditCategoryModal;
 window.deleteCategory = deleteCategory;
 window.addCategory = addCategory;
