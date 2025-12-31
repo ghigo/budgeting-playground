@@ -120,7 +120,7 @@ function handleHashChange() {
     let page = window.location.hash.slice(1) || 'dashboard';
 
     // Validate page exists
-    const validPages = ['dashboard', 'accounts', 'transactions', 'categories', 'mappings', 'amazon', 'link'];
+    const validPages = ['dashboard', 'accounts', 'transactions', 'categories', 'mappings', 'amazon', 'settings', 'link'];
     if (!validPages.includes(page)) {
         page = 'dashboard';
         window.location.hash = page;
