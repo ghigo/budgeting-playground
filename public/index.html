@@ -234,19 +234,19 @@
                     <div class="filter-grid">
                         <div class="filter-item">
                             <label for="filterCategory">Category</label>
-                            <select id="filterCategory" class="form-select">
+                            <select id="filterCategory" class="form-select" onchange="applyTransactionFilters()">
                                 <option value="">All Categories</option>
                             </select>
                         </div>
                         <div class="filter-item">
                             <label for="filterAccount">Account</label>
-                            <select id="filterAccount" class="form-select">
+                            <select id="filterAccount" class="form-select" onchange="applyTransactionFilters()">
                                 <option value="">All Accounts</option>
                             </select>
                         </div>
                         <div class="filter-item">
                             <label for="filterAmazonMatch">Amazon Match</label>
-                            <select id="filterAmazonMatch" class="form-select">
+                            <select id="filterAmazonMatch" class="form-select" onchange="applyTransactionFilters()">
                                 <option value="">All Transactions</option>
                                 <option value="matched">Matched to Amazon</option>
                                 <option value="unmatched">Not Matched</option>
@@ -254,15 +254,14 @@
                         </div>
                         <div class="filter-item">
                             <label for="filterStartDate">Start Date</label>
-                            <input type="date" id="filterStartDate" class="form-input">
+                            <input type="date" id="filterStartDate" class="form-input" onchange="applyTransactionFilters()">
                         </div>
                         <div class="filter-item">
                             <label for="filterEndDate">End Date</label>
-                            <input type="date" id="filterEndDate" class="form-input">
+                            <input type="date" id="filterEndDate" class="form-input" onchange="applyTransactionFilters()">
                         </div>
                     </div>
                     <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
-                        <button onclick="applyTransactionFilters()" class="btn btn-primary">Apply Filters</button>
                         <button onclick="clearTransactionFilters()" class="btn btn-secondary">Clear All</button>
                     </div>
                 </div>
@@ -489,7 +488,7 @@
                     <div class="filter-grid">
                         <div class="filter-item">
                             <label for="amazonFilterMatched">Match Status</label>
-                            <select id="amazonFilterMatched" class="form-select">
+                            <select id="amazonFilterMatched" class="form-select" onchange="applyAmazonFilters()">
                                 <option value="">All Orders</option>
                                 <option value="true">Matched Only</option>
                                 <option value="false">Unmatched Only</option>
@@ -497,7 +496,7 @@
                         </div>
                         <div class="filter-item">
                             <label for="amazonFilterConfidence">Min Confidence</label>
-                            <select id="amazonFilterConfidence" class="form-select">
+                            <select id="amazonFilterConfidence" class="form-select" onchange="applyAmazonFilters()">
                                 <option value="">Any Confidence</option>
                                 <option value="90">90%+ (Excellent)</option>
                                 <option value="80">80%+ (High)</option>
@@ -507,21 +506,20 @@
                         </div>
                         <div class="filter-item">
                             <label for="amazonFilterAccount">Account</label>
-                            <select id="amazonFilterAccount" class="form-select">
+                            <select id="amazonFilterAccount" class="form-select" onchange="applyAmazonFilters()">
                                 <option value="">All Accounts</option>
                             </select>
                         </div>
                         <div class="filter-item">
                             <label for="amazonFilterStartDate">Start Date</label>
-                            <input type="date" id="amazonFilterStartDate" class="form-input">
+                            <input type="date" id="amazonFilterStartDate" class="form-input" onchange="applyAmazonFilters()">
                         </div>
                         <div class="filter-item">
                             <label for="amazonFilterEndDate">End Date</label>
-                            <input type="date" id="amazonFilterEndDate" class="form-input">
+                            <input type="date" id="amazonFilterEndDate" class="form-input" onchange="applyAmazonFilters()">
                         </div>
                     </div>
                     <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
-                        <button onclick="applyAmazonFilters()" class="btn btn-primary">Apply Filters</button>
                         <button onclick="clearAmazonFilters()" class="btn btn-secondary">Clear All</button>
                     </div>
                 </div>
