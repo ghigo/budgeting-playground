@@ -321,12 +321,23 @@ function displayAmazonOrders(orders) {
         return;
     }
 
+    // Filter out $0 orders (cancelled/refunded items)
+    const validOrders = orders.filter(order => {
+        const amount = Math.abs(parseFloat(order.total_amount) || 0);
+        return amount > 0;
+    });
+
     // Also display spending by time
-    displayAmazonSpendingByTime(orders);
+    displayAmazonSpendingByTime(validOrders);
+
+    if (validOrders.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 2rem; text-align: center;">No valid Amazon orders found (all orders are $0).</p>';
+        return;
+    }
 
     let html = '<div style="display: flex; flex-direction: column; gap: 1rem;">';
 
-    orders.forEach(order => {
+    validOrders.forEach(order => {
         const isMatched = order.matched_transaction_id !== null;
         const isNewlyMatched = newlyMatchedAmazonOrderIds.has(order.order_id);
         const matchBadge = isMatched

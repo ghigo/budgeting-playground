@@ -14,6 +14,12 @@ export function matchAmazonOrdersToTransactions(amazonOrders, transactions) {
   const usedTransactionIds = new Set();
 
   for (const order of amazonOrders) {
+    // Skip orders with $0 total - these are typically cancelled/refunded items
+    const orderAmount = Math.abs(parseFloat(order.total_amount) || 0);
+    if (orderAmount === 0) {
+      continue; // Don't add to matches or unmatchedOrders
+    }
+
     const match = findBestTransactionMatch(order, transactions, usedTransactionIds);
 
     if (match) {

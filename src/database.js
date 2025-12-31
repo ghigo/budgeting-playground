@@ -1948,6 +1948,9 @@ export function getAmazonOrders(filters = {}) {
   const conditions = [];
   const params = [];
 
+  // Always exclude $0 orders (cancelled/refunded items)
+  conditions.push('total_amount > 0');
+
   if (filters.startDate) {
     conditions.push('order_date >= ?');
     params.push(filters.startDate);
@@ -2135,6 +2138,7 @@ export function getUnmatchedAmazonOrders() {
   return db.prepare(`
     SELECT * FROM amazon_orders
     WHERE matched_transaction_id IS NULL
+      AND total_amount > 0
     ORDER BY order_date DESC
   `).all();
 }
@@ -2150,6 +2154,7 @@ export function getAmazonOrderStats() {
       SUM(total_amount) as total_spent,
       COUNT(DISTINCT strftime('%Y-%m', order_date)) as months_with_orders
     FROM amazon_orders
+    WHERE total_amount > 0
   `).get();
 
   const categoryBreakdown = db.prepare(`
@@ -2158,7 +2163,8 @@ export function getAmazonOrderStats() {
       COUNT(*) as item_count,
       SUM(i.price * i.quantity) as total_spent
     FROM amazon_items i
-    WHERE i.category IS NOT NULL
+    JOIN amazon_orders o ON i.order_id = o.order_id
+    WHERE i.category IS NOT NULL AND o.total_amount > 0
     GROUP BY i.category
     ORDER BY total_spent DESC
     LIMIT 10
