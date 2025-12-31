@@ -310,7 +310,6 @@ export function parseAmazonCSV(csvContent) {
   const headers = parseCSVLine(lines[0]);
 
   // Parse rows
-  const orders = [];
   const orderMap = new Map(); // Group items by order ID
 
   for (let i = 1; i < lines.length; i++) {
