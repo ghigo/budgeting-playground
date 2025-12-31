@@ -483,6 +483,10 @@ export function parseAmazonCSV(csvContent) {
 
   // Validate and finalize order totals
   const orders = Array.from(orderMap.values());
+  console.log(`\n========================================`);
+  console.log(`FINALIZING ORDER TOTALS`);
+  console.log(`========================================`);
+
   for (const order of orders) {
     // If we have "Total Owed" data from CSV, ALWAYS use it as the source of truth
     // "Total Owed" is the most accurate field as it includes all discounts/adjustments
@@ -490,6 +494,15 @@ export function parseAmazonCSV(csvContent) {
       const sumOfItems = order._itemTotals.reduce((sum, itemTotal) => sum + itemTotal, 0);
       const orderFields = order._orderLevelFields || {};
       const calculatedTotal = orderFields.calculatedTotal || 0;
+
+      console.log(`\nOrder ${order.order_id}:`);
+      console.log(`  Item "Total Owed" values: [${order._itemTotals.join(', ')}]`);
+      console.log(`  Sum of "Total Owed": $${sumOfItems.toFixed(2)}`);
+      console.log(`  Order-level fields:`);
+      console.log(`    - Subtotal: $${orderFields.subtotal?.toFixed(2) || '0.00'}`);
+      console.log(`    - Tax: $${orderFields.tax?.toFixed(2) || '0.00'}`);
+      console.log(`    - Shipping: $${orderFields.shipping?.toFixed(2) || '0.00'}`);
+      console.log(`    - Calculated Total: $${calculatedTotal.toFixed(2)}`);
 
       // Set total_amount from sum of "Total Owed" (the actual charges)
       order.total_amount = sumOfItems;
@@ -501,15 +514,22 @@ export function parseAmazonCSV(csvContent) {
         order.subtotal = orderFields.subtotal;
         order.tax = orderFields.tax;
         order.shipping = orderFields.shipping;
-        console.log(`Order ${order.order_id}: Total $${sumOfItems.toFixed(2)} matches breakdown (subtotal: $${orderFields.subtotal?.toFixed(2) || 0})`);
+        console.log(`  ✓ BREAKDOWN MATCHES - Setting:`);
+        console.log(`    total_amount: $${sumOfItems.toFixed(2)}`);
+        console.log(`    subtotal: $${orderFields.subtotal?.toFixed(2) || '0.00'}`);
+        console.log(`    tax: $${orderFields.tax?.toFixed(2) || '0.00'}`);
+        console.log(`    shipping: $${orderFields.shipping?.toFixed(2) || '0.00'}`);
       } else {
         // Breakdown doesn't match - leave as null (don't show misleading pre-discount values)
         order.subtotal = null;
         order.tax = null;
         order.shipping = null;
-        if (calculatedTotal > 0) {
-          console.log(`Order ${order.order_id}: Using sum of 'Total Owed' ($${sumOfItems.toFixed(2)}) instead of calculated subtotal ($${calculatedTotal.toFixed(2)}) - breakdown hidden`);
-        }
+        console.log(`  ⚠ BREAKDOWN MISMATCH - Setting:`);
+        console.log(`    total_amount: $${sumOfItems.toFixed(2)}`);
+        console.log(`    subtotal: null`);
+        console.log(`    tax: null`);
+        console.log(`    shipping: null`);
+        console.log(`  Reason: Calculated ($${calculatedTotal.toFixed(2)}) != Sum of Total Owed ($${sumOfItems.toFixed(2)})`);
       }
 
       // Mark that we used item totals (so we don't use fallback)

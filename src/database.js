@@ -1839,6 +1839,12 @@ export function deleteConfig(key) {
  * Add or update an Amazon order
  */
 export function upsertAmazonOrder(orderData) {
+  console.log(`\n[DATABASE] Saving order ${orderData.order_id}:`);
+  console.log(`  total_amount: ${orderData.total_amount}`);
+  console.log(`  subtotal: ${orderData.subtotal || null}`);
+  console.log(`  tax: ${orderData.tax || null}`);
+  console.log(`  shipping: ${orderData.shipping || null}`);
+
   const stmt = db.prepare(`
     INSERT INTO amazon_orders (
       order_id, order_date, total_amount, subtotal, tax, shipping,
