@@ -1110,6 +1110,17 @@ app.post('/api/amazon/reset-matchings', (req, res) => {
   }
 });
 
+// Delete all Amazon data (DEBUG - destructive operation)
+app.post('/api/amazon/delete-all', (req, res) => {
+  try {
+    const result = database.deleteAllAmazonData();
+    res.json(result);
+  } catch (error) {
+    console.error('Error deleting all Amazon data:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============================================================================
 // TRANSACTION SPLITTING ENDPOINTS
 // ============================================================================

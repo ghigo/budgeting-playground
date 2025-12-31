@@ -368,25 +368,96 @@ export function parseAmazonCSV(csvContent) {
 
     // Group by order ID
     if (!orderMap.has(orderId)) {
+      // Extract all order-level fields from CSV
+      const website = row['Website'] || '';
+      const purchaseOrderNumber = row['Purchase Order Number'] || '';
+      const currency = row['Currency'] || '';
+
+      // Parse total discounts (handle negative values in quotes like '-14.89')
+      const totalDiscountsStr = row['Total Discounts'] || '0';
+      const totalDiscounts = parseFloat(totalDiscountsStr.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+      // Parse shipping charge
+      const shippingChargeStr = row['Shipping Charge'] || '0';
+      const shippingCharge = parseFloat(shippingChargeStr.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+      // Parse subtotal (use Shipment Item Subtotal as this is order total before tax/shipping)
+      const subtotalStr = row['Shipment Item Subtotal'] || '0';
+      const subtotal = parseFloat(subtotalStr.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+      // Parse tax (use Shipment Item Subtotal Tax)
+      const taxStr = row['Shipment Item Subtotal Tax'] || row['Unit Price Tax'] || '0';
+      const tax = parseFloat(taxStr.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+      const shippingAddress = row['Shipping Address'] || '';
+      const billingAddress = row['Billing Address'] || '';
+      const shipDate = row['Ship Date'] || '';
+      const shippingOption = row['Shipping Option'] || '';
+
       orderMap.set(orderId, {
         order_id: orderId,
         order_date: parsedDate,
         total_amount: totalAmount,
+        subtotal: subtotal > 0 ? subtotal : null,
+        tax: tax > 0 ? tax : null,
+        shipping: shippingCharge > 0 ? shippingCharge : null,
         payment_method: row['Payment Instrument Type'] || '',
         order_status: orderStatus,
+        website: website,
+        purchase_order_number: purchaseOrderNumber !== 'Not Applicable' ? purchaseOrderNumber : null,
+        currency: currency,
+        total_discounts: totalDiscounts !== 0 ? totalDiscounts : null,
+        shipping_address: shippingAddress !== 'Not Available' ? shippingAddress : null,
+        billing_address: billingAddress !== 'Not Available' ? billingAddress : null,
+        ship_date: shipDate && shipDate !== 'Not Available' ? standardizeDate(shipDate) : null,
+        shipping_option: shippingOption !== 'Not Available' ? shippingOption : null,
         items: []
       });
     }
 
     // Add item to order (skip if no title)
     if (itemTitle && itemTitle.trim().length > 0 && quantity > 0) {
+      // Extract all item-level fields from CSV
+      const productCondition = row['Product Condition'] || '';
+
+      // Parse unit price tax
+      const unitPriceTaxStr = row['Unit Price Tax'] || '0';
+      const unitPriceTax = parseFloat(unitPriceTaxStr.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+      // Parse shipment item subtotal
+      const shipmentSubtotalStr = row['Shipment Item Subtotal'] || '0';
+      const shipmentSubtotal = parseFloat(shipmentSubtotalStr.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+      // Parse shipment item subtotal tax
+      const shipmentSubtotalTaxStr = row['Shipment Item Subtotal Tax'] || '0';
+      const shipmentSubtotalTax = parseFloat(shipmentSubtotalTaxStr.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+      const shipmentStatus = row['Shipment Status'] || '';
+      const itemShipDate = row['Ship Date'] || '';
+      const carrierTracking = row['Carrier Name & Tracking Number'] || '';
+      const giftMessage = row['Gift Message'] || '';
+      const giftSenderName = row['Gift Sender Name'] || '';
+      const giftRecipientContact = row['Gift Recipient Contact Details'] || '';
+      const itemSerialNumber = row['Item Serial Number'] || '';
+
       orderMap.get(orderId).items.push({
         title: itemTitle,
         price: itemPrice,
         quantity: quantity,
         category: category,
         asin: asin,
-        seller: seller
+        seller: seller !== 'Not Available' ? seller : null,
+        product_condition: productCondition,
+        unit_price_tax: unitPriceTax > 0 ? unitPriceTax : null,
+        shipment_item_subtotal: shipmentSubtotal > 0 ? shipmentSubtotal : null,
+        shipment_item_subtotal_tax: shipmentSubtotalTax > 0 ? shipmentSubtotalTax : null,
+        shipment_status: shipmentStatus !== 'Not Available' ? shipmentStatus : null,
+        ship_date: itemShipDate && itemShipDate !== 'Not Available' ? itemShipDate : null,
+        carrier_tracking: carrierTracking !== 'Not Available' ? carrierTracking : null,
+        gift_message: giftMessage !== 'Not Available' ? giftMessage : null,
+        gift_sender_name: giftSenderName !== 'Not Available' ? giftSenderName : null,
+        gift_recipient_contact: giftRecipientContact !== 'Not Available' ? giftRecipientContact : null,
+        item_serial_number: itemSerialNumber !== 'Not Available' ? itemSerialNumber : null
       });
     }
   }

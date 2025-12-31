@@ -358,6 +358,100 @@ function runMigrations() {
     columnsAdded = true;
   }
 
+  // Add comprehensive Amazon CSV fields to amazon_orders table
+  const hasWebsite = amazonOrdersInfo.some(col => col.name === 'website');
+  const hasPurchaseOrderNumber = amazonOrdersInfo.some(col => col.name === 'purchase_order_number');
+  const hasCurrency = amazonOrdersInfo.some(col => col.name === 'currency');
+  const hasTotalDiscounts = amazonOrdersInfo.some(col => col.name === 'total_discounts');
+  const hasBillingAddress = amazonOrdersInfo.some(col => col.name === 'billing_address');
+  const hasShipDate = amazonOrdersInfo.some(col => col.name === 'ship_date');
+  const hasShippingOption = amazonOrdersInfo.some(col => col.name === 'shipping_option');
+
+  if (!hasWebsite || !hasPurchaseOrderNumber || !hasCurrency || !hasTotalDiscounts ||
+      !hasBillingAddress || !hasShipDate || !hasShippingOption) {
+    console.log('Adding comprehensive CSV fields to amazon_orders table...');
+
+    if (!hasWebsite) {
+      db.exec("ALTER TABLE amazon_orders ADD COLUMN website TEXT");
+    }
+    if (!hasPurchaseOrderNumber) {
+      db.exec("ALTER TABLE amazon_orders ADD COLUMN purchase_order_number TEXT");
+    }
+    if (!hasCurrency) {
+      db.exec("ALTER TABLE amazon_orders ADD COLUMN currency TEXT");
+    }
+    if (!hasTotalDiscounts) {
+      db.exec("ALTER TABLE amazon_orders ADD COLUMN total_discounts REAL");
+    }
+    if (!hasBillingAddress) {
+      db.exec("ALTER TABLE amazon_orders ADD COLUMN billing_address TEXT");
+    }
+    if (!hasShipDate) {
+      db.exec("ALTER TABLE amazon_orders ADD COLUMN ship_date TEXT");
+    }
+    if (!hasShippingOption) {
+      db.exec("ALTER TABLE amazon_orders ADD COLUMN shipping_option TEXT");
+    }
+
+    columnsAdded = true;
+  }
+
+  // Add comprehensive Amazon CSV fields to amazon_items table
+  const amazonItemsInfo = db.prepare("PRAGMA table_info(amazon_items)").all();
+  const hasProductCondition = amazonItemsInfo.some(col => col.name === 'product_condition');
+  const hasUnitPriceTax = amazonItemsInfo.some(col => col.name === 'unit_price_tax');
+  const hasShipmentSubtotal = amazonItemsInfo.some(col => col.name === 'shipment_item_subtotal');
+  const hasShipmentSubtotalTax = amazonItemsInfo.some(col => col.name === 'shipment_item_subtotal_tax');
+  const hasShipmentStatus = amazonItemsInfo.some(col => col.name === 'shipment_status');
+  const hasItemShipDate = amazonItemsInfo.some(col => col.name === 'ship_date');
+  const hasCarrierTracking = amazonItemsInfo.some(col => col.name === 'carrier_tracking');
+  const hasGiftMessage = amazonItemsInfo.some(col => col.name === 'gift_message');
+  const hasGiftSenderName = amazonItemsInfo.some(col => col.name === 'gift_sender_name');
+  const hasGiftRecipientContact = amazonItemsInfo.some(col => col.name === 'gift_recipient_contact');
+  const hasItemSerialNumber = amazonItemsInfo.some(col => col.name === 'item_serial_number');
+
+  if (!hasProductCondition || !hasUnitPriceTax || !hasShipmentSubtotal || !hasShipmentSubtotalTax ||
+      !hasShipmentStatus || !hasItemShipDate || !hasCarrierTracking || !hasGiftMessage ||
+      !hasGiftSenderName || !hasGiftRecipientContact || !hasItemSerialNumber) {
+    console.log('Adding comprehensive CSV fields to amazon_items table...');
+
+    if (!hasProductCondition) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN product_condition TEXT");
+    }
+    if (!hasUnitPriceTax) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN unit_price_tax REAL");
+    }
+    if (!hasShipmentSubtotal) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN shipment_item_subtotal REAL");
+    }
+    if (!hasShipmentSubtotalTax) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN shipment_item_subtotal_tax REAL");
+    }
+    if (!hasShipmentStatus) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN shipment_status TEXT");
+    }
+    if (!hasItemShipDate) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN ship_date TEXT");
+    }
+    if (!hasCarrierTracking) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN carrier_tracking TEXT");
+    }
+    if (!hasGiftMessage) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN gift_message TEXT");
+    }
+    if (!hasGiftSenderName) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN gift_sender_name TEXT");
+    }
+    if (!hasGiftRecipientContact) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN gift_recipient_contact TEXT");
+    }
+    if (!hasItemSerialNumber) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN item_serial_number TEXT");
+    }
+
+    columnsAdded = true;
+  }
+
   // Update existing categories with default values to have appropriate icons and colors
   const categoriesToUpdate = db.prepare(`
     SELECT name FROM categories
@@ -1749,8 +1843,10 @@ export function upsertAmazonOrder(orderData) {
     INSERT INTO amazon_orders (
       order_id, order_date, total_amount, subtotal, tax, shipping,
       payment_method, shipping_address, order_status, account_name,
+      website, purchase_order_number, currency, total_discounts,
+      billing_address, ship_date, shipping_option,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
     ON CONFLICT(order_id) DO UPDATE SET
       order_date = excluded.order_date,
       total_amount = excluded.total_amount,
@@ -1761,6 +1857,13 @@ export function upsertAmazonOrder(orderData) {
       shipping_address = excluded.shipping_address,
       order_status = excluded.order_status,
       account_name = excluded.account_name,
+      website = excluded.website,
+      purchase_order_number = excluded.purchase_order_number,
+      currency = excluded.currency,
+      total_discounts = excluded.total_discounts,
+      billing_address = excluded.billing_address,
+      ship_date = excluded.ship_date,
+      shipping_option = excluded.shipping_option,
       updated_at = datetime('now')
   `);
 
@@ -1774,7 +1877,14 @@ export function upsertAmazonOrder(orderData) {
     orderData.payment_method || null,
     orderData.shipping_address || null,
     orderData.order_status || 'delivered',
-    orderData.account_name || 'Primary'
+    orderData.account_name || 'Primary',
+    orderData.website || null,
+    orderData.purchase_order_number || null,
+    orderData.currency || null,
+    orderData.total_discounts || null,
+    orderData.billing_address || null,
+    orderData.ship_date || null,
+    orderData.shipping_option || null
   );
 
   return orderData.order_id;
@@ -1790,8 +1900,11 @@ export function addAmazonItems(orderId, items) {
   const stmt = db.prepare(`
     INSERT INTO amazon_items (
       order_id, asin, title, category, price, quantity,
-      seller, product_url, image_url, return_status, return_date, refund_amount
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      seller, product_url, image_url, return_status, return_date, refund_amount,
+      product_condition, unit_price_tax, shipment_item_subtotal, shipment_item_subtotal_tax,
+      shipment_status, ship_date, carrier_tracking, gift_message, gift_sender_name,
+      gift_recipient_contact, item_serial_number
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = db.transaction((items) => {
@@ -1808,7 +1921,18 @@ export function addAmazonItems(orderId, items) {
         item.image_url || null,
         item.return_status || null,
         item.return_date || null,
-        item.refund_amount || null
+        item.refund_amount || null,
+        item.product_condition || null,
+        item.unit_price_tax || null,
+        item.shipment_item_subtotal || null,
+        item.shipment_item_subtotal_tax || null,
+        item.shipment_status || null,
+        item.ship_date || null,
+        item.carrier_tracking || null,
+        item.gift_message || null,
+        item.gift_sender_name || null,
+        item.gift_recipient_contact || null,
+        item.item_serial_number || null
       );
     }
   });
@@ -1973,6 +2097,35 @@ export function resetAllAmazonMatchings() {
     count: result.changes,
     message: `Reset ${result.changes} Amazon order matchings`
   };
+}
+
+/**
+ * Delete all Amazon orders and items
+ * WARNING: This is destructive and cannot be undone
+ */
+export function deleteAllAmazonData() {
+  const deleteAll = db.transaction(() => {
+    // Get counts before deleting
+    const orderCount = db.prepare('SELECT COUNT(*) as count FROM amazon_orders').get().count;
+    const itemCount = db.prepare('SELECT COUNT(*) as count FROM amazon_items').get().count;
+
+    // Delete all items first (due to foreign key constraint)
+    db.prepare('DELETE FROM amazon_items').run();
+
+    // Delete all orders
+    db.prepare('DELETE FROM amazon_orders').run();
+
+    console.log(`Deleted ${orderCount} Amazon orders and ${itemCount} items`);
+
+    return {
+      success: true,
+      ordersDeleted: orderCount,
+      itemsDeleted: itemCount,
+      message: `Deleted ${orderCount} orders and ${itemCount} items`
+    };
+  });
+
+  return deleteAll();
 }
 
 /**

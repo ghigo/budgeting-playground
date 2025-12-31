@@ -430,8 +430,11 @@
                             <button onclick="document.getElementById('amazonFileInput').click()" class="btn" style="background: white; color: #FF9900; font-weight: 600; width: 100%; margin-bottom: 0.5rem;">
                                 📁 Choose CSV File
                             </button>
-                            <button onclick="runAmazonAutoMatch()" class="btn btn-secondary" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.4); width: 100%;">
+                            <button onclick="runAmazonAutoMatch()" class="btn btn-secondary" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.4); width: 100%; margin-bottom: 0.5rem;">
                                 🔄 Auto-Match Orders
+                            </button>
+                            <button onclick="deleteAllAmazonData()" class="btn" style="background: #dc2626; color: white; font-weight: 600; width: 100%; font-size: 0.85rem;" title="Delete all Amazon orders and items (for debugging)">
+                                🗑️ Debug: Delete All
                             </button>
                         </div>
                     </div>

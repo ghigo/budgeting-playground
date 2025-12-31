@@ -36,6 +36,7 @@ export function initializeAmazonPage(deps) {
     window.applyAmazonFilters = applyAmazonFilters;
     window.clearAmazonFilters = clearAmazonFilters;
     window.selectTimeRange = selectTimeRange;
+    window.deleteAllAmazonData = deleteAllAmazonData;
 }
 
 export async function loadAmazonPage() {
@@ -735,6 +736,83 @@ function searchAmazonOrders() {
     }
 
     displayAmazonOrders(filtered);
+}
+
+/**
+ * Delete all Amazon data (DEBUG function)
+ * WARNING: This is destructive and cannot be undone
+ */
+async function deleteAllAmazonData() {
+    const Modal = (await import('../components/Modal.js')).default;
+    const { eventBus } = await import('../services/eventBus.js');
+
+    const modalId = `delete-amazon-${Date.now()}`;
+
+    const modal = new Modal({
+        id: modalId,
+        title: '⚠️ Delete All Amazon Data',
+        content: `
+            <div style="padding: 1rem 0;">
+                <p style="color: #dc2626; font-weight: 600; margin-bottom: 1rem;">
+                    ⚠️ WARNING: This action is IRREVERSIBLE!
+                </p>
+                <p style="margin-bottom: 1rem;">
+                    This will permanently delete:
+                </p>
+                <ul style="margin: 0 0 1rem 1.5rem; line-height: 1.8;">
+                    <li>All Amazon orders (${amazonStats.total_orders || 0} orders)</li>
+                    <li>All Amazon items</li>
+                    <li>All transaction matchings</li>
+                </ul>
+                <p style="color: #666; font-size: 0.9rem;">
+                    You will need to re-import your Amazon CSV files to restore this data.
+                </p>
+                <p style="font-weight: 600; margin-top: 1rem;">
+                    Type "DELETE" to confirm:
+                </p>
+                <input type="text" id="delete-confirmation-input"
+                       placeholder="Type DELETE"
+                       style="width: 100%; padding: 0.75rem; border: 2px solid #dc2626; border-radius: 6px; font-size: 1rem; margin-top: 0.5rem;">
+            </div>
+        `,
+        actions: [
+            { action: 'cancel', label: 'Cancel', primary: false },
+            { action: 'delete', label: 'Delete All Data', primary: true }
+        ],
+        options: { size: 'medium', closeOnOverlay: false }
+    });
+
+    eventBus.once(`modal:${modalId}:delete`, async () => {
+        const confirmInput = document.getElementById('delete-confirmation-input');
+        if (!confirmInput || confirmInput.value !== 'DELETE') {
+            showToast('Confirmation text does not match. Deletion cancelled.', 'error');
+            return;
+        }
+
+        showLoading();
+        try {
+            const result = await fetchAPI('/api/amazon/delete-all', {
+                method: 'POST'
+            });
+
+            if (result.success) {
+                showToast(
+                    `✓ Successfully deleted all Amazon data!\n` +
+                    `• ${result.ordersDeleted} orders deleted\n` +
+                    `• ${result.itemsDeleted} items deleted`,
+                    'success'
+                );
+                await loadAmazonPage();
+            }
+        } catch (error) {
+            console.error('Error deleting Amazon data:', error);
+            showToast(`Failed to delete: ${error.message}`, 'error');
+        } finally {
+            hideLoading();
+        }
+    });
+
+    modal.show();
 }
 
 export default {
