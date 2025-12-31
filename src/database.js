@@ -1975,6 +1975,11 @@ export function getAmazonOrders(filters = {}) {
     }
   }
 
+  if (filters.accountName) {
+    conditions.push('account_name = ?');
+    params.push(filters.accountName);
+  }
+
   if (conditions.length > 0) {
     sql += ' WHERE ' + conditions.join(' AND ');
   }
@@ -2138,6 +2143,63 @@ export function deleteAllAmazonData() {
 }
 
 /**
+ * Delete Amazon data for a specific account
+ */
+export function deleteAmazonDataByAccount(accountName) {
+  const deleteByAccount = db.transaction(() => {
+    // Get order IDs for this account
+    const orderIds = db.prepare('SELECT order_id FROM amazon_orders WHERE account_name = ?').all(accountName);
+
+    if (orderIds.length === 0) {
+      return {
+        success: true,
+        ordersDeleted: 0,
+        itemsDeleted: 0,
+        message: `No orders found for account "${accountName}"`
+      };
+    }
+
+    // Count items before deleting
+    const itemCount = db.prepare(`
+      SELECT COUNT(*) as count FROM amazon_items
+      WHERE order_id IN (SELECT order_id FROM amazon_orders WHERE account_name = ?)
+    `).get(accountName).count;
+
+    // Delete items for orders in this account
+    db.prepare(`
+      DELETE FROM amazon_items
+      WHERE order_id IN (SELECT order_id FROM amazon_orders WHERE account_name = ?)
+    `).run(accountName);
+
+    // Delete orders for this account
+    const result = db.prepare('DELETE FROM amazon_orders WHERE account_name = ?').run(accountName);
+
+    console.log(`Deleted ${result.changes} Amazon orders and ${itemCount} items for account "${accountName}"`);
+
+    return {
+      success: true,
+      ordersDeleted: result.changes,
+      itemsDeleted: itemCount,
+      message: `Deleted ${result.changes} orders and ${itemCount} items for account "${accountName}"`
+    };
+  });
+
+  return deleteByAccount();
+}
+
+/**
+ * Get all unique Amazon account names
+ */
+export function getAmazonAccountNames() {
+  return db.prepare(`
+    SELECT DISTINCT account_name
+    FROM amazon_orders
+    WHERE account_name IS NOT NULL
+    ORDER BY account_name
+  `).all().map(row => row.account_name);
+}
+
+/**
  * Get unmatched Amazon orders
  */
 export function getUnmatchedAmazonOrders() {
@@ -2152,7 +2214,12 @@ export function getUnmatchedAmazonOrders() {
 /**
  * Get Amazon order statistics
  */
-export function getAmazonOrderStats() {
+export function getAmazonOrderStats(accountName = null) {
+  const whereClause = accountName
+    ? 'WHERE total_amount > 0 AND account_name = ?'
+    : 'WHERE total_amount > 0';
+  const params = accountName ? [accountName] : [];
+
   const stats = db.prepare(`
     SELECT
       COUNT(*) as total_orders,
@@ -2160,8 +2227,12 @@ export function getAmazonOrderStats() {
       SUM(total_amount) as total_spent,
       COUNT(DISTINCT strftime('%Y-%m', order_date)) as months_with_orders
     FROM amazon_orders
-    WHERE total_amount > 0
-  `).get();
+    ${whereClause}
+  `).get(...params);
+
+  const categoryWhereClause = accountName
+    ? 'WHERE i.category IS NOT NULL AND o.total_amount > 0 AND o.account_name = ?'
+    : 'WHERE i.category IS NOT NULL AND o.total_amount > 0';
 
   const categoryBreakdown = db.prepare(`
     SELECT
@@ -2170,11 +2241,11 @@ export function getAmazonOrderStats() {
       SUM(i.price * i.quantity) as total_spent
     FROM amazon_items i
     JOIN amazon_orders o ON i.order_id = o.order_id
-    WHERE i.category IS NOT NULL AND o.total_amount > 0
+    ${categoryWhereClause}
     GROUP BY i.category
     ORDER BY total_spent DESC
     LIMIT 10
-  `).all();
+  `).all(...params);
 
   return {
     ...stats,

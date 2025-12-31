@@ -972,7 +972,8 @@ app.get('/api/amazon/orders', (req, res) => {
     const filters = {
       startDate: req.query.startDate,
       endDate: req.query.endDate,
-      matched: req.query.matched === 'true' ? true : req.query.matched === 'false' ? false : undefined
+      matched: req.query.matched === 'true' ? true : req.query.matched === 'false' ? false : undefined,
+      accountName: req.query.accountName
     };
 
     const orders = database.getAmazonOrders(filters);
@@ -1024,7 +1025,8 @@ app.get('/api/amazon/orders/:orderId', (req, res) => {
 // Get Amazon order statistics
 app.get('/api/amazon/stats', (req, res) => {
   try {
-    const stats = database.getAmazonOrderStats();
+    const accountName = req.query.accountName || null;
+    const stats = database.getAmazonOrderStats(accountName);
     res.json(stats);
   } catch (error) {
     console.error('Error fetching Amazon stats:', error);
@@ -1117,6 +1119,34 @@ app.post('/api/amazon/delete-all', (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error deleting all Amazon data:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete Amazon data for a specific account
+app.post('/api/amazon/delete-account', (req, res) => {
+  try {
+    const { accountName } = req.body;
+
+    if (!accountName) {
+      return res.status(400).json({ error: 'Account name is required' });
+    }
+
+    const result = database.deleteAmazonDataByAccount(accountName);
+    res.json(result);
+  } catch (error) {
+    console.error('Error deleting Amazon account data:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all Amazon account names
+app.get('/api/amazon/accounts', (req, res) => {
+  try {
+    const accounts = database.getAmazonAccountNames();
+    res.json(accounts);
+  } catch (error) {
+    console.error('Error fetching Amazon accounts:', error);
     res.status(500).json({ error: error.message });
   }
 });

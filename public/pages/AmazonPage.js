@@ -56,7 +56,13 @@ export async function loadAmazonPage() {
 
 async function loadAmazonStats() {
     try {
-        const stats = await fetchAPI('/api/amazon/stats');
+        const accountFilter = document.getElementById('amazonFilterAccount');
+        const accountName = accountFilter && accountFilter.value ? accountFilter.value : null;
+
+        const url = accountName
+            ? `/api/amazon/stats?accountName=${encodeURIComponent(accountName)}`
+            : '/api/amazon/stats';
+        const stats = await fetchAPI(url);
         amazonStats = stats;
 
         document.getElementById('amazonTotalOrders').textContent = stats.total_orders || 0;
@@ -635,7 +641,11 @@ function applyAmazonFilters() {
         endDate: document.getElementById('amazonFilterEndDate').value
     };
 
-    loadAmazonOrders(filters);
+    // Reload both orders and stats with account filter
+    Promise.all([
+        loadAmazonStats(),
+        loadAmazonOrders(filters)
+    ]);
 }
 
 function clearAmazonFilters() {
@@ -750,7 +760,7 @@ function searchAmazonOrders() {
 }
 
 /**
- * Delete all Amazon data (DEBUG function)
+ * Delete Amazon data (DEBUG function)
  * WARNING: This is destructive and cannot be undone
  */
 async function deleteAllAmazonData() {
@@ -759,56 +769,91 @@ async function deleteAllAmazonData() {
 
     const modalId = `delete-amazon-${Date.now()}`;
 
+    // Get available accounts
+    let accounts = [];
+    try {
+        accounts = await fetchAPI('/api/amazon/accounts');
+    } catch (error) {
+        console.error('Error fetching accounts:', error);
+    }
+
+    // Build account options HTML
+    let accountOptionsHtml = '<option value="">All Accounts</option>';
+    accounts.forEach(account => {
+        accountOptionsHtml += `<option value="${escapeHtml(account)}">${escapeHtml(account)}</option>`;
+    });
+
     const modal = new Modal({
         id: modalId,
-        title: '⚠️ Delete All Amazon Data',
+        title: '⚠️ Delete Amazon Data',
         content: `
             <div style="padding: 1rem 0;">
                 <p style="color: #dc2626; font-weight: 600; margin-bottom: 1rem;">
                     ⚠️ WARNING: This action is IRREVERSIBLE!
                 </p>
                 <p style="margin-bottom: 1rem;">
-                    This will permanently delete:
+                    Select which data to delete:
                 </p>
-                <ul style="margin: 0 0 1rem 1.5rem; line-height: 1.8;">
-                    <li>All Amazon orders (${amazonStats.total_orders || 0} orders)</li>
-                    <li>All Amazon items</li>
-                    <li>All transaction matchings</li>
-                </ul>
-                <p style="color: #666; font-size: 0.9rem;">
+                <div style="margin-bottom: 1.5rem;">
+                    <label for="delete-account-select" style="display: block; font-weight: 600; margin-bottom: 0.5rem;">
+                        Account:
+                    </label>
+                    <select id="delete-account-select" style="width: 100%; padding: 0.75rem; border: 2px solid #ccc; border-radius: 6px; font-size: 1rem;">
+                        ${accountOptionsHtml}
+                    </select>
+                    <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem;">
+                        Select "All Accounts" to delete all Amazon data, or choose a specific account.
+                    </p>
+                </div>
+                <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">
+                    This will permanently delete all orders, items, and transaction matchings for the selected account(s).
                     You will need to re-import your Amazon CSV files to restore this data.
                 </p>
-                <p style="font-weight: 600; margin-top: 1rem;">
+                <p style="font-weight: 600; margin-bottom: 0.5rem;">
                     Type "DELETE" to confirm:
                 </p>
                 <input type="text" id="delete-confirmation-input"
                        placeholder="Type DELETE"
-                       style="width: 100%; padding: 0.75rem; border: 2px solid #dc2626; border-radius: 6px; font-size: 1rem; margin-top: 0.5rem;">
+                       style="width: 100%; padding: 0.75rem; border: 2px solid #dc2626; border-radius: 6px; font-size: 1rem;">
             </div>
         `,
         actions: [
             { action: 'cancel', label: 'Cancel', primary: false },
-            { action: 'delete', label: 'Delete All Data', primary: true }
+            { action: 'delete', label: 'Delete Data', primary: true }
         ],
         options: { size: 'medium', closeOnOverlay: false }
     });
 
     eventBus.once(`modal:${modalId}:delete`, async () => {
         const confirmInput = document.getElementById('delete-confirmation-input');
+        const accountSelect = document.getElementById('delete-account-select');
+
         if (!confirmInput || confirmInput.value !== 'DELETE') {
             showToast('Confirmation text does not match. Deletion cancelled.', 'error');
             return;
         }
 
+        const accountName = accountSelect.value;
+
         showLoading();
         try {
-            const result = await fetchAPI('/api/amazon/delete-all', {
-                method: 'POST'
-            });
+            let result;
+            if (accountName) {
+                // Delete specific account
+                result = await fetchAPI('/api/amazon/delete-account', {
+                    method: 'POST',
+                    body: JSON.stringify({ accountName })
+                });
+            } else {
+                // Delete all
+                result = await fetchAPI('/api/amazon/delete-all', {
+                    method: 'POST'
+                });
+            }
 
             if (result.success) {
                 showToast(
-                    `✓ Successfully deleted all Amazon data!\n` +
+                    `✓ Successfully deleted Amazon data!\n` +
                     `• ${result.ordersDeleted} orders deleted\n` +
                     `• ${result.itemsDeleted} items deleted`,
                     'success'
