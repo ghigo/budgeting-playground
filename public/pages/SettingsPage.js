@@ -45,7 +45,49 @@ function displaySettings(settings) {
         categories[setting.category].push({ key, ...setting });
     });
 
-    let html = '';
+    let html = `
+        <style>
+            .setting-toggle {
+                position: relative;
+                display: inline-block;
+                width: 50px;
+                height: 24px;
+            }
+            .setting-toggle input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+            }
+            .setting-toggle-slider {
+                position: absolute;
+                cursor: pointer;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: #ccc;
+                transition: 0.4s;
+                border-radius: 24px;
+            }
+            .setting-toggle-slider:before {
+                position: absolute;
+                content: "";
+                height: 18px;
+                width: 18px;
+                left: 3px;
+                bottom: 3px;
+                background-color: white;
+                transition: 0.4s;
+                border-radius: 50%;
+            }
+            .setting-toggle input:checked + .setting-toggle-slider {
+                background-color: #3b82f6;
+            }
+            .setting-toggle input:checked + .setting-toggle-slider:before {
+                transform: translateX(26px);
+            }
+        </style>
+    `;
 
     Object.keys(categories).sort().forEach(categoryName => {
         html += `
@@ -92,18 +134,11 @@ function renderSettingControl(setting) {
 
     if (type === 'boolean') {
         controlHtml = `
-            <label class="switch" style="display: inline-block; position: relative; width: 50px; height: 24px;">
+            <label class="setting-toggle">
                 <input type="checkbox" id="setting_${key}" ${value ? 'checked' : ''}
-                       onchange="updateSetting('${key}', this.checked)"
-                       style="opacity: 0; width: 0; height: 0;">
-                <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: 0.4s; border-radius: 24px;">
-                    <span style="position: absolute; content: ''; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: 0.4s; border-radius: 50%;"></span>
-                </span>
+                       onchange="updateSetting('${key}', this.checked)">
+                <span class="setting-toggle-slider"></span>
             </label>
-            <style>
-                input:checked + span { background-color: #3b82f6; }
-                input:checked + span span { transform: translateX(26px); }
-            </style>
         `;
     } else if (type === 'number') {
         const stepAttr = step !== undefined ? `step="${step}"` : '';
@@ -131,8 +166,8 @@ function renderSettingControl(setting) {
 
     return `
         <div style="padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px; background: ${isDefault ? 'white' : '#fffbeb'};">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                <div style="flex: 1;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
+                <div style="flex: 1; min-width: 0;">
                     <div style="font-weight: 600; margin-bottom: 0.25rem;">${escapeHtml(description)}</div>
                     <div style="font-size: 0.85rem; color: #666; font-family: monospace;">${escapeHtml(key)}</div>
                     <div style="font-size: 0.85rem; color: #666; margin-top: 0.25rem;">
@@ -140,9 +175,9 @@ function renderSettingControl(setting) {
                         ${!isDefault ? '<span style="color: #f59e0b; margin-left: 0.5rem;">● Modified</span>' : ''}
                     </div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0;">
                     ${controlHtml}
-                    ${!isDefault ? `<button onclick="resetSetting('${key}')" class="btn btn-secondary" style="font-size: 0.85rem; padding: 0.4rem 0.75rem;">Reset</button>` : ''}
+                    ${!isDefault ? `<button onclick="resetSetting('${key}')" class="btn btn-secondary" style="font-size: 0.85rem; padding: 0.4rem 0.75rem; white-space: nowrap;">Reset</button>` : ''}
                 </div>
             </div>
         </div>
