@@ -12,6 +12,7 @@ import { initializeTransactionsPage, loadTransactions, applyTransactionFilters, 
 import { initializeAmazonPage, loadAmazonPage, handleAmazonFileUpload } from './pages/AmazonPage.js';
 import { initializeCategoriesPage, loadCategories } from './pages/CategoriesPage.js';
 import { initializeMappingsPage, loadMappings } from './pages/MappingsPage.js';
+import { initializeSettingsPage, loadSettingsPage } from './pages/SettingsPage.js';
 
 // State
 let plaidHandler = null;
@@ -83,6 +84,9 @@ document.addEventListener('DOMContentLoaded', () => {
         applyTransactionFilters
     });
     initializeMappingsPage({
+        fetchAPI
+    });
+    initializeSettingsPage({
         fetchAPI
     });
 
@@ -167,6 +171,9 @@ function navigateTo(page, updateHash = true) {
             break;
         case 'amazon':
             loadAmazonPage();
+            break;
+        case 'settings':
+            loadSettingsPage();
             break;
         case 'link':
             // Link page is static, no data to load

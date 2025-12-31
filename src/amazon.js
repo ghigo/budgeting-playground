@@ -50,7 +50,15 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
   const orderDate = new Date(order.order_date);
   const orderAmount = Math.abs(parseFloat(order.total_amount));
 
-  console.log(`\n[MATCHING] Order ${order.order_id}: $${orderAmount.toFixed(2)}, Date: ${order.order_date}`);
+  // Get settings
+  const maxDays = database.getSetting('amazon_matching_max_days');
+  const confidenceDecreasePerDay = database.getSetting('amazon_matching_confidence_decrease_per_day');
+  const amountTolerance = database.getSetting('amazon_matching_amount_tolerance');
+  const enableDebugLogs = database.getSetting('enable_matching_debug_logs');
+
+  if (enableDebugLogs) {
+    console.log(`\n[MATCHING] Order ${order.order_id}: $${orderAmount.toFixed(2)}, Date: ${order.order_date}`);
+  }
 
   let candidatesChecked = 0;
   let candidatesSkippedAlreadyMatched = 0;
@@ -84,11 +92,11 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
       continue;
     }
 
-    // CRITICAL REQUIREMENT: Amount must be EXACT (within 0.1 cent for floating-point precision)
+    // CRITICAL REQUIREMENT: Amount must be EXACT (within tolerance for floating-point precision)
     const amountDiff = Math.abs(transactionAmount - orderAmount);
-    if (amountDiff > 0.001) {
-      // Skip if amount doesn't match exactly (more than 0.1 cent difference)
-      if (amountDiff < 0.02) {
+    if (amountDiff > amountTolerance) {
+      // Skip if amount doesn't match exactly (more than tolerance)
+      if (enableDebugLogs && amountDiff < 0.02) {
         // Log near-misses for debugging
         console.log(`  ❌ Near-miss: $${transactionAmount.toFixed(2)} (off by $${amountDiff.toFixed(4)}) - ${transaction.description} on ${transaction.date}`);
       }
@@ -96,10 +104,10 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
       continue;
     }
 
-    // Skip if transaction is too far from order date (within 0-180 days / 6 months after order)
+    // Skip if transaction is too far from order date
     const daysDiff = Math.floor((transactionDate - orderDate) / (1000 * 60 * 60 * 24));
-    if (daysDiff < 0 || daysDiff > 180) {
-      if (amountDiff <= 0.001) {
+    if (daysDiff < 0 || daysDiff > maxDays) {
+      if (enableDebugLogs && amountDiff <= amountTolerance) {
         // Log exact amount matches that are outside date range
         console.log(`  ❌ Out of range: $${transactionAmount.toFixed(2)} - ${transaction.description} on ${transaction.date} (${daysDiff} days)`);
       }
@@ -109,8 +117,7 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
 
     // Calculate match confidence based on date proximity
     // Since amount is exact and merchant is Amazon, confidence is based on date only
-    // 100% = same day, decreasing by 0.5% per day down to 10% at 180 days (6 months)
-    let confidence = 100 - (daysDiff * 0.5);
+    let confidence = 100 - (daysDiff * confidenceDecreasePerDay);
     const reasons = [];
 
     reasons.push('Exact amount match');
@@ -134,7 +141,9 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
       amount: transactionAmount
     });
 
-    console.log(`  ✓ Candidate: $${transactionAmount.toFixed(2)} - ${transaction.description} on ${transaction.date} (${daysDiff} days, ${confidence}% confidence)`);
+    if (enableDebugLogs) {
+      console.log(`  ✓ Candidate: $${transactionAmount.toFixed(2)} - ${transaction.description} on ${transaction.date} (${daysDiff} days, ${confidence}% confidence)`);
+    }
 
     // Keep track of the BEST match across all transactions
     // Only update if this transaction has a HIGHER confidence score
@@ -149,18 +158,20 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
   }
 
   // Log summary
-  console.log(`[MATCHING] Summary for Order ${order.order_id}:`);
-  console.log(`  Total transactions checked: ${candidatesChecked}`);
-  console.log(`  Skipped - already matched: ${candidatesSkippedAlreadyMatched}`);
-  console.log(`  Skipped - not Amazon: ${candidatesSkippedNotAmazon}`);
-  console.log(`  Skipped - amount mismatch: ${candidatesSkippedAmountMismatch}`);
-  console.log(`  Skipped - date out of range: ${candidatesSkippedDateRange}`);
-  console.log(`  Valid candidates found: ${validCandidates.length}`);
+  if (enableDebugLogs) {
+    console.log(`[MATCHING] Summary for Order ${order.order_id}:`);
+    console.log(`  Total transactions checked: ${candidatesChecked}`);
+    console.log(`  Skipped - already matched: ${candidatesSkippedAlreadyMatched}`);
+    console.log(`  Skipped - not Amazon: ${candidatesSkippedNotAmazon}`);
+    console.log(`  Skipped - amount mismatch: ${candidatesSkippedAmountMismatch}`);
+    console.log(`  Skipped - date out of range: ${candidatesSkippedDateRange}`);
+    console.log(`  Valid candidates found: ${validCandidates.length}`);
 
-  if (bestMatch) {
-    console.log(`  ✅ BEST MATCH: $${bestMatch.transaction.amount} - ${bestMatch.transaction.description} on ${bestMatch.transaction.date} (${bestMatch.confidence}% confidence)`);
-  } else {
-    console.log(`  ⚠️ NO MATCH FOUND`);
+    if (bestMatch) {
+      console.log(`  ✅ BEST MATCH: $${bestMatch.transaction.amount} - ${bestMatch.transaction.description} on ${bestMatch.transaction.date} (${bestMatch.confidence}% confidence)`);
+    } else {
+      console.log(`  ⚠️ NO MATCH FOUND`);
+    }
   }
 
   // Return the single best match (highest confidence = closest in time)
@@ -568,9 +579,13 @@ export function parseAmazonCSV(csvContent) {
 
   // Validate and finalize order totals
   const orders = Array.from(orderMap.values());
-  console.log(`\n========================================`);
-  console.log(`FINALIZING ORDER TOTALS`);
-  console.log(`========================================`);
+  const enableCsvLogs = database.getSetting('enable_csv_parsing_logs');
+
+  if (enableCsvLogs) {
+    console.log(`\n========================================`);
+    console.log(`FINALIZING ORDER TOTALS`);
+    console.log(`========================================`);
+  }
 
   for (const order of orders) {
     // Use sum of "Total Owed" as the actual amount charged
@@ -579,9 +594,11 @@ export function parseAmazonCSV(csvContent) {
       const orderFields = order._orderLevelFields || {};
       const calculatedTotal = orderFields.calculatedTotal || 0;
 
-      console.log(`\nOrder ${order.order_id}:`);
-      console.log(`  Sum of "Total Owed": $${sumOfItems.toFixed(2)}`);
-      console.log(`  Calculated from fields: $${calculatedTotal.toFixed(2)}`);
+      if (enableCsvLogs) {
+        console.log(`\nOrder ${order.order_id}:`);
+        console.log(`  Sum of "Total Owed": $${sumOfItems.toFixed(2)}`);
+        console.log(`  Calculated from fields: $${calculatedTotal.toFixed(2)}`);
+      }
 
       // ALWAYS use sum of "Total Owed" as total_amount (this is what was actually charged)
       order.total_amount = sumOfItems;
@@ -594,13 +611,17 @@ export function parseAmazonCSV(csvContent) {
         const taxAndFees = (orderFields.tax || 0) + (orderFields.bagFee || 0);
         order.tax = taxAndFees > 0 ? taxAndFees : null;
         order.shipping = orderFields.shipping;
-        console.log(`  ✓ Breakdown matches - setting subtotal/tax/shipping`);
+        if (enableCsvLogs) {
+          console.log(`  ✓ Breakdown matches - setting subtotal/tax/shipping`);
+        }
       } else {
         // Breakdown doesn't match - leave as null
         order.subtotal = null;
         order.tax = null;
         order.shipping = null;
-        console.log(`  ⚠ Breakdown mismatch - clearing subtotal/tax/shipping`);
+        if (enableCsvLogs) {
+          console.log(`  ⚠ Breakdown mismatch - clearing subtotal/tax/shipping`);
+        }
       }
 
       // Mark that we used item totals (so we don't use fallback)

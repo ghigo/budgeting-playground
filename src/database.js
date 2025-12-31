@@ -2437,3 +2437,204 @@ export function hasTransactionSplits(transactionId) {
 
   return result.count > 0;
 }
+
+// ============================================================================
+// SETTINGS
+// ============================================================================
+
+/**
+ * Default settings with descriptions
+ */
+const DEFAULT_SETTINGS = {
+  // Amazon Matching
+  amazon_matching_max_days: {
+    value: 180,
+    type: 'number',
+    description: 'Maximum days between Amazon order and transaction match',
+    category: 'Amazon Matching',
+    min: 1,
+    max: 365
+  },
+  amazon_matching_confidence_decrease_per_day: {
+    value: 0.5,
+    type: 'number',
+    description: 'Confidence score decrease per day (percentage)',
+    category: 'Amazon Matching',
+    min: 0.1,
+    max: 10,
+    step: 0.1
+  },
+  amazon_matching_amount_tolerance: {
+    value: 0.001,
+    type: 'number',
+    description: 'Floating point tolerance for exact amount matching (dollars)',
+    category: 'Amazon Matching',
+    min: 0.0001,
+    max: 0.01,
+    step: 0.0001
+  },
+
+  // Logging
+  enable_matching_debug_logs: {
+    value: true,
+    type: 'boolean',
+    description: 'Enable detailed Amazon matching debug logs',
+    category: 'Logging'
+  },
+  enable_csv_parsing_logs: {
+    value: true,
+    type: 'boolean',
+    description: 'Enable Amazon CSV parsing logs',
+    category: 'Logging'
+  },
+
+  // General
+  default_transaction_limit: {
+    value: 500,
+    type: 'number',
+    description: 'Default number of transactions to fetch',
+    category: 'General',
+    min: 50,
+    max: 5000,
+    step: 50
+  }
+};
+
+/**
+ * Get a setting value
+ * @param {string} key - Setting key
+ * @returns {any} - Setting value (parsed to appropriate type)
+ */
+export function getSetting(key) {
+  const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key);
+
+  if (!row) {
+    // Return default if not set
+    const defaultSetting = DEFAULT_SETTINGS[key];
+    return defaultSetting ? defaultSetting.value : null;
+  }
+
+  // Parse value based on type
+  const defaultSetting = DEFAULT_SETTINGS[key];
+  if (!defaultSetting) return row.value;
+
+  switch (defaultSetting.type) {
+    case 'number':
+      return parseFloat(row.value);
+    case 'boolean':
+      return row.value === 'true';
+    default:
+      return row.value;
+  }
+}
+
+/**
+ * Get all settings
+ * @returns {Object} - All settings with values and metadata
+ */
+export function getAllSettings() {
+  const rows = db.prepare('SELECT key, value FROM config').all();
+  const settingsMap = {};
+
+  rows.forEach(row => {
+    settingsMap[row.key] = row.value;
+  });
+
+  // Build result with defaults and current values
+  const result = {};
+  Object.keys(DEFAULT_SETTINGS).forEach(key => {
+    const def = DEFAULT_SETTINGS[key];
+    const storedValue = settingsMap[key];
+
+    let value;
+    if (storedValue !== undefined) {
+      // Parse stored value
+      switch (def.type) {
+        case 'number':
+          value = parseFloat(storedValue);
+          break;
+        case 'boolean':
+          value = storedValue === 'true';
+          break;
+        default:
+          value = storedValue;
+      }
+    } else {
+      value = def.value;
+    }
+
+    result[key] = {
+      value,
+      type: def.type,
+      description: def.description,
+      category: def.category,
+      default: def.value,
+      ...(def.min !== undefined && { min: def.min }),
+      ...(def.max !== undefined && { max: def.max }),
+      ...(def.step !== undefined && { step: def.step })
+    };
+  });
+
+  return result;
+}
+
+/**
+ * Set a setting value
+ * @param {string} key - Setting key
+ * @param {any} value - Setting value
+ */
+export function setSetting(key, value) {
+  // Validate against defaults
+  const defaultSetting = DEFAULT_SETTINGS[key];
+  if (!defaultSetting) {
+    throw new Error(`Unknown setting: ${key}`);
+  }
+
+  // Validate type and range
+  let stringValue;
+  switch (defaultSetting.type) {
+    case 'number':
+      const numValue = parseFloat(value);
+      if (isNaN(numValue)) {
+        throw new Error(`Invalid number value for ${key}`);
+      }
+      if (defaultSetting.min !== undefined && numValue < defaultSetting.min) {
+        throw new Error(`Value for ${key} must be at least ${defaultSetting.min}`);
+      }
+      if (defaultSetting.max !== undefined && numValue > defaultSetting.max) {
+        throw new Error(`Value for ${key} must be at most ${defaultSetting.max}`);
+      }
+      stringValue = numValue.toString();
+      break;
+    case 'boolean':
+      stringValue = (!!value).toString();
+      break;
+    default:
+      stringValue = value.toString();
+  }
+
+  // Upsert setting
+  db.prepare(`
+    INSERT INTO config (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, stringValue);
+
+  return { success: true };
+}
+
+/**
+ * Reset a setting to default
+ * @param {string} key - Setting key
+ */
+export function resetSetting(key) {
+  db.prepare('DELETE FROM config WHERE key = ?').run(key);
+  return { success: true };
+}
+
+/**
+ * Reset all settings to defaults
+ */
+export function resetAllSettings() {
+  db.prepare('DELETE FROM config').run();
+  return { success: true };
+}

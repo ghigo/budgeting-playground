@@ -1221,6 +1221,62 @@ app.get('/api/transactions/with-splits', (req, res) => {
   }
 });
 
+// ============================================================================
+// SETTINGS ENDPOINTS
+// ============================================================================
+
+// Get all settings
+app.get('/api/settings', (req, res) => {
+  try {
+    const settings = database.getAllSettings();
+    res.json(settings);
+  } catch (error) {
+    console.error('Error fetching settings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update a setting
+app.put('/api/settings/:key', (req, res) => {
+  try {
+    const { key } = req.params;
+    const { value } = req.body;
+
+    if (value === undefined) {
+      return res.status(400).json({ error: 'Value is required' });
+    }
+
+    const result = database.setSetting(key, value);
+    res.json(result);
+  } catch (error) {
+    console.error('Error updating setting:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Reset a setting to default
+app.delete('/api/settings/:key', (req, res) => {
+  try {
+    const { key } = req.params;
+    const result = database.resetSetting(key);
+    res.json(result);
+  } catch (error) {
+    console.error('Error resetting setting:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Reset all settings to defaults
+app.post('/api/settings/reset-all', (req, res) => {
+  try {
+    const result = database.resetAllSettings();
+    res.json(result);
+  } catch (error) {
+    console.error('Error resetting all settings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Serve index.html for all other routes (SPA)
 app.get('*', (req, res) => {
   res.sendFile(join(__dirname, '../public/index.html'));
