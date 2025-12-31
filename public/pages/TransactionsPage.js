@@ -1728,9 +1728,99 @@ async function showAmazonOrderDetails(orderId) {
             </div>
         `;
 
+        const modalId = `amazon-order-${orderId}`;
+
         const modal = new Modal({
-            id: `amazon-order-${orderId}`,
+            id: modalId,
             title: '📦 Amazon Order Details',
+            content,
+            actions: [
+                {
+                    action: 'debug',
+                    label: '🐛 Debug Data',
+                    primary: false
+                },
+                {
+                    action: 'close',
+                    label: 'Close',
+                    primary: false
+                }
+            ],
+            options: { size: 'large' }
+        });
+
+        // Handle debug action
+        const { eventBus } = await import('../services/eventBus.js');
+        eventBus.once(`modal:${modalId}:debug`, () => {
+            showAmazonDebugData(order);
+        });
+
+        modal.show();
+    } catch (error) {
+        console.error('Error fetching Amazon order details:', error);
+        showToast('Failed to load order details', 'error');
+    }
+}
+
+async function showAmazonDebugData(order) {
+    try {
+        const Modal = (await import('../components/Modal.js')).default;
+
+        // Format the raw data for display
+        const formatJson = (obj) => JSON.stringify(obj, null, 2);
+
+        const content = `
+            <div style="max-height: 70vh; overflow-y: auto;">
+                <div style="margin-bottom: 1.5rem;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #374151;">🔍 Raw Order Data</h4>
+                    <pre style="background: #1f2937; color: #10b981; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.85rem; margin: 0;">${escapeHtml(formatJson({
+                        order_id: order.order_id,
+                        order_date: order.order_date,
+                        total_amount: order.total_amount,
+                        subtotal: order.subtotal,
+                        tax: order.tax,
+                        shipping: order.shipping,
+                        payment_method: order.payment_method,
+                        shipping_address: order.shipping_address,
+                        order_status: order.order_status,
+                        account_name: order.account_name,
+                        matched_transaction_id: order.matched_transaction_id,
+                        match_confidence: order.match_confidence,
+                        match_verified: order.match_verified,
+                        created_at: order.created_at,
+                        updated_at: order.updated_at
+                    }))}</pre>
+                </div>
+
+                ${order.matched_transaction ? `
+                    <div style="margin-bottom: 1.5rem;">
+                        <h4 style="margin: 0 0 0.5rem 0; color: #374151;">💳 Matched Transaction Data</h4>
+                        <pre style="background: #1f2937; color: #10b981; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.85rem; margin: 0;">${escapeHtml(formatJson(order.matched_transaction))}</pre>
+                    </div>
+                ` : '<div style="margin-bottom: 1.5rem;"><p style="color: #666;">No matched transaction</p></div>'}
+
+                <div style="margin-bottom: 1.5rem;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #374151;">📦 Amazon Items (${order.items?.length || 0})</h4>
+                    <pre style="background: #1f2937; color: #10b981; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.85rem; margin: 0;">${escapeHtml(formatJson(order.items || []))}</pre>
+                </div>
+
+                <div style="margin-bottom: 1.5rem;">
+                    <h4 style="margin: 0 0 0.5rem 0; color: #374151;">📋 Complete Order Object</h4>
+                    <pre style="background: #1f2937; color: #10b981; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.85rem; margin: 0;">${escapeHtml(formatJson(order))}</pre>
+                </div>
+
+                <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 1rem; border-radius: 4px;">
+                    <p style="margin: 0; font-size: 0.875rem; color: #92400e;">
+                        <strong>💡 Tip:</strong> This is the raw data returned from the database and API.
+                        Use this to debug categorization issues or verify data integrity.
+                    </p>
+                </div>
+            </div>
+        `;
+
+        const modal = new Modal({
+            id: `debug-${order.order_id}`,
+            title: '🐛 Debug: Amazon Order Raw Data',
             content,
             actions: [
                 {
@@ -1744,8 +1834,8 @@ async function showAmazonOrderDetails(orderId) {
 
         modal.show();
     } catch (error) {
-        console.error('Error fetching Amazon order details:', error);
-        showToast('Failed to load order details', 'error');
+        console.error('Error showing debug data:', error);
+        showToast('Failed to show debug data', 'error');
     }
 }
 
