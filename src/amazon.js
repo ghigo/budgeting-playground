@@ -69,56 +69,38 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
       continue;
     }
 
-    // Skip if transaction is too far from order date (within 0-7 days after order)
-    const daysDiff = Math.floor((transactionDate - orderDate) / (1000 * 60 * 60 * 24));
-    if (daysDiff < 0 || daysDiff > 7) {
+    // CRITICAL REQUIREMENT: Amount must be EXACT (no tolerance)
+    const amountDiff = Math.abs(transactionAmount - orderAmount);
+    if (amountDiff !== 0) {
+      // Skip if amount doesn't match exactly
       continue;
     }
 
-    // Calculate match confidence
-    let confidence = 0;
+    // Skip if transaction is too far from order date (within 0-10 days after order)
+    const daysDiff = Math.floor((transactionDate - orderDate) / (1000 * 60 * 60 * 24));
+    if (daysDiff < 0 || daysDiff > 10) {
+      continue;
+    }
+
+    // Calculate match confidence based on date proximity
+    // Since amount is exact and merchant is Amazon, confidence is based on date only
+    // 100% = same day, decreasing by 9% per day (100% - 10% - 19% - 28% ... - 91%)
+    let confidence = 100 - (daysDiff * 9);
     const reasons = [];
 
-    // 1. Amount matching (50 points) - STRICT matching required
-    const amountDiff = Math.abs(transactionAmount - orderAmount);
-    const amountTolerance = Math.max(0.50, orderAmount * 0.01); // $0.50 or 1% of order
+    reasons.push('Exact amount match');
+    reasons.push('Merchant: Amazon/AMZN');
 
-    if (amountDiff === 0) {
-      confidence += 50;
-      reasons.push('Exact amount match');
-    } else if (amountDiff <= amountTolerance) {
-      confidence += 45;
-      reasons.push('Amount match within tolerance');
-    } else {
-      // Amount doesn't match closely enough - skip this transaction
-      // Even a small mismatch drops confidence too low to match
-      continue;
-    }
-
-    // 2. Merchant name matching (30 points)
-    // We already confirmed Amazon is in the name above, so always give full points
-    confidence += 30;
-    reasons.push('Merchant name contains Amazon/AMZN');
-
-    // 3. Date proximity (20 points)
     if (daysDiff === 0) {
-      confidence += 20;
       reasons.push('Same day');
     } else if (daysDiff === 1) {
-      confidence += 15;
       reasons.push('Next day');
-    } else if (daysDiff <= 2) {
-      confidence += 10;
-      reasons.push(`${daysDiff} days later`);
     } else {
-      confidence += 5;
       reasons.push(`${daysDiff} days later`);
     }
 
-    // Update best match if this is better
-    // Maximum possible score: 100 (50 amount + 30 merchant + 20 date)
-    // Minimum threshold: 60% (requires good amount + merchant + reasonable date)
-    if (confidence > highestConfidence && confidence >= 60) {
+    // Update best match if this is better (closer in time)
+    if (confidence > highestConfidence) {
       highestConfidence = confidence;
       bestMatch = {
         transaction,
