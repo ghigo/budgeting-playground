@@ -329,12 +329,12 @@ export function parseAmazonCSV(csvContent) {
     const orderId = row['Order ID'] || row['Order Number'] || row['order_id'] || '';
     const orderDate = row['Order Date'] || row['Purchase Date'] || row['order_date'] || '';
 
-    // Handle Amazon's "Total Owed" field and other variations
-    const totalOwed = row['Total Owed'] || row['Total'] || row['Order Total'] || row['total'] || '0';
-    const totalAmount = parseFloat(totalOwed.toString().replace(/[^0-9.-]/g, '')) || 0;
-
     // Get item details
     const itemTitle = row['Product Name'] || row['Title'] || row['Item'] || row['title'] || '';
+
+    // Parse item's "Total Owed" (used for calculating order total later)
+    const itemTotalOwed = row['Total Owed'] || row['Total'] || '0';
+    const itemTotal = parseFloat(itemTotalOwed.toString().replace(/[^0-9.-]/g, '')) || 0;
 
     // Handle Amazon's "Unit Price" field
     const unitPrice = row['Unit Price'] || row['Item Total'] || row['Price'] || row['price'] || '0';
@@ -394,10 +394,14 @@ export function parseAmazonCSV(csvContent) {
       const shipDate = row['Ship Date'] || '';
       const shippingOption = row['Shipping Option'] || '';
 
+      // Calculate order total from order-level fields (not per-item "Total Owed")
+      // Total = Subtotal + Tax + Shipping - Discounts
+      const calculatedTotal = subtotal + tax + shippingCharge - Math.abs(totalDiscounts);
+
       orderMap.set(orderId, {
         order_id: orderId,
         order_date: parsedDate,
-        total_amount: totalAmount,
+        total_amount: calculatedTotal > 0 ? calculatedTotal : 0,
         subtotal: subtotal > 0 ? subtotal : null,
         tax: tax > 0 ? tax : null,
         shipping: shippingCharge > 0 ? shippingCharge : null,
@@ -411,8 +415,14 @@ export function parseAmazonCSV(csvContent) {
         billing_address: billingAddress !== 'Not Available' ? billingAddress : null,
         ship_date: safeDateParse(shipDate),
         shipping_option: shippingOption !== 'Not Available' ? shippingOption : null,
-        items: []
+        items: [],
+        _itemTotals: [] // Track individual item totals for validation
       });
+    }
+
+    // Track this item's total for the order
+    if (itemTotal > 0) {
+      orderMap.get(orderId)._itemTotals.push(itemTotal);
     }
 
     // Add item to order (skip if no title)
@@ -462,8 +472,35 @@ export function parseAmazonCSV(csvContent) {
     }
   }
 
-  // Convert map to array
-  return Array.from(orderMap.values());
+  // Validate and finalize order totals
+  const orders = Array.from(orderMap.values());
+  for (const order of orders) {
+    // If we tracked item totals, validate against calculated total
+    if (order._itemTotals && order._itemTotals.length > 0) {
+      const sumOfItems = order._itemTotals.reduce((sum, itemTotal) => sum + itemTotal, 0);
+
+      // If calculated total is 0 or very different from sum of items, use sum of items
+      if (order.total_amount === 0 || Math.abs(order.total_amount - sumOfItems) > 0.02) {
+        console.log(`Order ${order.order_id}: Using sum of items ($${sumOfItems.toFixed(2)}) instead of calculated total ($${order.total_amount.toFixed(2)})`);
+        order.total_amount = sumOfItems;
+      }
+
+      // Remove temporary tracking field
+      delete order._itemTotals;
+    }
+
+    // Ensure total_amount is never 0 if there are items
+    if (order.total_amount === 0 && order.items.length > 0) {
+      // Fallback: sum item prices
+      const itemSum = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+      if (itemSum > 0) {
+        console.log(`Order ${order.order_id}: Using sum of item prices ($${itemSum.toFixed(2)}) as fallback`);
+        order.total_amount = itemSum;
+      }
+    }
+  }
+
+  return orders;
 }
 
 /**
