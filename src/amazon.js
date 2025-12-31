@@ -409,7 +409,7 @@ export function parseAmazonCSV(csvContent) {
         total_discounts: totalDiscounts !== 0 ? totalDiscounts : null,
         shipping_address: shippingAddress !== 'Not Available' ? shippingAddress : null,
         billing_address: billingAddress !== 'Not Available' ? billingAddress : null,
-        ship_date: shipDate && shipDate !== 'Not Available' ? standardizeDate(shipDate) : null,
+        ship_date: safeDateParse(shipDate),
         shipping_option: shippingOption !== 'Not Available' ? shippingOption : null,
         items: []
       });
@@ -452,7 +452,7 @@ export function parseAmazonCSV(csvContent) {
         shipment_item_subtotal: shipmentSubtotal > 0 ? shipmentSubtotal : null,
         shipment_item_subtotal_tax: shipmentSubtotalTax > 0 ? shipmentSubtotalTax : null,
         shipment_status: shipmentStatus !== 'Not Available' ? shipmentStatus : null,
-        ship_date: itemShipDate && itemShipDate !== 'Not Available' ? itemShipDate : null,
+        ship_date: safeDateParse(itemShipDate),
         carrier_tracking: carrierTracking !== 'Not Available' ? carrierTracking : null,
         gift_message: giftMessage !== 'Not Available' ? giftMessage : null,
         gift_sender_name: giftSenderName !== 'Not Available' ? giftSenderName : null,
@@ -493,8 +493,19 @@ function parseCSVLine(line) {
 
 /**
  * Standardize date to YYYY-MM-DD format
+ * Handles multiple date formats and extracts first valid date if multiple are present
  */
 function standardizeDate(dateStr) {
+  // If the date string contains "and" or multiple dates, take the first one
+  if (dateStr.includes(' and ')) {
+    dateStr = dateStr.split(' and ')[0].trim();
+  }
+
+  // If already in YYYY-MM-DD format, return as-is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return dateStr;
+  }
+
   const date = new Date(dateStr);
 
   if (isNaN(date.getTime())) {
@@ -502,6 +513,22 @@ function standardizeDate(dateStr) {
   }
 
   return date.toISOString().split('T')[0];
+}
+
+/**
+ * Safely parse a date field, returning null if invalid
+ */
+function safeDateParse(dateStr) {
+  if (!dateStr || dateStr === 'Not Available' || dateStr === 'Not Applicable') {
+    return null;
+  }
+
+  try {
+    return standardizeDate(dateStr);
+  } catch (error) {
+    console.warn(`Could not parse date "${dateStr}": ${error.message}`);
+    return null;
+  }
 }
 
 /**
