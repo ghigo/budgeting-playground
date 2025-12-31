@@ -41,6 +41,7 @@ export function matchAmazonOrdersToTransactions(amazonOrders, transactions) {
 
 /**
  * Find the best matching transaction for an Amazon order
+ * Evaluates ALL transactions and returns the one with the HIGHEST confidence score
  */
 function findBestTransactionMatch(order, transactions, usedTransactionIds = new Set()) {
   let bestMatch = null;
@@ -49,6 +50,7 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
   const orderDate = new Date(order.order_date);
   const orderAmount = Math.abs(parseFloat(order.total_amount));
 
+  // Iterate through ALL transactions to find the best match
   for (const transaction of transactions) {
     // Skip if this transaction is already matched to another order
     if (usedTransactionIds.has(transaction.transaction_id)) {
@@ -99,7 +101,8 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
       reasons.push(`${daysDiff} days later`);
     }
 
-    // Update best match if this is better (closer in time)
+    // Keep track of the BEST match across all transactions
+    // Only update if this transaction has a HIGHER confidence score
     if (confidence > highestConfidence) {
       highestConfidence = confidence;
       bestMatch = {
@@ -110,6 +113,7 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
     }
   }
 
+  // Return the single best match (highest confidence = closest in time)
   return bestMatch;
 }
 
