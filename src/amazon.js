@@ -333,6 +333,12 @@ export function parseAmazonCSV(csvContent) {
     // Extract order data (flexible field naming)
     const orderId = row['Order ID'] || row['Order Number'] || row['order_id'] || '';
     const orderDate = row['Order Date'] || row['Purchase Date'] || row['order_date'] || '';
+    const website = row['Website'] || '';
+
+    // Skip panda01 orders (incomplete pricing data)
+    if (website === 'panda01') {
+      continue;
+    }
 
     // Get item details
     const itemTitle = row['Product Name'] || row['Title'] || row['Item'] || row['title'] || '';
@@ -372,7 +378,6 @@ export function parseAmazonCSV(csvContent) {
     }
 
     // Parse order-level fields from this row
-    const website = row['Website'] || '';
     const purchaseOrderNumber = row['Purchase Order Number'] || '';
     const currency = row['Currency'] || '';
 
@@ -395,16 +400,6 @@ export function parseAmazonCSV(csvContent) {
     // Parse bag fee (some localities charge bag fees)
     const bagFeeStr = row['Bag Fee'] || '0';
     const bagFee = parseFloat(bagFeeStr.toString().replace(/[^0-9.-]/g, '')) || 0;
-
-    // Debug logging for specific order
-    if (orderId === '113-5656786-6886605') {
-      console.log(`\n[CSV ROW DEBUG] Order ${orderId}, Item: ${itemTitle.substring(0, 40)}...`);
-      console.log(`  Total Discounts field: "${totalDiscountsStr}" → parsed: ${totalDiscounts}`);
-      console.log(`  Shipment Item Subtotal: "${subtotalStr}" → parsed: ${subtotal}`);
-      console.log(`  Shipment Item Subtotal Tax: "${taxStr}" → parsed: ${tax}`);
-      console.log(`  Bag Fee: "${bagFeeStr}" → parsed: ${bagFee}`);
-      console.log(`  Shipping Charge: "${shippingChargeStr}" → parsed: ${shippingCharge}`);
-    }
 
     const shippingAddress = row['Shipping Address'] || '';
     const billingAddress = row['Billing Address'] || '';
@@ -542,39 +537,35 @@ export function parseAmazonCSV(csvContent) {
   console.log(`========================================`);
 
   for (const order of orders) {
-    // Use Amazon's calculation method: Grand Total = Item Subtotal - Total Savings + Tax + Bag Fee + Shipping
+    // Use sum of "Total Owed" as the actual amount charged
     if (order._itemTotals && order._itemTotals.length > 0) {
       const sumOfItems = order._itemTotals.reduce((sum, itemTotal) => sum + itemTotal, 0);
       const orderFields = order._orderLevelFields || {};
       const calculatedTotal = orderFields.calculatedTotal || 0;
 
       console.log(`\nOrder ${order.order_id}:`);
-      console.log(`  Item "Total Owed" values: [${order._itemTotals.join(', ')}]`);
       console.log(`  Sum of "Total Owed": $${sumOfItems.toFixed(2)}`);
-      console.log(`  Amazon's calculation:`);
-      console.log(`    - Item Subtotal: $${orderFields.subtotal?.toFixed(2) || '0.00'}`);
-      console.log(`    - Total Savings: -$${Math.abs(orderFields.totalDiscounts || 0).toFixed(2)}`);
-      console.log(`    - Tax: $${orderFields.tax?.toFixed(2) || '0.00'}`);
-      console.log(`    - Bag Fee: $${orderFields.bagFee?.toFixed(2) || '0.00'}`);
-      console.log(`    - Shipping: $${orderFields.shipping?.toFixed(2) || '0.00'}`);
-      console.log(`    - Grand Total: $${calculatedTotal.toFixed(2)}`);
+      console.log(`  Calculated from fields: $${calculatedTotal.toFixed(2)}`);
 
-      // Use Amazon's formula for total_amount
-      order.total_amount = calculatedTotal;
+      // ALWAYS use sum of "Total Owed" as total_amount (this is what was actually charged)
+      order.total_amount = sumOfItems;
 
-      // Set breakdown fields to match Amazon's display
-      order.subtotal = orderFields.subtotal; // Item Subtotal
-      // Combine tax + bag fee into tax field (matching "Tax and Fees" on Amazon)
-      const taxAndFees = (orderFields.tax || 0) + (orderFields.bagFee || 0);
-      order.tax = taxAndFees > 0 ? taxAndFees : null;
-      order.shipping = orderFields.shipping;
-
-      console.log(`  ✓ Setting order fields:`);
-      console.log(`    total_amount: $${order.total_amount.toFixed(2)}`);
-      console.log(`    subtotal: $${order.subtotal?.toFixed(2) || 'null'}`);
-      console.log(`    tax (includes bag fee): $${order.tax?.toFixed(2) || 'null'}`);
-      console.log(`    shipping: $${order.shipping?.toFixed(2) || 'null'}`);
-      console.log(`    total_discounts: $${order.total_discounts?.toFixed(2) || 'null'}`);
+      // Only set breakdown fields if the calculated total matches sum of Total Owed
+      // This ensures we don't show misleading subtotal/tax when discounts are applied
+      if (Math.abs(calculatedTotal - sumOfItems) <= 0.01 && sumOfItems > 0) {
+        // Breakdown matches - safe to show it
+        order.subtotal = orderFields.subtotal;
+        const taxAndFees = (orderFields.tax || 0) + (orderFields.bagFee || 0);
+        order.tax = taxAndFees > 0 ? taxAndFees : null;
+        order.shipping = orderFields.shipping;
+        console.log(`  ✓ Breakdown matches - setting subtotal/tax/shipping`);
+      } else {
+        // Breakdown doesn't match - leave as null
+        order.subtotal = null;
+        order.tax = null;
+        order.shipping = null;
+        console.log(`  ⚠ Breakdown mismatch - clearing subtotal/tax/shipping`);
+      }
 
       // Mark that we used item totals (so we don't use fallback)
       order._usedItemTotals = true;
