@@ -478,15 +478,17 @@ export function parseAmazonCSV(csvContent) {
   // Validate and finalize order totals
   const orders = Array.from(orderMap.values());
   for (const order of orders) {
-    // If we tracked item totals, validate against calculated total
+    // If we have "Total Owed" data from CSV, ALWAYS use it
+    // "Total Owed" is the most accurate field as it includes all discounts/adjustments
     if (order._itemTotals && order._itemTotals.length > 0) {
       const sumOfItems = order._itemTotals.reduce((sum, itemTotal) => sum + itemTotal, 0);
 
-      // If calculated total is 0 or very different from sum of items, use sum of items
-      if (order.total_amount === 0 || Math.abs(order.total_amount - sumOfItems) > 0.02) {
-        console.log(`Order ${order.order_id}: Using sum of items ($${sumOfItems.toFixed(2)}) instead of calculated total ($${order.total_amount.toFixed(2)})`);
-        order.total_amount = sumOfItems;
+      // Always prefer sum of "Total Owed" values over calculated total from Shipment Item Subtotal
+      // Shipment Item Subtotal is just a subtotal before discounts, Total Owed is the final amount
+      if (Math.abs(order.total_amount - sumOfItems) > 0.01) {
+        console.log(`Order ${order.order_id}: Using sum of 'Total Owed' ($${sumOfItems.toFixed(2)}) instead of calculated subtotal ($${order.total_amount.toFixed(2)})`);
       }
+      order.total_amount = sumOfItems;
 
       // Mark that we used item totals (so we don't use fallback)
       order._usedItemTotals = true;
@@ -496,10 +498,10 @@ export function parseAmazonCSV(csvContent) {
 
     // Fallback: Only use item prices if we didn't have "Total Owed" data
     // This prevents overriding legitimate $0 totals (discounted/refunded orders)
-    if (order.total_amount === 0 && order.items.length > 0 && !order._usedItemTotals) {
+    if (!order._usedItemTotals && order.items.length > 0) {
       // Sum item prices as last resort
       const itemSum = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-      if (itemSum > 0) {
+      if (itemSum > 0 && order.total_amount === 0) {
         console.log(`Order ${order.order_id}: Using sum of item prices ($${itemSum.toFixed(2)}) as fallback`);
         order.total_amount = itemSum;
       }
