@@ -96,9 +96,9 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
       continue;
     }
 
-    // Skip if transaction is too far from order date (within 0-30 days after order)
+    // Skip if transaction is too far from order date (within 0-180 days / 6 months after order)
     const daysDiff = Math.floor((transactionDate - orderDate) / (1000 * 60 * 60 * 24));
-    if (daysDiff < 0 || daysDiff > 30) {
+    if (daysDiff < 0 || daysDiff > 180) {
       if (amountDiff <= 0.001) {
         // Log exact amount matches that are outside date range
         console.log(`  ❌ Out of range: $${transactionAmount.toFixed(2)} - ${transaction.description} on ${transaction.date} (${daysDiff} days)`);
@@ -109,8 +109,8 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
 
     // Calculate match confidence based on date proximity
     // Since amount is exact and merchant is Amazon, confidence is based on date only
-    // 100% = same day, decreasing by 3% per day down to 10% at 30 days
-    let confidence = 100 - (daysDiff * 3);
+    // 100% = same day, decreasing by 0.5% per day down to 10% at 180 days (6 months)
+    let confidence = 100 - (daysDiff * 0.5);
     const reasons = [];
 
     reasons.push('Exact amount match');
