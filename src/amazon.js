@@ -371,38 +371,48 @@ export function parseAmazonCSV(csvContent) {
       continue;
     }
 
+    // Parse order-level fields from this row
+    const website = row['Website'] || '';
+    const purchaseOrderNumber = row['Purchase Order Number'] || '';
+    const currency = row['Currency'] || '';
+
+    // Parse total discounts (handle negative values in quotes like '-14.89')
+    const totalDiscountsStr = row['Total Discounts'] || '0';
+    const totalDiscounts = parseFloat(totalDiscountsStr.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+    // Parse shipping charge
+    const shippingChargeStr = row['Shipping Charge'] || '0';
+    const shippingCharge = parseFloat(shippingChargeStr.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+    // Parse subtotal (use Shipment Item Subtotal as this is order total before tax/shipping)
+    const subtotalStr = row['Shipment Item Subtotal'] || '0';
+    const subtotal = parseFloat(subtotalStr.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+    // Parse tax (use Shipment Item Subtotal Tax)
+    const taxStr = row['Shipment Item Subtotal Tax'] || row['Unit Price Tax'] || '0';
+    const tax = parseFloat(taxStr.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+    // Parse bag fee (some localities charge bag fees)
+    const bagFeeStr = row['Bag Fee'] || '0';
+    const bagFee = parseFloat(bagFeeStr.toString().replace(/[^0-9.-]/g, '')) || 0;
+
+    // Debug logging for specific order
+    if (orderId === '113-5656786-6886605') {
+      console.log(`\n[CSV ROW DEBUG] Order ${orderId}, Item: ${itemTitle.substring(0, 40)}...`);
+      console.log(`  Total Discounts field: "${totalDiscountsStr}" → parsed: ${totalDiscounts}`);
+      console.log(`  Shipment Item Subtotal: "${subtotalStr}" → parsed: ${subtotal}`);
+      console.log(`  Shipment Item Subtotal Tax: "${taxStr}" → parsed: ${tax}`);
+      console.log(`  Bag Fee: "${bagFeeStr}" → parsed: ${bagFee}`);
+      console.log(`  Shipping Charge: "${shippingChargeStr}" → parsed: ${shippingCharge}`);
+    }
+
+    const shippingAddress = row['Shipping Address'] || '';
+    const billingAddress = row['Billing Address'] || '';
+    const shipDate = row['Ship Date'] || '';
+    const shippingOption = row['Shipping Option'] || '';
+
     // Group by order ID
     if (!orderMap.has(orderId)) {
-      // Extract all order-level fields from CSV
-      const website = row['Website'] || '';
-      const purchaseOrderNumber = row['Purchase Order Number'] || '';
-      const currency = row['Currency'] || '';
-
-      // Parse total discounts (handle negative values in quotes like '-14.89')
-      const totalDiscountsStr = row['Total Discounts'] || '0';
-      const totalDiscounts = parseFloat(totalDiscountsStr.toString().replace(/[^0-9.-]/g, '')) || 0;
-
-      // Parse shipping charge
-      const shippingChargeStr = row['Shipping Charge'] || '0';
-      const shippingCharge = parseFloat(shippingChargeStr.toString().replace(/[^0-9.-]/g, '')) || 0;
-
-      // Parse subtotal (use Shipment Item Subtotal as this is order total before tax/shipping)
-      const subtotalStr = row['Shipment Item Subtotal'] || '0';
-      const subtotal = parseFloat(subtotalStr.toString().replace(/[^0-9.-]/g, '')) || 0;
-
-      // Parse tax (use Shipment Item Subtotal Tax)
-      const taxStr = row['Shipment Item Subtotal Tax'] || row['Unit Price Tax'] || '0';
-      const tax = parseFloat(taxStr.toString().replace(/[^0-9.-]/g, '')) || 0;
-
-      // Parse bag fee (some localities charge bag fees)
-      const bagFeeStr = row['Bag Fee'] || '0';
-      const bagFee = parseFloat(bagFeeStr.toString().replace(/[^0-9.-]/g, '')) || 0;
-
-      const shippingAddress = row['Shipping Address'] || '';
-      const billingAddress = row['Billing Address'] || '';
-      const shipDate = row['Ship Date'] || '';
-      const shippingOption = row['Shipping Option'] || '';
-
       // Calculate order total using Amazon's formula:
       // Grand Total = Item Subtotal - Total Savings + Tax + Bag Fee + Shipping
       // Note: Total Discounts in CSV is Amazon's "Total Savings"
@@ -436,6 +446,43 @@ export function parseAmazonCSV(csvContent) {
           calculatedTotal: calculatedTotal
         }
       });
+    } else {
+      // Order already exists - update fields if we find better values
+      const order = orderMap.get(orderId);
+      const fields = order._orderLevelFields;
+
+      // Update subtotal if this row has a non-zero value
+      if (subtotal > 0 && !fields.subtotal) {
+        fields.subtotal = subtotal;
+      }
+
+      // Update tax if this row has a non-zero value
+      if (tax > 0 && !fields.tax) {
+        fields.tax = tax;
+      }
+
+      // Update bag fee if this row has a non-zero value
+      if (bagFee > 0 && !fields.bagFee) {
+        fields.bagFee = bagFee;
+      }
+
+      // Update shipping if this row has a non-zero value
+      if (shippingCharge > 0 && !fields.shipping) {
+        fields.shipping = shippingCharge;
+      }
+
+      // Update total discounts if this row has a non-zero value
+      if (totalDiscounts !== 0 && !fields.totalDiscounts) {
+        fields.totalDiscounts = totalDiscounts;
+      }
+
+      // Recalculate total with updated fields
+      const sub = fields.subtotal || 0;
+      const tx = fields.tax || 0;
+      const bf = fields.bagFee || 0;
+      const sh = fields.shipping || 0;
+      const disc = fields.totalDiscounts || 0;
+      fields.calculatedTotal = sub - Math.abs(disc) + tx + bf + sh;
     }
 
     // Track this item's total for the order (including $0 items with discounts)
