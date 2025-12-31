@@ -84,13 +84,13 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
       continue;
     }
 
-    // CRITICAL REQUIREMENT: Amount must be EXACT (no tolerance)
+    // CRITICAL REQUIREMENT: Amount must be EXACT (within 0.1 cent for floating-point precision)
     const amountDiff = Math.abs(transactionAmount - orderAmount);
-    if (amountDiff !== 0) {
-      // Skip if amount doesn't match exactly
-      if (Math.abs(transactionAmount - orderAmount) < 0.02) {
+    if (amountDiff > 0.001) {
+      // Skip if amount doesn't match exactly (more than 0.1 cent difference)
+      if (amountDiff < 0.02) {
         // Log near-misses for debugging
-        console.log(`  ❌ Near-miss: $${transactionAmount.toFixed(2)} (off by $${amountDiff.toFixed(2)}) - ${transaction.description} on ${transaction.date}`);
+        console.log(`  ❌ Near-miss: $${transactionAmount.toFixed(2)} (off by $${amountDiff.toFixed(4)}) - ${transaction.description} on ${transaction.date}`);
       }
       candidatesSkippedAmountMismatch++;
       continue;
@@ -99,7 +99,7 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
     // Skip if transaction is too far from order date (within 0-30 days after order)
     const daysDiff = Math.floor((transactionDate - orderDate) / (1000 * 60 * 60 * 24));
     if (daysDiff < 0 || daysDiff > 30) {
-      if (Math.abs(transactionAmount - orderAmount) === 0) {
+      if (amountDiff <= 0.001) {
         // Log exact amount matches that are outside date range
         console.log(`  ❌ Out of range: $${transactionAmount.toFixed(2)} - ${transaction.description} on ${transaction.date} (${daysDiff} days)`);
       }
