@@ -482,11 +482,18 @@ export function parseAmazonCSV(csvContent) {
     // "Total Owed" is the most accurate field as it includes all discounts/adjustments
     if (order._itemTotals && order._itemTotals.length > 0) {
       const sumOfItems = order._itemTotals.reduce((sum, itemTotal) => sum + itemTotal, 0);
+      const calculatedTotal = order.total_amount;
 
       // Always prefer sum of "Total Owed" values over calculated total from Shipment Item Subtotal
       // Shipment Item Subtotal is just a subtotal before discounts, Total Owed is the final amount
-      if (Math.abs(order.total_amount - sumOfItems) > 0.01) {
-        console.log(`Order ${order.order_id}: Using sum of 'Total Owed' ($${sumOfItems.toFixed(2)}) instead of calculated subtotal ($${order.total_amount.toFixed(2)})`);
+      if (Math.abs(calculatedTotal - sumOfItems) > 0.01) {
+        console.log(`Order ${order.order_id}: Using sum of 'Total Owed' ($${sumOfItems.toFixed(2)}) instead of calculated subtotal ($${calculatedTotal.toFixed(2)})`);
+
+        // Clear the breakdown fields since they don't match the actual total
+        // (they're pre-discount values and would be misleading)
+        order.subtotal = null;
+        order.tax = null;
+        order.shipping = null;
       }
       order.total_amount = sumOfItems;
 
