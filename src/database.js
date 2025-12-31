@@ -642,6 +642,40 @@ export function saveAccount(account, institutionName) {
   );
 }
 
+/**
+ * Rename an account and update all related transactions
+ */
+export function renameAccount(accountId, newName) {
+  // Get the old name first
+  const account = db.prepare('SELECT name FROM accounts WHERE account_id = ?').get(accountId);
+
+  if (!account) {
+    throw new Error('Account not found');
+  }
+
+  const oldName = account.name;
+
+  // Use transaction to update both accounts and transactions atomically
+  const updateAll = db.transaction(() => {
+    // Update the account name
+    db.prepare('UPDATE accounts SET name = ?, updated_at = datetime(\'now\') WHERE account_id = ?')
+      .run(newName, accountId);
+
+    // Update all transactions with this account name
+    const result = db.prepare('UPDATE transactions SET account_name = ? WHERE account_name = ?')
+      .run(newName, oldName);
+
+    return {
+      success: true,
+      oldName,
+      newName,
+      transactionsUpdated: result.changes
+    };
+  });
+
+  return updateAll();
+}
+
 // ============================================================================
 // TRANSACTIONS
 // ============================================================================

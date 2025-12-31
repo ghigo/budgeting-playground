@@ -21,6 +21,7 @@ export function initializeAccountsPage(deps) {
     window.syncInstitution = syncInstitution;
     window.removeInstitution = removeInstitution;
     window.viewAccountTransactions = viewAccountTransactions;
+    window.renameAccount = renameAccount;
 }
 
 export async function loadAccounts() {
@@ -80,17 +81,25 @@ function displayAccounts(accounts) {
     }
 
     container.innerHTML = accounts.map(acc => `
-        <div class="account-card" onclick="viewAccountTransactions('${escapeHtml(acc.name)}')" style="cursor: pointer;" title="Click to view transactions">
-            <div class="account-header">
-                <div>
-                    <div class="account-name">${escapeHtml(acc.name)}</div>
-                    <div class="account-type">${escapeHtml(acc.type)}</div>
+        <div class="account-card" style="position: relative;">
+            <button class="btn-icon"
+                    onclick="event.stopPropagation(); renameAccount('${acc.account_id}', '${escapeHtml(acc.name)}');"
+                    style="position: absolute; top: 0.5rem; right: 0.5rem; z-index: 10;"
+                    title="Rename account">
+                ✏️
+            </button>
+            <div onclick="viewAccountTransactions('${escapeHtml(acc.name)}')" style="cursor: pointer;">
+                <div class="account-header">
+                    <div>
+                        <div class="account-name">${escapeHtml(acc.name)}</div>
+                        <div class="account-type">${escapeHtml(acc.type)}</div>
+                    </div>
+                    <div style="font-size: 2rem;">🏦</div>
                 </div>
-                <div style="font-size: 2rem;">🏦</div>
-            </div>
-            <div class="account-balance">${formatCurrency(acc.current_balance || 0)}</div>
-            <div class="account-institution">
-                ${escapeHtml(acc.institution_name || acc.institution)} ${acc.mask ? `••${acc.mask}` : ''}
+                <div class="account-balance">${formatCurrency(acc.current_balance || 0)}</div>
+                <div class="account-institution">
+                    ${escapeHtml(acc.institution_name || acc.institution)} ${acc.mask ? `••${acc.mask}` : ''}
+                </div>
             </div>
         </div>
     `).join('');
@@ -156,6 +165,97 @@ async function removeInstitution(itemId, institutionName) {
     } finally {
         hideLoading();
     }
+}
+
+async function renameAccount(accountId, currentName) {
+    const Modal = (await import('../components/Modal.js')).default;
+    const { eventBus: localEventBus } = await import('../services/eventBus.js');
+
+    const modalId = `rename-account-${Date.now()}`;
+
+    const modal = new Modal({
+        id: modalId,
+        title: 'Rename Account',
+        content: `
+            <div style="padding: 1rem 0;">
+                <label for="new-account-name" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">
+                    New Account Name:
+                </label>
+                <input
+                    type="text"
+                    id="new-account-name"
+                    class="form-input"
+                    value="${escapeHtml(currentName)}"
+                    style="width: 100%; padding: 0.75rem; font-size: 1rem;"
+                    placeholder="Enter new account name"
+                    autofocus
+                />
+                <small style="color: #666; display: block; margin-top: 0.5rem;">
+                    This will update the account name and all ${currentName} transactions.
+                </small>
+            </div>
+        `,
+        actions: [
+            {
+                action: 'cancel',
+                label: 'Cancel',
+                primary: false
+            },
+            {
+                action: 'save',
+                label: 'Rename',
+                primary: true
+            }
+        ],
+        options: { size: 'small' }
+    });
+
+    // Handle save action
+    localEventBus.once(`modal:${modalId}:save`, async () => {
+        const input = document.getElementById('new-account-name');
+        const newName = input?.value?.trim();
+
+        if (!newName || newName.length === 0) {
+            showToast('Account name cannot be empty', 'error');
+            return;
+        }
+
+        if (newName === currentName) {
+            showToast('Please enter a different name', 'error');
+            return;
+        }
+
+        showLoading();
+
+        try {
+            const result = await fetchAPI(`/api/accounts/${accountId}/rename`, {
+                method: 'PUT',
+                body: JSON.stringify({ newName })
+            });
+
+            showToast(`Account renamed from "${result.oldName}" to "${result.newName}". Updated ${result.transactionsUpdated} transaction(s).`, 'success');
+
+            // Emit events to update all views
+            eventBus.emit('accountsUpdated');
+            eventBus.emit('transactionsUpdated');
+        } catch (error) {
+            showToast('Failed to rename account: ' + error.message, 'error');
+            console.error(error);
+        } finally {
+            hideLoading();
+        }
+    });
+
+    modal.show();
+
+    // Focus the input after modal is shown
+    setTimeout(() => {
+        const input = document.getElementById('new-account-name');
+        if (input) {
+            input.focus();
+            input.select();
+        }
+    }, 100);
 }
 
 export default {

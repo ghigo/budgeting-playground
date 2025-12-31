@@ -129,6 +129,24 @@ app.get('/api/accounts', async (req, res) => {
   }
 });
 
+// Rename an account
+app.put('/api/accounts/:accountId/rename', async (req, res) => {
+  try {
+    const { accountId } = req.params;
+    const { newName } = req.body;
+
+    if (!newName || newName.trim().length === 0) {
+      return res.status(400).json({ error: 'New name is required' });
+    }
+
+    const result = database.renameAccount(accountId, newName.trim());
+    res.json(result);
+  } catch (error) {
+    console.error('Error renaming account:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get transactions
 app.get('/api/transactions', async (req, res) => {
   try {
