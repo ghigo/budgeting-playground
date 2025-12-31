@@ -50,10 +50,22 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
   const orderDate = new Date(order.order_date);
   const orderAmount = Math.abs(parseFloat(order.total_amount));
 
+  console.log(`\n[MATCHING] Order ${order.order_id}: $${orderAmount.toFixed(2)}, Date: ${order.order_date}`);
+
+  let candidatesChecked = 0;
+  let candidatesSkippedAlreadyMatched = 0;
+  let candidatesSkippedNotAmazon = 0;
+  let candidatesSkippedAmountMismatch = 0;
+  let candidatesSkippedDateRange = 0;
+  let validCandidates = [];
+
   // Iterate through ALL transactions to find the best match
   for (const transaction of transactions) {
+    candidatesChecked++;
+
     // Skip if this transaction is already matched to another order
     if (usedTransactionIds.has(transaction.transaction_id)) {
+      candidatesSkippedAlreadyMatched++;
       continue;
     }
 
@@ -68,6 +80,7 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
 
     if (!hasAmazon) {
       // Skip non-Amazon transactions entirely
+      candidatesSkippedNotAmazon++;
       continue;
     }
 
@@ -75,12 +88,22 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
     const amountDiff = Math.abs(transactionAmount - orderAmount);
     if (amountDiff !== 0) {
       // Skip if amount doesn't match exactly
+      if (Math.abs(transactionAmount - orderAmount) < 0.02) {
+        // Log near-misses for debugging
+        console.log(`  ❌ Near-miss: $${transactionAmount.toFixed(2)} (off by $${amountDiff.toFixed(2)}) - ${transaction.description} on ${transaction.date}`);
+      }
+      candidatesSkippedAmountMismatch++;
       continue;
     }
 
     // Skip if transaction is too far from order date (within 0-30 days after order)
     const daysDiff = Math.floor((transactionDate - orderDate) / (1000 * 60 * 60 * 24));
     if (daysDiff < 0 || daysDiff > 30) {
+      if (Math.abs(transactionAmount - orderAmount) === 0) {
+        // Log exact amount matches that are outside date range
+        console.log(`  ❌ Out of range: $${transactionAmount.toFixed(2)} - ${transaction.description} on ${transaction.date} (${daysDiff} days)`);
+      }
+      candidatesSkippedDateRange++;
       continue;
     }
 
@@ -101,6 +124,18 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
       reasons.push(`${daysDiff} days later`);
     }
 
+    // Track this as a valid candidate
+    validCandidates.push({
+      transaction,
+      confidence,
+      daysDiff,
+      description: transaction.description,
+      date: transaction.date,
+      amount: transactionAmount
+    });
+
+    console.log(`  ✓ Candidate: $${transactionAmount.toFixed(2)} - ${transaction.description} on ${transaction.date} (${daysDiff} days, ${confidence}% confidence)`);
+
     // Keep track of the BEST match across all transactions
     // Only update if this transaction has a HIGHER confidence score
     if (confidence > highestConfidence) {
@@ -111,6 +146,21 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
         reason: reasons.join('; ')
       };
     }
+  }
+
+  // Log summary
+  console.log(`[MATCHING] Summary for Order ${order.order_id}:`);
+  console.log(`  Total transactions checked: ${candidatesChecked}`);
+  console.log(`  Skipped - already matched: ${candidatesSkippedAlreadyMatched}`);
+  console.log(`  Skipped - not Amazon: ${candidatesSkippedNotAmazon}`);
+  console.log(`  Skipped - amount mismatch: ${candidatesSkippedAmountMismatch}`);
+  console.log(`  Skipped - date out of range: ${candidatesSkippedDateRange}`);
+  console.log(`  Valid candidates found: ${validCandidates.length}`);
+
+  if (bestMatch) {
+    console.log(`  ✅ BEST MATCH: $${bestMatch.transaction.amount} - ${bestMatch.transaction.description} on ${bestMatch.transaction.date} (${bestMatch.confidence}% confidence)`);
+  } else {
+    console.log(`  ⚠️ NO MATCH FOUND`);
   }
 
   // Return the single best match (highest confidence = closest in time)
