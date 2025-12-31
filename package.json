@@ -5,23 +5,42 @@
   "main": "src/cli.js",
   "type": "module",
   "scripts": {
-    "start": "node src/cli.js",
+    "start": "node src/server.js",
+    "update": "git pull && npm start",
+    "start:prod": "MODE=production node src/server.js",
+    "start:sandbox": "MODE=sandbox node src/server.js",
+    "dev": "node --watch src/server.js",
+    "dev:prod": "MODE=production node --watch src/server.js",
+    "cli": "node src/cli.js",
     "sync": "node src/cli.js sync",
     "link": "node src/cli.js link",
+    "exchange": "node src/cli.js exchange",
     "accounts": "node src/cli.js accounts",
     "transactions": "node src/cli.js transactions",
-    "setup": "node src/setup-sheets.js"
+    "open": "node src/cli.js open",
+    "stats": "node src/cli.js stats",
+    "categories": "node src/cli.js categories",
+    "setup": "node src/setup-sheets.js",
+    "init-sheets": "node src/init-spreadsheet.js"
   },
-  "keywords": ["expense", "tracker", "plaid", "google-sheets"],
+  "keywords": [
+    "expense",
+    "tracker",
+    "plaid",
+    "google-sheets"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "plaid": "^27.0.0",
-    "googleapis": "^131.0.0",
-    "commander": "^12.0.0",
-    "dotenv": "^16.4.0",
+    "better-sqlite3": "^12.5.0",
     "chalk": "^5.3.0",
     "cli-table3": "^0.6.3",
-    "inquirer": "^9.2.0"
+    "commander": "^12.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.22.1",
+    "googleapis": "^131.0.0",
+    "inquirer": "^9.2.0",
+    "plaid": "^27.0.0"
   }
 }

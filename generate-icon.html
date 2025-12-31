@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expense Tracker Icon Generator</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #f5f7fa;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 600px;
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #7f8c8d;
+            margin-bottom: 30px;
+        }
+        canvas {
+            border: 1px solid #e1e8ed;
+            border-radius: 8px;
+            margin: 20px 0;
+            max-width: 100%;
+            height: auto;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            margin: 10px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .preview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .preview-item {
+            text-align: center;
+        }
+        .preview-item img {
+            border-radius: 20%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .preview-label {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>💰 Expense Tracker Icon</h1>
+        <p>1024x1024px PNG icon for your expense tracker app</p>
+
+        <canvas id="iconCanvas" width="1024" height="1024"></canvas>
+
+        <div class="preview">
+            <div class="preview-item">
+                <img id="preview512" width="128" height="128">
+                <div class="preview-label">512x512</div>
+            </div>
+            <div class="preview-item">
+                <img id="preview256" width="64" height="64">
+                <div class="preview-label">256x256</div>
+            </div>
+            <div class="preview-item">
+                <img id="preview128" width="32" height="32">
+                <div class="preview-label">128x128</div>
+            </div>
+        </div>
+
+        <button onclick="downloadIcon()">📥 Download Icon (1024x1024)</button>
+        <button onclick="downloadAll()">📦 Download All Sizes</button>
+    </div>
+
+    <script>
+        // Generate the icon
+        function generateIcon() {
+            const canvas = document.getElementById('iconCanvas');
+            const ctx = canvas.getContext('2d');
+            const size = 1024;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, size, size);
+
+            // Background gradient (green theme matching app)
+            const gradient = ctx.createLinearGradient(0, 0, size, size);
+            gradient.addColorStop(0, '#4CAF50');
+            gradient.addColorStop(1, '#45a049');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, size, size);
+
+            // Add subtle pattern
+            ctx.globalAlpha = 0.1;
+            for (let i = 0; i < 20; i++) {
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, i * 60, size, 30);
+            }
+            ctx.globalAlpha = 1;
+
+            // White circle background for icon
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(size / 2, size / 2, size * 0.35, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw dollar sign
+            ctx.fillStyle = '#4CAF50';
+            ctx.font = 'bold ' + (size * 0.5) + 'px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('$', size / 2, size / 2);
+
+            // Draw chart bars in background
+            ctx.globalAlpha = 0.2;
+            const barWidth = size * 0.08;
+            const barHeights = [0.25, 0.35, 0.2, 0.4];
+            const startX = size * 0.25;
+
+            barHeights.forEach((height, i) => {
+                ctx.fillStyle = 'white';
+                const x = startX + i * barWidth * 1.5;
+                const y = size * 0.7 - (size * height);
+                const h = size * height;
+
+                ctx.fillRect(x, y, barWidth, h);
+            });
+            ctx.globalAlpha = 1;
+
+            // Add rounded corners effect (optional)
+            ctx.globalCompositeOperation = 'destination-in';
+            ctx.fillStyle = 'black';
+            const radius = size * 0.15;
+            ctx.beginPath();
+            ctx.moveTo(radius, 0);
+            ctx.lineTo(size - radius, 0);
+            ctx.quadraticCurveTo(size, 0, size, radius);
+            ctx.lineTo(size, size - radius);
+            ctx.quadraticCurveTo(size, size, size - radius, size);
+            ctx.lineTo(radius, size);
+            ctx.quadraticCurveTo(0, size, 0, size - radius);
+            ctx.lineTo(0, radius);
+            ctx.quadraticCurveTo(0, 0, radius, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Update previews
+            updatePreviews();
+        }
+
+        function updatePreviews() {
+            const canvas = document.getElementById('iconCanvas');
+            const dataUrl = canvas.toDataURL('image/png');
+
+            document.getElementById('preview512').src = dataUrl;
+            document.getElementById('preview256').src = dataUrl;
+            document.getElementById('preview128').src = dataUrl;
+        }
+
+        function downloadIcon() {
+            const canvas = document.getElementById('iconCanvas');
+            const link = document.createElement('a');
+            link.download = 'expense-tracker-icon-1024.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        function resizeCanvas(sourceCanvas, targetSize) {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = targetSize;
+            tempCanvas.height = targetSize;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(sourceCanvas, 0, 0, targetSize, targetSize);
+            return tempCanvas;
+        }
+
+        function downloadAll() {
+            const canvas = document.getElementById('iconCanvas');
+            const sizes = [1024, 512, 256, 128, 64, 32];
+
+            sizes.forEach(size => {
+                const resizedCanvas = resizeCanvas(canvas, size);
+                const link = document.createElement('a');
+                link.download = `expense-tracker-icon-${size}.png`;
+                link.href = resizedCanvas.toDataURL('image/png');
+                link.click();
+            });
+
+            alert('All icon sizes downloaded! Check your downloads folder.');
+        }
+
+        // Generate icon on load
+        window.onload = generateIcon;
+    </script>
+</body>
+</html>

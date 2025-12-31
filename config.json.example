@@ -1,0 +1,19 @@
+{
+  "google_sheets": {
+    "sandbox": {
+      "sheet_id": ""
+    },
+    "production": {
+      "sheet_id": ""
+    }
+  },
+  "plaid": {
+    "client_id": "",
+    "sandbox": {
+      "secret": ""
+    },
+    "production": {
+      "secret": ""
+    }
+  }
+}

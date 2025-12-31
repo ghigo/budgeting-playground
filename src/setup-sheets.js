@@ -16,10 +16,15 @@ async function main() {
   try {
     // Check for existing config
     const configPath = join(__dirname, '../config.json');
+    const configExamplePath = join(__dirname, '../config.json.example');
     let config = {};
-    
+
     if (fs.existsSync(configPath)) {
       config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    } else if (fs.existsSync(configExamplePath)) {
+      // Create config.json from example if it doesn't exist
+      config = JSON.parse(fs.readFileSync(configExamplePath, 'utf8'));
+      console.log(chalk.yellow('Creating config.json from template...\n'));
     }
 
     console.log(chalk.yellow('This setup will help you configure:'));

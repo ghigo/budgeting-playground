@@ -14,24 +14,60 @@ if (fs.existsSync(configPath)) {
   config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 }
 
+// Determine environment: use MODE env var, fallback to NODE_ENV, default to sandbox
+const environment = (process.env.MODE || process.env.NODE_ENV || 'sandbox').toLowerCase();
+const isProduction = environment === 'production';
+
+// Get credentials based on environment
+let clientId, secret;
+
+// Support both old and new config formats
+if (config.plaid) {
+  // New format: separate credentials per environment
+  clientId = config.plaid.client_id || process.env.PLAID_CLIENT_ID;
+  if (isProduction && config.plaid.production) {
+    secret = config.plaid.production.secret || process.env.PLAID_SECRET;
+  } else if (config.plaid.sandbox) {
+    secret = config.plaid.sandbox.secret || process.env.PLAID_SECRET;
+  }
+} else {
+  // Old format: backward compatibility
+  clientId = config.plaid_client_id || process.env.PLAID_CLIENT_ID;
+  secret = config.plaid_secret || process.env.PLAID_SECRET;
+}
+
 // Initialize Plaid client
 const configuration = new Configuration({
-  basePath: PlaidEnvironments[config.plaid_env || 'sandbox'],
+  basePath: PlaidEnvironments[isProduction ? 'production' : 'sandbox'],
   baseOptions: {
     headers: {
-      'PLAID-CLIENT-ID': config.plaid_client_id || process.env.PLAID_CLIENT_ID,
-      'PLAID-SECRET': config.plaid_secret || process.env.PLAID_SECRET,
+      'PLAID-CLIENT-ID': clientId,
+      'PLAID-SECRET': secret,
     },
   },
 });
 
 const plaidClient = new PlaidApi(configuration);
 
+// Export environment info
+export const plaidEnvironment = isProduction ? 'production' : 'sandbox';
+
+// Validate credentials on startup
+if (!clientId || !secret) {
+  console.warn('\n⚠️  WARNING: Plaid credentials not configured properly!');
+  console.warn(`   Environment: ${plaidEnvironment}`);
+  console.warn(`   Client ID: ${clientId ? '✓ Set' : '✗ Missing'}`);
+  console.warn(`   Secret: ${secret ? '✓ Set' : '✗ Missing'}`);
+  console.warn('\n   Please update your config.json with the correct credentials.');
+  console.warn('   See ENVIRONMENT.md for configuration details.\n');
+}
+
 /**
  * Create a Link token for connecting a bank account
  */
 export async function createLinkToken(userId = 'user-1') {
   try {
+    console.log(`Creating link token for environment: ${plaidEnvironment}`);
     const response = await plaidClient.linkTokenCreate({
       user: { client_user_id: userId },
       client_name: 'Expense Tracker',
@@ -41,8 +77,18 @@ export async function createLinkToken(userId = 'user-1') {
     });
     return response.data.link_token;
   } catch (error) {
-    console.error('Error creating link token:', error.response?.data || error.message);
-    throw error;
+    const errorData = error.response?.data || {};
+    console.error('❌ Error creating link token:');
+    console.error('   Status:', error.response?.status);
+    console.error('   Error Code:', errorData.error_code);
+    console.error('   Error Type:', errorData.error_type);
+    console.error('   Error Message:', errorData.error_message);
+    console.error('   Display Message:', errorData.display_message);
+    console.error('   Environment:', plaidEnvironment);
+
+    // Throw more descriptive error
+    const message = errorData.error_message || errorData.display_message || error.message;
+    throw new Error(`Plaid error (${plaidEnvironment}): ${message}`);
   }
 }
 

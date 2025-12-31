@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expense Tracker</title>
+    <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <h1>💰 Expense Tracker</h1>
+            </div>
+            <nav class="nav">
+                <a href="#" class="nav-item active" data-page="dashboard">
+                    <span class="icon">📊</span>
+                    Dashboard
+                </a>
+                <a href="#" class="nav-item" data-page="accounts">
+                    <span class="icon">🏦</span>
+                    Accounts
+                </a>
+                <a href="#" class="nav-item" data-page="transactions">
+                    <span class="icon">💳</span>
+                    Transactions
+                </a>
+                <a href="#" class="nav-item" data-page="categories">
+                    <span class="icon">🏷️</span>
+                    Categories
+                </a>
+                <a href="#" class="nav-item" data-page="mappings">
+                    <span class="icon">🤖</span>
+                    Auto-Categorization
+                </a>
+                <a href="#" class="nav-item" data-page="amazon">
+                    <span class="icon">📦</span>
+                    Amazon Purchases
+                </a>
+                <a href="#" class="nav-item" data-page="link">
+                    <span class="icon">🔗</span>
+                    Link Account
+                </a>
+                <a href="#" class="nav-item" data-page="settings">
+                    <span class="icon">⚙️</span>
+                    Settings
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <button id="syncBtn" class="btn btn-primary">
+                    <span class="icon">🔄</span>
+                    Sync Transactions
+                </button>
+                <button id="backfillBtn" class="btn btn-secondary" style="margin-top: 0.5rem;">
+                    <span class="icon">📜</span>
+                    Backfill History (2yrs)
+                </button>
+                <div class="env-indicator">
+                    <span class="env-label">Environment:</span>
+                    <span id="envBadge" class="env-badge env-sandbox">SANDBOX</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Page -->
+            <div class="page active" id="dashboard-page">
+                <div class="page-header">
+                    <h2>Dashboard</h2>
+                    <p>Overview of your finances</p>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Total Balance</div>
+                        <div class="stat-value" id="totalBalance">$0.00</div>
+                        <div class="stat-change positive">+0%</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Income (30 days)</div>
+                        <div class="stat-value positive" id="totalIncome">$0.00</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Expenses (30 days)</div>
+                        <div class="stat-value negative" id="totalExpenses">$0.00</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Net (30 days)</div>
+                        <div class="stat-value" id="netIncome">$0.00</div>
+                    </div>
+                </div>
+
+                <!-- Google Sheets Sync Card -->
+                <div id="sheetsSyncCard" class="card" style="margin-bottom: 1.5rem; background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%); border: none; color: white; display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                        <div style="flex: 1;">
+                            <h3 style="margin-bottom: 0.5rem; color: white;">📊 Google Sheets Backup</h3>
+                            <p id="sheetsSyncDescription" style="margin: 0; opacity: 0.9; font-size: 0.875rem;">Sync your data to Google Sheets for backup and analysis</p>
+                        </div>
+                        <button id="sheetsSyncBtn" onclick="syncToGoogleSheets()" class="btn" style="background: white; color: #16a34a; font-weight: 600; white-space: nowrap; display: none;">
+                            📊 Sync to Sheets
+                        </button>
+                        <button id="sheetsConfigBtn" onclick="showSheetsConfigModal()" class="btn" style="background: white; color: #16a34a; font-weight: 600; white-space: nowrap; display: none;">
+                            🔗 Link Google Sheet
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Net Worth Chart with Time Range Selector -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <div class="chart-header">
+                        <h3>Net Worth Over Time</h3>
+                        <div class="time-range-selector">
+                            <button class="time-range-btn active" data-range="1w">1W</button>
+                            <button class="time-range-btn" data-range="1m">1M</button>
+                            <button class="time-range-btn" data-range="3m">3M</button>
+                            <button class="time-range-btn" data-range="ytd">YTD</button>
+                            <button class="time-range-btn" data-range="1y">1Y</button>
+                            <button class="time-range-btn" data-range="all">ALL</button>
+                        </div>
+                    </div>
+                    <canvas id="netWorthChart"></canvas>
+                </div>
+
+                <!-- Daily Spending/Income Chart -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>Daily Spending & Income (Last 30 Days)</h3>
+                    <canvas id="dailySpendingChart"></canvas>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <h3>Recent Transactions</h3>
+                        <div id="recentTransactions" class="transactions-list"></div>
+                    </div>
+                    <div class="card">
+                        <h3>Spending by Category</h3>
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Accounts Page -->
+            <div class="page" id="accounts-page">
+                <div class="page-header">
+                    <h2>Accounts</h2>
+                    <p>Your connected bank accounts and institutions</p>
+                </div>
+
+                <!-- Institutions Section -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>Connected Institutions</h3>
+                    <div id="institutionsList"></div>
+                </div>
+
+                <!-- Accounts Section -->
+                <h3 style="margin-bottom: 1rem;">All Accounts</h3>
+                <div id="accountsList" class="accounts-grid"></div>
+            </div>
+
+            <!-- Transactions Page -->
+            <div class="page" id="transactions-page">
+                <div class="page-header">
+                    <h2>Transactions</h2>
+                    <p>All your transactions</p>
+                </div>
+
+                <!-- Auto-Categorize Section -->
+                <div class="card" style="margin-bottom: 1.5rem; background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%); border: none; color: white;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                        <div style="flex: 1;">
+                            <h3 style="margin-bottom: 0.5rem; color: white;">✨ Auto-Categorize Transactions</h3>
+                            <p style="margin: 0; opacity: 0.9; font-size: 0.875rem;">Automatically suggest categories for uncategorized transactions using patterns and merchant mappings</p>
+                        </div>
+                        <button onclick="autoCategorizeTransactions()" class="btn" style="background: white; color: var(--primary); font-weight: 600; white-space: nowrap;">
+                            🤖 Categorize Now
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Transaction Filters -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;">Search & Filters</h3>
+
+                    <!-- Search Bar -->
+                    <div style="margin-bottom: 1.5rem;">
+                        <input type="text"
+                               id="transactionSearch"
+                               class="form-input"
+                               placeholder="Search transactions (description, merchant, amount)..."
+                               onkeyup="searchTransactions()"
+                               style="width: 100%;">
+                    </div>
+
+                    <!-- Newly Categorized Indicator -->
+                    <div id="newlyCategorizedBanner" class="card" style="display: none; margin-bottom: 1rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none;">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <span style="font-size: 1.5rem;">✨</span>
+                                <div>
+                                    <strong id="newlyCategorizedTitle">Showing newly categorized transactions</strong>
+                                    <div style="font-size: 0.9rem; opacity: 0.9; margin-top: 0.25rem;">
+                                        <span id="newlyCategorizedCount">0</span> transactions were automatically categorized
+                                    </div>
+                                </div>
+                            </div>
+                            <button onclick="clearNewlyCategorizedFilter()" class="btn btn-secondary" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3);">
+                                ✕ Clear Filter
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Quick Filters -->
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="showAllTransactions()" class="btn btn-secondary" id="showAllBtn">All</button>
+                            <button onclick="applyUnverifiedFilter()" class="btn btn-secondary" id="showUnverifiedBtn">Unverified</button>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <span id="aiStatusBadge" style="font-size: 0.85em; color: #666;"></span>
+                            <button onclick="aiAutoCategorizeUncategorized()" class="btn btn-primary" id="aiCategorizeBtn">
+                                🤖 AI Categorize
+                            </button>
+                            <button onclick="approveAllVisibleTransactions()" class="btn btn-success" id="approveAllBtn" style="display: none;">
+                                ✓ Approve All Visible
+                            </button>
+                            <button onclick="resetAllAmazonMatchings()" class="btn" style="background: #FF9900; color: white; border: none;">
+                                📦 Reset Amazon Matchings
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="filter-grid">
+                        <div class="filter-item">
+                            <label for="filterCategory">Category</label>
+                            <select id="filterCategory" class="form-select" onchange="applyTransactionFilters()">
+                                <option value="">All Categories</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="filterAccount">Account</label>
+                            <select id="filterAccount" class="form-select" onchange="applyTransactionFilters()">
+                                <option value="">All Accounts</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="filterAmazonMatch">Amazon Match</label>
+                            <select id="filterAmazonMatch" class="form-select" onchange="applyTransactionFilters()">
+                                <option value="">All Transactions</option>
+                                <option value="matched">Matched to Amazon</option>
+                                <option value="unmatched">Not Matched</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="filterStartDate">Start Date</label>
+                            <input type="date" id="filterStartDate" class="form-input" onchange="applyTransactionFilters()">
+                        </div>
+                        <div class="filter-item">
+                            <label for="filterEndDate">End Date</label>
+                            <input type="date" id="filterEndDate" class="form-input" onchange="applyTransactionFilters()">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+                        <button onclick="clearTransactionFilters()" class="btn btn-secondary">Clear All</button>
+                    </div>
+                </div>
+
+                <!-- Bulk Actions -->
+                <div class="card" id="bulkActionsBar" style="margin-bottom: 1rem; display: none;">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div>
+                            <strong id="selectedCount">0</strong> transaction(s) selected
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="bulkVerifyTransactions()" class="btn btn-primary">✓ Verify Selected</button>
+                            <button onclick="showBulkCategoryModal()" class="btn btn-secondary">🏷️ Change Category</button>
+                            <button onclick="clearSelection()" class="btn btn-secondary">Clear Selection</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="table-container">
+                        <table class="transactions-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px;">
+                                        <input type="checkbox" id="selectAllTransactions" onchange="toggleAllTransactionSelection()" title="Select all">
+                                    </th>
+                                    <th>Date</th>
+                                    <th>Description</th>
+                                    <th>Category</th>
+                                    <th>Account</th>
+                                    <th>Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transactionsTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Categories Page -->
+            <div class="page" id="categories-page">
+                <div class="page-header">
+                    <h2>Categories</h2>
+                    <p>Manage your spending categories</p>
+                </div>
+
+                <!-- Add Category Form -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>Add New Category</h3>
+                    <div class="category-form" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                        <input type="text" id="newCategoryName" placeholder="Category name" class="form-input" />
+                        <select id="newCategoryParent" class="form-select">
+                            <option value="">No parent (top-level category)</option>
+                        </select>
+                        <textarea id="newCategoryDescription" placeholder="Description (helps AI categorization)..." class="form-input" style="min-height: 60px; resize: vertical;"></textarea>
+                        <button id="addCategoryBtn" class="btn btn-primary">Add Category</button>
+                    </div>
+                </div>
+
+                <!-- Category Spending Visualization -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>Spending by Category</h3>
+                    <div id="categorySpendingChart">
+                        <canvas id="categorySpendingCanvas"></canvas>
+                    </div>
+                </div>
+
+                <!-- Categories List -->
+                <div class="card">
+                    <h3>All Categories</h3>
+                    <div id="categoriesList"></div>
+                </div>
+            </div>
+
+            <!-- Auto-Categorization Mappings Page -->
+            <div class="page" id="mappings-page">
+                <div class="page-header">
+                    <h2>Auto-Categorization</h2>
+                    <p>View and understand how transactions are automatically categorized</p>
+                </div>
+
+                <!-- How It Works -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>How Auto-Categorization Works</h3>
+                    <p style="margin-bottom: 1rem;">Transactions are categorized automatically using a 4-step hybrid approach:</p>
+                    <ol style="margin-left: 1.5rem; line-height: 1.8;">
+                        <li><strong>Merchant Lookup:</strong> Exact and fuzzy matching against known merchants</li>
+                        <li><strong>Pattern Rules:</strong> Regex patterns for common merchant types (Walmart, Amazon, gas stations, etc.)</li>
+                        <li><strong>Plaid Categories:</strong> Mapping Plaid's built-in categories to your categories</li>
+                        <li><strong>Manual:</strong> Uncategorized transactions can be manually assigned</li>
+                    </ol>
+                    <p style="margin-top: 1rem; color: var(--text-secondary); font-size: 0.9rem;">
+                        💡 The system learns from your manual categorizations and builds the merchant mappings automatically!
+                    </p>
+                </div>
+
+                <!-- Merchant Mappings -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>Merchant Mappings</h3>
+                    <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                        Merchants that have been automatically categorized. The system builds this list as you sync transactions.
+                    </p>
+                    <div id="merchantMappingsList"></div>
+                </div>
+
+                <!-- Category Rules -->
+                <div class="card" style="margin-bottom: 2rem;">
+                    <h3>Pattern Rules</h3>
+                    <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                        Regex patterns used to match and categorize merchants automatically.
+                    </p>
+                    <div id="categoryRulesList"></div>
+                </div>
+
+                <!-- Plaid Category Mappings -->
+                <div class="card">
+                    <h3>Plaid Category Mappings</h3>
+                    <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                        Mappings from Plaid's categories to your custom categories. Auto-created as transactions are synced.
+                    </p>
+                    <div id="plaidMappingsList"></div>
+                </div>
+            </div>
+
+            <!-- Link Account Page -->
+            <div class="page" id="link-page">
+                <div class="page-header">
+                    <h2>Link Bank Account</h2>
+                    <p>Connect your bank account via Plaid</p>
+                </div>
+                <div class="card centered">
+                    <div class="link-account-content">
+                        <div class="icon-large">🏦</div>
+                        <h3>Connect Your Bank</h3>
+                        <p>Link your bank account securely through Plaid to automatically track your transactions.</p>
+                        <button id="linkAccountBtn" class="btn btn-primary btn-large">
+                            <span class="icon">🔗</span>
+                            Link Bank Account
+                        </button>
+                        <div id="linkStatus" class="status-message"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Page -->
+            <div class="page" id="settings-page">
+                <div class="page-header">
+                    <h2>Settings</h2>
+                    <p>Customize application parameters and preferences</p>
+                </div>
+
+                <div id="settingsContainer">
+                    <!-- Settings will be dynamically loaded here -->
+                </div>
+            </div>
+
+            <!-- Amazon Purchases Page -->
+            <div class="page" id="amazon-page">
+                <div class="page-header">
+                    <h2>Amazon Purchases</h2>
+                    <p>Track and match Amazon orders with bank transactions</p>
+                </div>
+
+                <!-- Upload Section -->
+                <div class="card" style="margin-bottom: 2rem; background: linear-gradient(135deg, #FF9900 0%, #FFB84D 100%); border: none; color: white;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1.5rem;">
+                        <div style="flex: 1;">
+                            <h3 style="margin-bottom: 0.75rem; color: white;">📦 Upload Amazon Order History</h3>
+                            <p style="margin: 0 0 1rem 0; opacity: 0.95; font-size: 0.9rem; line-height: 1.5;">
+                                Download your Amazon order history as a CSV file and upload it here. We'll automatically match your Amazon purchases with bank transactions and improve categorization.
+                            </p>
+                            <ol style="margin: 0; padding-left: 1.5rem; opacity: 0.95; font-size: 0.875rem; line-height: 1.8;">
+                                <li>Go to <a href="https://www.amazon.com/gp/b2b/reports" target="_blank" style="color: white; text-decoration: underline;">Amazon Order History Reports</a></li>
+                                <li>Request a report (Items, shipments, and orders)</li>
+                                <li>Download the CSV file when ready</li>
+                                <li>Upload it below</li>
+                            </ol>
+                            <p style="margin: 1rem 0 0 0; opacity: 0.9; font-size: 0.8rem; font-style: italic; border-top: 1px solid rgba(255,255,255,0.3); padding-top: 0.75rem;">
+                                ⚠️ Note: Whole Foods (Amazon Fresh) transactions are not included due to incomplete pricing data in CSV exports.
+                            </p>
+                        </div>
+                        <div style="min-width: 200px;">
+                            <label for="amazonAccountName" style="display: block; margin-bottom: 0.5rem; font-size: 0.875rem; opacity: 0.95;">Account Name:</label>
+                            <input type="text" id="amazonAccountName" placeholder="e.g., Primary, Wife, Kid"
+                                   style="width: 100%; padding: 0.5rem; border: 1px solid rgba(255,255,255,0.4); border-radius: 6px; background: rgba(255,255,255,0.9); color: #333; margin-bottom: 0.75rem; font-size: 0.875rem;"
+                                   value="Primary">
+                            <input type="file" id="amazonFileInput" accept=".csv" style="display: none;" onchange="handleAmazonFileUpload(event)">
+                            <button onclick="document.getElementById('amazonFileInput').click()" class="btn" style="background: white; color: #FF9900; font-weight: 600; width: 100%; margin-bottom: 0.5rem;">
+                                📁 Choose CSV File
+                            </button>
+                            <button onclick="runAmazonAutoMatch()" class="btn btn-secondary" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.4); width: 100%; margin-bottom: 0.5rem;">
+                                🔄 Auto-Match Orders
+                            </button>
+                            <button onclick="deleteAllAmazonData()" class="btn" style="background: #dc2626; color: white; font-weight: 600; width: 100%; font-size: 0.85rem;" title="Delete all Amazon orders and items (for debugging)">
+                                🗑️ Debug: Delete All
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Statistics -->
+                <div class="stats-grid" style="margin-bottom: 2rem;">
+                    <div class="stat-card">
+                        <div class="stat-label">Total Orders</div>
+                        <div class="stat-value" id="amazonTotalOrders">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Matched Orders</div>
+                        <div class="stat-value" id="amazonMatchedOrders">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Total Spent</div>
+                        <div class="stat-value" id="amazonTotalSpent">$0.00</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Match Rate</div>
+                        <div class="stat-value" id="amazonMatchRate">0%</div>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;">Search & Filters</h3>
+
+                    <!-- Search Box -->
+                    <div style="margin-bottom: 1.5rem;">
+                        <label for="amazonSearchInput" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Search Orders</label>
+                        <input type="text"
+                               id="amazonSearchInput"
+                               class="form-input"
+                               placeholder="Search by order ID, item title, amount, seller..."
+                               oninput="searchAmazonOrders()"
+                               style="width: 100%; padding: 0.75rem; font-size: 0.9rem;">
+                    </div>
+
+                    <div class="filter-grid">
+                        <div class="filter-item">
+                            <label for="amazonFilterMatched">Match Status</label>
+                            <select id="amazonFilterMatched" class="form-select" onchange="applyAmazonFilters()">
+                                <option value="">All Orders</option>
+                                <option value="true">Matched Only</option>
+                                <option value="false">Unmatched Only</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="amazonFilterConfidence">Min Confidence</label>
+                            <select id="amazonFilterConfidence" class="form-select" onchange="applyAmazonFilters()">
+                                <option value="">Any Confidence</option>
+                                <option value="90">90%+ (Excellent)</option>
+                                <option value="80">80%+ (High)</option>
+                                <option value="70">70%+ (Good)</option>
+                                <option value="60">60%+ (Fair)</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="amazonFilterAccount">Account</label>
+                            <select id="amazonFilterAccount" class="form-select" onchange="applyAmazonFilters()">
+                                <option value="">All Accounts</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="amazonFilterStartDate">Start Date</label>
+                            <input type="date" id="amazonFilterStartDate" class="form-input" onchange="applyAmazonFilters()">
+                        </div>
+                        <div class="filter-item">
+                            <label for="amazonFilterEndDate">End Date</label>
+                            <input type="date" id="amazonFilterEndDate" class="form-input" onchange="applyAmazonFilters()">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+                        <button onclick="clearAmazonFilters()" class="btn btn-secondary">Clear All</button>
+                    </div>
+                </div>
+
+                <!-- Spending Charts -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;">Monthly Spending</h3>
+
+                    <!-- Time Range Selector -->
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                        <button class="time-range-btn active" data-range="all" onclick="selectTimeRange('all')">All</button>
+                        <button class="time-range-btn" data-range="1y" onclick="selectTimeRange('1y')">1Y</button>
+                        <button class="time-range-btn" data-range="ytd" onclick="selectTimeRange('ytd')">YTD</button>
+                        <button class="time-range-btn" data-range="3m" onclick="selectTimeRange('3m')">3M</button>
+                        <button class="time-range-btn" data-range="1m" onclick="selectTimeRange('1m')">1M</button>
+                    </div>
+
+                    <!-- Monthly Chart -->
+                    <div style="position: relative; height: 300px;">
+                        <canvas id="amazonMonthlyChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Yearly Spending Chart -->
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <h3 style="margin-bottom: 1rem;">Yearly Spending</h3>
+                    <div style="position: relative; height: 250px;">
+                        <canvas id="amazonYearlyChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Orders List -->
+                <div class="card">
+                    <h3 style="margin-bottom: 1rem;">Orders</h3>
+                    <div id="amazonOrdersList"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <div class="loader"></div>
+        <p>Loading...</p>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Similar Transactions Modal -->
+    <div id="similarTransactionsModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3>📋 Apply to Similar Transactions</h3>
+                <button class="modal-close" onclick="closeSimilarTransactionsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 1rem;">
+                    Found <strong id="similarCount">0</strong> similar transaction(s) with the same merchant.
+                    Would you like to apply the category <strong id="suggestedCategoryName"></strong> to these transactions?
+                </p>
+
+                <div style="max-height: 400px; overflow-y: auto; margin-bottom: 1rem; border: 1px solid var(--border); border-radius: 0.375rem;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead style="background: var(--bg-primary); position: sticky; top: 0;">
+                            <tr>
+                                <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">
+                                    <input type="checkbox" id="selectAllSimilar" onchange="toggleAllSimilarTransactions()" checked>
+                                </th>
+                                <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">Date</th>
+                                <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">Description</th>
+                                <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">Amount</th>
+                                <th style="padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border);">Current Category</th>
+                            </tr>
+                        </thead>
+                        <tbody id="similarTransactionsList">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button onclick="closeSimilarTransactionsModal()" class="btn btn-secondary">Skip</button>
+                    <button onclick="applyCategoryToSimilar()" class="btn btn-primary">Apply to Selected</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Category Change Modal -->
+    <div id="bulkCategoryModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🏷️ Change Category</h3>
+                <button class="modal-close" onclick="closeBulkCategoryModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 1rem;">
+                    Select a category to apply to <strong id="bulkSelectedCount">0</strong> selected transaction(s):
+                </p>
+
+                <div class="form-group">
+                    <label for="bulkCategorySelect">Category:</label>
+                    <select id="bulkCategorySelect" class="form-select" style="width: 100%; padding: 0.75rem;">
+                        <option value="">Select category...</option>
+                    </select>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem;">
+                    <button onclick="closeBulkCategoryModal()" class="btn btn-secondary">Cancel</button>
+                    <button onclick="applyBulkCategory()" class="btn btn-primary">Apply Category</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Category Modal -->
+    <div id="editCategoryModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>✏️ Edit Category</h3>
+                <button class="modal-close" onclick="closeEditCategoryModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label for="editCategoryName">Category Name:</label>
+                    <input type="text" id="editCategoryName" class="form-input" style="width: 100%; padding: 0.75rem;" placeholder="Category name">
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label for="editCategoryParent">Parent Category:</label>
+                    <select id="editCategoryParent" class="form-select" style="width: 100%; padding: 0.75rem;">
+                        <option value="">No parent (top-level category)</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label for="editCategoryDescription">Description (helps AI categorization):</label>
+                    <textarea id="editCategoryDescription" class="form-input" style="width: 100%; padding: 0.75rem; min-height: 80px; resize: vertical;" placeholder="Describe what types of transactions belong in this category..."></textarea>
+                    <small style="color: #666; font-size: 0.875rem;">This description will be used by the AI to better categorize transactions.</small>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                    <div class="form-group">
+                        <label for="editCategoryIcon">Icon (Emoji):</label>
+                        <input type="text" id="editCategoryIcon" class="form-input" style="width: 100%; padding: 0.75rem; font-size: 1.5rem; text-align: center;" placeholder="📁" maxlength="2">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editCategoryColor">Color:</label>
+                        <input type="color" id="editCategoryColor" class="form-input" style="width: 100%; padding: 0.375rem; height: 3rem;" value="#6B7280">
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button onclick="closeEditCategoryModal()" class="btn btn-secondary">Cancel</button>
+                    <button onclick="saveEditCategory()" class="btn btn-primary">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Google Sheets Configuration Modal -->
+    <div id="sheetsConfigModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="sheetsConfigModalTitle">🔗 Link Google Sheet</h3>
+                <button class="modal-close" onclick="closeSheetsConfigModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="sheetsConfigModalDescription" style="margin-bottom: 1rem;">To sync your data to Google Sheets for backup and analysis:</p>
+
+                <ol id="sheetsConfigInstructions" style="margin-bottom: 1.5rem; padding-left: 1.5rem;">
+                    <li style="margin-bottom: 0.5rem;">Create a new Google Sheet or use an existing one</li>
+                    <li style="margin-bottom: 0.5rem;">Copy the Sheet ID from the URL (the part between /d/ and /edit)</li>
+                    <li style="margin-bottom: 0.5rem;">Paste it below and click Save</li>
+                    <li style="margin-bottom: 0.5rem;">Make sure your Google Service Account has edit access to the sheet</li>
+                </ol>
+
+                <div class="form-group">
+                    <label for="sheetIdInput">Google Sheet ID:</label>
+                    <input type="text"
+                           id="sheetIdInput"
+                           class="form-input"
+                           placeholder="e.g., 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+                           style="width: 100%; padding: 0.75rem; border: 1px solid #e5e7eb; border-radius: 0.375rem; font-size: 0.875rem;">
+                    <div id="currentSheetInfo" style="margin-top: 0.5rem; font-size: 0.875rem; color: #6b7280; display: none;"></div>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem;">
+                    <button onclick="closeSheetsConfigModal()" class="btn btn-secondary">Cancel</button>
+                    <button onclick="saveSheetConfig()" class="btn btn-primary">Save Configuration</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+</body>
+</html>
