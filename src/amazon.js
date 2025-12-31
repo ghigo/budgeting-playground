@@ -406,10 +406,10 @@ export function parseAmazonCSV(csvContent) {
       orderMap.set(orderId, {
         order_id: orderId,
         order_date: parsedDate,
-        total_amount: calculatedTotal > 0 ? calculatedTotal : 0,
-        subtotal: subtotal > 0 ? subtotal : null,
-        tax: tax > 0 ? tax : null,
-        shipping: shippingCharge > 0 ? shippingCharge : null,
+        total_amount: 0, // Will be set from sum of Total Owed later
+        subtotal: null, // Will only be set if it matches actual total
+        tax: null,
+        shipping: null,
         payment_method: row['Payment Instrument Type'] || '',
         order_status: orderStatus,
         website: website,
@@ -421,7 +421,13 @@ export function parseAmazonCSV(csvContent) {
         ship_date: safeDateParse(shipDate),
         shipping_option: shippingOption !== 'Not Available' ? shippingOption : null,
         items: [],
-        _itemTotals: [] // Track individual item totals for validation
+        _itemTotals: [], // Track individual item totals for validation
+        _orderLevelFields: { // Store order-level fields temporarily
+          subtotal: subtotal > 0 ? subtotal : null,
+          tax: tax > 0 ? tax : null,
+          shipping: shippingCharge > 0 ? shippingCharge : null,
+          calculatedTotal: calculatedTotal
+        }
       });
     }
 
@@ -478,29 +484,39 @@ export function parseAmazonCSV(csvContent) {
   // Validate and finalize order totals
   const orders = Array.from(orderMap.values());
   for (const order of orders) {
-    // If we have "Total Owed" data from CSV, ALWAYS use it
+    // If we have "Total Owed" data from CSV, ALWAYS use it as the source of truth
     // "Total Owed" is the most accurate field as it includes all discounts/adjustments
     if (order._itemTotals && order._itemTotals.length > 0) {
       const sumOfItems = order._itemTotals.reduce((sum, itemTotal) => sum + itemTotal, 0);
-      const calculatedTotal = order.total_amount;
+      const orderFields = order._orderLevelFields || {};
+      const calculatedTotal = orderFields.calculatedTotal || 0;
 
-      // Always prefer sum of "Total Owed" values over calculated total from Shipment Item Subtotal
-      // Shipment Item Subtotal is just a subtotal before discounts, Total Owed is the final amount
-      if (Math.abs(calculatedTotal - sumOfItems) > 0.01) {
-        console.log(`Order ${order.order_id}: Using sum of 'Total Owed' ($${sumOfItems.toFixed(2)}) instead of calculated subtotal ($${calculatedTotal.toFixed(2)})`);
+      // Set total_amount from sum of "Total Owed" (the actual charges)
+      order.total_amount = sumOfItems;
 
-        // Clear the breakdown fields since they don't match the actual total
-        // (they're pre-discount values and would be misleading)
+      // Only use the breakdown fields if they match the sum of Total Owed
+      // (within 1 cent tolerance for rounding)
+      if (Math.abs(calculatedTotal - sumOfItems) <= 0.01 && calculatedTotal > 0) {
+        // Breakdown matches - safe to show it
+        order.subtotal = orderFields.subtotal;
+        order.tax = orderFields.tax;
+        order.shipping = orderFields.shipping;
+        console.log(`Order ${order.order_id}: Total $${sumOfItems.toFixed(2)} matches breakdown (subtotal: $${orderFields.subtotal?.toFixed(2) || 0})`);
+      } else {
+        // Breakdown doesn't match - leave as null (don't show misleading pre-discount values)
         order.subtotal = null;
         order.tax = null;
         order.shipping = null;
+        if (calculatedTotal > 0) {
+          console.log(`Order ${order.order_id}: Using sum of 'Total Owed' ($${sumOfItems.toFixed(2)}) instead of calculated subtotal ($${calculatedTotal.toFixed(2)}) - breakdown hidden`);
+        }
       }
-      order.total_amount = sumOfItems;
 
       // Mark that we used item totals (so we don't use fallback)
       order._usedItemTotals = true;
-      // Remove temporary tracking field
+      // Remove temporary tracking fields
       delete order._itemTotals;
+      delete order._orderLevelFields;
     }
 
     // Fallback: Only use item prices if we didn't have "Total Owed" data
