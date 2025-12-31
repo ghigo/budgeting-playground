@@ -425,10 +425,8 @@ export function parseAmazonCSV(csvContent) {
       });
     }
 
-    // Track this item's total for the order
-    if (itemTotal > 0) {
-      orderMap.get(orderId)._itemTotals.push(itemTotal);
-    }
+    // Track this item's total for the order (including $0 items with discounts)
+    orderMap.get(orderId)._itemTotals.push(itemTotal);
 
     // Add item to order (skip if no title)
     if (itemTitle && itemTitle.trim().length > 0 && quantity > 0) {
@@ -490,19 +488,25 @@ export function parseAmazonCSV(csvContent) {
         order.total_amount = sumOfItems;
       }
 
+      // Mark that we used item totals (so we don't use fallback)
+      order._usedItemTotals = true;
       // Remove temporary tracking field
       delete order._itemTotals;
     }
 
-    // Ensure total_amount is never 0 if there are items
-    if (order.total_amount === 0 && order.items.length > 0) {
-      // Fallback: sum item prices
+    // Fallback: Only use item prices if we didn't have "Total Owed" data
+    // This prevents overriding legitimate $0 totals (discounted/refunded orders)
+    if (order.total_amount === 0 && order.items.length > 0 && !order._usedItemTotals) {
+      // Sum item prices as last resort
       const itemSum = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
       if (itemSum > 0) {
         console.log(`Order ${order.order_id}: Using sum of item prices ($${itemSum.toFixed(2)}) as fallback`);
         order.total_amount = itemSum;
       }
     }
+
+    // Clean up tracking flag
+    delete order._usedItemTotals;
   }
 
   return orders;
