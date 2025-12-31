@@ -155,7 +155,8 @@ app.get('/api/transactions', async (req, res) => {
       category: req.query.category,
       account: req.query.account,
       startDate: req.query.startDate,
-      endDate: req.query.endDate
+      endDate: req.query.endDate,
+      amazonMatch: req.query.amazonMatch
     };
 
     const transactions = database.getTransactions(limit, filters);
@@ -386,8 +387,8 @@ app.post('/api/transactions/:transactionId/unverify', async (req, res) => {
 // Auto-categorize existing transactions
 app.post('/api/transactions/recategorize', async (req, res) => {
   try {
-    const { onlyUncategorized = true } = req.body;
-    const result = database.recategorizeExistingTransactions(onlyUncategorized);
+    const { onlyUncategorized = true, transactionIds = null } = req.body;
+    const result = database.recategorizeExistingTransactions(onlyUncategorized, transactionIds);
     res.json(result);
   } catch (error) {
     console.error('Error recategorizing transactions:', error);

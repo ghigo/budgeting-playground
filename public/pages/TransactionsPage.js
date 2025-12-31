@@ -72,6 +72,7 @@ export async function loadTransactions(filters = {}) {
         // Add filters to URL if provided
         if (filters.category) url += `&category=${encodeURIComponent(filters.category)}`;
         if (filters.account) url += `&account=${encodeURIComponent(filters.account)}`;
+        if (filters.amazonMatch) url += `&amazonMatch=${encodeURIComponent(filters.amazonMatch)}`;
         if (filters.startDate) url += `&startDate=${filters.startDate}`;
         if (filters.endDate) url += `&endDate=${filters.endDate}`;
 
@@ -306,6 +307,7 @@ export function applyTransactionFilters() {
     const filters = {
         category: document.getElementById('filterCategory')?.value || '',
         account: document.getElementById('filterAccount')?.value || '',
+        amazonMatch: document.getElementById('filterAmazonMatch')?.value || '',
         startDate: document.getElementById('filterStartDate')?.value || '',
         endDate: document.getElementById('filterEndDate')?.value || ''
     };
@@ -321,6 +323,7 @@ function clearTransactionFilters() {
     if (searchInput) searchInput.value = '';
     if (document.getElementById('filterCategory')) document.getElementById('filterCategory').value = '';
     if (document.getElementById('filterAccount')) document.getElementById('filterAccount').value = '';
+    if (document.getElementById('filterAmazonMatch')) document.getElementById('filterAmazonMatch').value = '';
     if (document.getElementById('filterStartDate')) document.getElementById('filterStartDate').value = '';
     if (document.getElementById('filterEndDate')) document.getElementById('filterEndDate').value = '';
 
@@ -439,9 +442,21 @@ async function unverifyCategory(transactionId) {
 async function autoCategorizeTransactions() {
     showLoading();
     try {
+        // Only categorize currently displayed transactions
+        const transactionIds = displayedTransactions.map(tx => tx.transaction_id);
+
+        if (transactionIds.length === 0) {
+            showToast('No transactions to categorize', 'info');
+            hideLoading();
+            return;
+        }
+
         const result = await fetchAPI('/api/transactions/recategorize', {
             method: 'POST',
-            body: JSON.stringify({ onlyUncategorized: true })
+            body: JSON.stringify({
+                onlyUncategorized: true,
+                transactionIds: transactionIds
+            })
         });
 
         if (result.success) {

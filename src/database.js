@@ -810,6 +810,12 @@ export function getTransactions(limit = 50, filters = {}) {
     params.push(filters.endDate);
   }
 
+  if (filters.amazonMatch === 'matched') {
+    sql += ' AND ao.order_id IS NOT NULL';
+  } else if (filters.amazonMatch === 'unmatched') {
+    sql += ' AND ao.order_id IS NULL';
+  }
+
   sql += ' ORDER BY t.date DESC LIMIT ?';
   params.push(limit);
 
@@ -1379,8 +1385,17 @@ export function unverifyTransactionCategory(transactionId, originalConfidence) {
   return { success: true, category: tx.category };
 }
 
-export function recategorizeExistingTransactions(onlyUncategorized = true) {
-  const rows = db.prepare('SELECT * FROM transactions').all();
+export function recategorizeExistingTransactions(onlyUncategorized = true, transactionIds = null) {
+  let rows;
+
+  if (transactionIds && Array.isArray(transactionIds) && transactionIds.length > 0) {
+    // Filter by specific transaction IDs
+    const placeholders = transactionIds.map(() => '?').join(',');
+    rows = db.prepare(`SELECT * FROM transactions WHERE transaction_id IN (${placeholders})`).all(...transactionIds);
+  } else {
+    // Get all transactions
+    rows = db.prepare('SELECT * FROM transactions').all();
+  }
 
   const categorizationData = {
     merchantMappings: getMerchantMappings(),
