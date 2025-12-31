@@ -73,7 +73,7 @@ function displayAccounts(accounts) {
         container.innerHTML = `
             <div class="card centered">
                 <p>No accounts connected yet.</p>
-                <button onclick="navigateTo('accounts')" class="btn btn-primary" style="margin-top: 1rem;">Link Your First Account</button>
+                <button onclick="navigateTo('link')" class="btn btn-primary" style="margin-top: 1rem;">Link Your First Account</button>
             </div>
         `;
         return;
