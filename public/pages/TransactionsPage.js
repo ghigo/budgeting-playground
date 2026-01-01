@@ -622,7 +622,7 @@ async function selectCategory(categoryName) {
     if (!transactionId) return;
 
     // Get the transaction details for rule creation prompt
-    const transaction = state.getTransactions().find(t => t.transaction_id === transactionId);
+    const transaction = allTransactions.find(t => t.transaction_id === transactionId);
 
     closeAllDropdowns();
 
@@ -1980,9 +1980,8 @@ function showCreateRuleModal(merchantName, category) {
     matchTypeSelect.value = 'partial';
 
     // Populate category dropdown
-    const categories = state.getCategories();
     categorySelect.innerHTML = '<option value="">Select category...</option>' +
-        categories.map(cat => `<option value="${escapeHtml(cat.name)}" ${cat.name === category ? 'selected' : ''}>${escapeHtml(cat.name)}</option>`).join('');
+        allCategories.map(cat => `<option value="${escapeHtml(cat.name)}" ${cat.name === category ? 'selected' : ''}>${escapeHtml(cat.name)}</option>`).join('');
 
     modal.style.display = 'flex';
 
