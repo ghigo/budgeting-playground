@@ -636,21 +636,16 @@ async function selectCategory(categoryName) {
             showToast(`Category set to "${categoryName}"`, 'success');
 
             // Store the transaction and category for potential rule creation
+            const merchantName = transaction?.merchant_name || transaction?.description;
             window.lastCategorizedTransaction = {
-                merchantName: transaction?.merchant_name || transaction?.description,
+                merchantName: merchantName,
                 category: categoryName
             };
 
-            if (result.similarTransactions && result.similarTransactions.length > 0) {
-                setTimeout(() => {
-                    showSimilarTransactionsModal(result.similarTransactions, categoryName);
-                }, 300);
-            } else {
-                // Only show rule creation prompt if there are no similar transactions modal
-                setTimeout(() => {
-                    promptCreateRule(transaction?.merchant_name || transaction?.description, categoryName);
-                }, 500);
-            }
+            // Always prompt to create a rule (after a short delay)
+            setTimeout(() => {
+                promptCreateRule(merchantName, categoryName);
+            }, 500);
 
             eventBus.emit('transactionsUpdated');
         }
@@ -1943,14 +1938,14 @@ function promptCreateRule(merchantName, category) {
     toast.innerHTML = `
         <div style="display: flex; flex-direction: column; gap: 0.75rem;">
             <div>
-                <strong>Create a categorization rule?</strong>
+                <strong>Create a rule for ${escapeHtml(merchantName)}</strong>
                 <div style="font-size: 0.9rem; margin-top: 0.25rem;">
-                    Automatically categorize future transactions from "${merchantName}" as "${category}"
+                    Automatically categorize future transactions from this merchant as "${category}"
                 </div>
             </div>
             <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
                 <button class="btn btn-secondary" style="padding: 0.4rem 0.75rem; font-size: 0.875rem;" onclick="this.closest('.toast').remove()">
-                    No, thanks
+                    Dismiss
                 </button>
                 <button class="btn btn-primary" style="padding: 0.4rem 0.75rem; font-size: 0.875rem;" onclick="this.closest('.toast').remove(); showCreateRuleModal('${escapeHtml(merchantName)}', '${escapeHtml(category)}')">
                     Create Rule
@@ -1977,7 +1972,7 @@ function showCreateRuleModal(merchantName, category) {
     // Prefill the form
     nameInput.value = `Auto-categorize ${merchantName}`;
     patternInput.value = merchantName;
-    matchTypeSelect.value = 'partial';
+    matchTypeSelect.value = 'exact';
 
     // Populate category dropdown
     categorySelect.innerHTML = '<option value="">Select category...</option>' +
@@ -1996,7 +1991,7 @@ function closeCreateRuleModal() {
     // Clear form
     document.getElementById('ruleNameInput').value = '';
     document.getElementById('rulePatternInput').value = '';
-    document.getElementById('ruleMatchTypeSelect').value = 'partial';
+    document.getElementById('ruleMatchTypeSelect').value = 'exact';
     document.getElementById('ruleCategorySelect').value = '';
     document.getElementById('rulePreviewList').innerHTML = '';
     document.getElementById('rulePreviewCount').textContent = 'Enter a pattern to preview matching transactions';
