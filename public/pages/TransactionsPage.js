@@ -2101,9 +2101,14 @@ async function saveNewRule() {
 
         // Apply the rule to existing matching transactions
         if (matchingTransactions.length > 0) {
-            const recategorizeResult = await fetchAPI('/api/transactions/recategorize', {
-                method: 'POST',
-                body: JSON.stringify({ onlyUncategorized: false })
+            // Update all matching transactions with the new category
+            const transactionIds = matchingTransactions.map(tx => tx.transaction_id);
+            const bulkUpdateResult = await fetchAPI('/api/transactions/bulk/category', {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    transactionIds,
+                    category
+                })
             });
 
             // Reload transactions to reflect changes
