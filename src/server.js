@@ -769,8 +769,12 @@ app.post('/api/category-mappings/rules', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields: name, pattern, category, matchType' });
     }
 
-    const ruleId = database.createCategoryRule(name, pattern, category, matchType, 'Yes');
-    res.json({ id: ruleId, message: 'Rule created successfully' });
+    const result = database.createCategoryRule(name, pattern, category, matchType, 'Yes');
+    res.json({
+      id: result.id,
+      name: result.name,
+      message: 'Rule created successfully'
+    });
   } catch (error) {
     console.error('Error creating category rule:', error);
     res.status(500).json({ error: error.message });

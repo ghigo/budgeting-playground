@@ -1869,12 +1869,28 @@ export function savePlaidCategoryMapping(plaidCategory, userCategory) {
 }
 
 export function createCategoryRule(name, pattern, category, matchType = 'regex', userCreated = 'Yes') {
+  // Generate a unique name if the provided name already exists
+  let uniqueName = name;
+  let counter = 2;
+
+  while (true) {
+    const existingRule = db.prepare('SELECT id FROM category_rules WHERE name = ?').get(uniqueName);
+    if (!existingRule) {
+      break; // Name is unique
+    }
+    uniqueName = `${name} (${counter})`;
+    counter++;
+  }
+
   const stmt = db.prepare(`
     INSERT INTO category_rules (name, pattern, category, match_type, user_created, enabled)
     VALUES (?, ?, ?, ?, ?, 'Yes')
   `);
-  const result = stmt.run(name, pattern, category, matchType, userCreated);
-  return result.lastInsertRowid;
+  const result = stmt.run(uniqueName, pattern, category, matchType, userCreated);
+  return {
+    id: result.lastInsertRowid,
+    name: uniqueName
+  };
 }
 
 export function updateCategoryRule(id, name, pattern, category, matchType, enabled = 'Yes') {
