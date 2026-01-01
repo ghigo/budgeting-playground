@@ -2076,7 +2076,17 @@ async function saveNewRule() {
     }
 
     try {
-        // First, get preview of matching transactions before creating the rule
+        // First, get all existing rules to check for collisions
+        const allRulesResponse = await fetchAPI('/api/category-mappings/rules');
+        const allRules = allRulesResponse || [];
+
+        // Find colliding rules (same pattern and match type)
+        const collidingRules = allRules.filter(rule =>
+            rule.pattern.toLowerCase() === pattern.toLowerCase() &&
+            rule.match_type === matchType
+        );
+
+        // Get preview of matching transactions before creating the rule
         const previewResult = await fetchAPI('/api/category-mappings/rules/preview', {
             method: 'POST',
             body: JSON.stringify({ pattern, matchType })
@@ -2091,7 +2101,16 @@ async function saveNewRule() {
             confidence: tx.confidence
         }));
 
-        // Create the rule
+        // Delete colliding rules
+        const deletedRules = [];
+        for (const rule of collidingRules) {
+            await fetchAPI(`/api/category-mappings/rules/${rule.id}`, {
+                method: 'DELETE'
+            });
+            deletedRules.push(rule);
+        }
+
+        // Create the new rule
         const result = await fetchAPI('/api/category-mappings/rules', {
             method: 'POST',
             body: JSON.stringify({ name, pattern, category, matchType })
@@ -2115,27 +2134,47 @@ async function saveNewRule() {
             eventBus.emit('transactionsUpdated');
 
             // Show success toast with undo option
+            const message = deletedRules.length > 0
+                ? `Rule created (replaced ${deletedRules.length} existing rule(s)) and applied to ${matchingTransactions.length} transaction(s)`
+                : `Rule created and applied to ${matchingTransactions.length} transaction(s)`;
+
             showUndoableToast(
-                `Rule created and applied to ${matchingTransactions.length} transaction(s)`,
+                message,
                 async () => {
-                    // Undo function: restore original categories
-                    await undoRuleApplication(result.id, originalCategories);
+                    // Undo function: restore original categories and deleted rules
+                    await undoRuleApplication(result.id, originalCategories, deletedRules);
                 }
             );
         } else {
-            showToast('Rule created successfully!', 'success');
+            const message = deletedRules.length > 0
+                ? `Rule created (replaced ${deletedRules.length} existing rule(s))`
+                : 'Rule created successfully!';
+            showToast(message, 'success');
         }
     } catch (error) {
         showToast(`Failed to create rule: ${error.message}`, 'error');
     }
 }
 
-async function undoRuleApplication(ruleId, originalCategories) {
+async function undoRuleApplication(ruleId, originalCategories, deletedRules = []) {
     try {
-        // Delete the rule
+        // Delete the newly created rule
         await fetchAPI(`/api/category-mappings/rules/${ruleId}`, {
             method: 'DELETE'
         });
+
+        // Restore deleted rules (rules that were replaced)
+        for (const rule of deletedRules) {
+            await fetchAPI('/api/category-mappings/rules', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: rule.name,
+                    pattern: rule.pattern,
+                    category: rule.category,
+                    matchType: rule.match_type
+                })
+            });
+        }
 
         // Restore original categories for all affected transactions
         for (const tx of originalCategories) {
