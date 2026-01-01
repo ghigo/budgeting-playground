@@ -2076,23 +2076,107 @@ async function saveNewRule() {
     }
 
     try {
+        // First, get preview of matching transactions before creating the rule
+        const previewResult = await fetchAPI('/api/category-mappings/rules/preview', {
+            method: 'POST',
+            body: JSON.stringify({ pattern, matchType })
+        });
+
+        const matchingTransactions = previewResult.transactions || [];
+
+        // Store original categories for undo
+        const originalCategories = matchingTransactions.map(tx => ({
+            transaction_id: tx.transaction_id,
+            category: tx.category,
+            confidence: tx.confidence
+        }));
+
+        // Create the rule
         const result = await fetchAPI('/api/category-mappings/rules', {
             method: 'POST',
             body: JSON.stringify({ name, pattern, category, matchType })
         });
 
-        showToast('Rule created successfully!', 'success');
         closeCreateRuleModal();
 
-        // Ask if user wants to apply the rule to existing transactions
-        setTimeout(() => {
-            if (confirm('Would you like to apply this rule to existing matching transactions?')) {
-                recategorizeExistingTransactions(false);
-            }
-        }, 500);
+        // Apply the rule to existing matching transactions
+        if (matchingTransactions.length > 0) {
+            const recategorizeResult = await fetchAPI('/api/transactions/recategorize', {
+                method: 'POST',
+                body: JSON.stringify({ onlyUncategorized: false })
+            });
+
+            // Reload transactions to reflect changes
+            eventBus.emit('transactionsUpdated');
+
+            // Show success toast with undo option
+            showUndoableToast(
+                `Rule created and applied to ${matchingTransactions.length} transaction(s)`,
+                async () => {
+                    // Undo function: restore original categories
+                    await undoRuleApplication(result.id, originalCategories);
+                }
+            );
+        } else {
+            showToast('Rule created successfully!', 'success');
+        }
     } catch (error) {
         showToast(`Failed to create rule: ${error.message}`, 'error');
     }
+}
+
+async function undoRuleApplication(ruleId, originalCategories) {
+    try {
+        // Delete the rule
+        await fetchAPI(`/api/category-mappings/rules/${ruleId}`, {
+            method: 'DELETE'
+        });
+
+        // Restore original categories for all affected transactions
+        for (const tx of originalCategories) {
+            await fetchAPI(`/api/transactions/${tx.transaction_id}/category`, {
+                method: 'PATCH',
+                body: JSON.stringify({ category: tx.category })
+            });
+        }
+
+        // Reload transactions
+        eventBus.emit('transactionsUpdated');
+        showToast('Rule creation undone', 'success');
+    } catch (error) {
+        showToast(`Failed to undo: ${error.message}`, 'error');
+    }
+}
+
+function showUndoableToast(message, undoCallback) {
+    const toastContainer = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-success';
+    toast.style.cssText = 'max-width: 500px; padding: 1rem;';
+
+    toast.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
+            <div style="flex: 1;">${escapeHtml(message)}</div>
+            <button class="btn btn-secondary" style="padding: 0.4rem 0.75rem; font-size: 0.875rem; white-space: nowrap;" onclick="this.closest('.toast').remove()">
+                Undo
+            </button>
+        </div>
+    `;
+
+    // Add undo handler
+    const undoButton = toast.querySelector('button');
+    undoButton.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        toast.remove();
+        await undoCallback();
+    });
+
+    toastContainer.appendChild(toast);
+
+    // Auto-remove after 10 seconds
+    setTimeout(() => {
+        toast.remove();
+    }, 10000);
 }
 
 // Expose functions globally for onclick handlers
