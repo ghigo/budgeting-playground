@@ -732,6 +732,74 @@
         </div>
     </div>
 
+    <!-- Create Rule Modal -->
+    <div id="createRuleModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h3>🎯 Create Categorization Rule</h3>
+                <button class="modal-close" onclick="closeCreateRuleModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                    Create a rule to automatically categorize transactions based on merchant name or description.
+                </p>
+
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label for="ruleNameInput">Rule Name:</label>
+                    <input type="text" id="ruleNameInput" class="form-input"
+                           style="width: 100%; padding: 0.75rem;"
+                           placeholder="e.g., Amazon Purchases">
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label for="rulePatternInput">Pattern:</label>
+                    <input type="text" id="rulePatternInput" class="form-input"
+                           style="width: 100%; padding: 0.75rem;"
+                           placeholder="e.g., Amazon"
+                           oninput="updateRulePreview()">
+                    <small style="color: #666; font-size: 0.875rem;">The text to match in merchant name or description</small>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label for="ruleMatchTypeSelect">Match Type:</label>
+                    <select id="ruleMatchTypeSelect" class="form-select"
+                            style="width: 100%; padding: 0.75rem;"
+                            onchange="updateRulePreview()">
+                        <option value="exact">Exact Match - Must match exactly (case-insensitive)</option>
+                        <option value="partial" selected>Partial Match - Contains the pattern (recommended)</option>
+                        <option value="regex">Regular Expression - Advanced pattern matching</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label for="ruleCategorySelect">Category:</label>
+                    <select id="ruleCategorySelect" class="form-select" style="width: 100%; padding: 0.75rem;">
+                        <option value="">Select category...</option>
+                    </select>
+                </div>
+
+                <!-- Live Preview Section -->
+                <div id="rulePreviewSection" style="margin-bottom: 1.5rem; padding: 1rem; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.5rem;">
+                    <h4 style="margin-bottom: 0.75rem; font-size: 0.95rem;">📊 Matching Transactions Preview</h4>
+                    <div id="rulePreviewLoading" style="display: none; text-align: center; padding: 1rem; color: #666;">
+                        Loading preview...
+                    </div>
+                    <div id="rulePreviewCount" style="margin-bottom: 0.75rem; font-size: 0.9rem; color: #666;">
+                        Enter a pattern to preview matching transactions
+                    </div>
+                    <div id="rulePreviewList" style="max-height: 300px; overflow-y: auto;">
+                        <!-- Transaction previews will appear here -->
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button onclick="closeCreateRuleModal()" class="btn btn-secondary">Cancel</button>
+                    <button onclick="saveNewRule()" class="btn btn-primary">Create Rule</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -621,6 +621,9 @@ async function selectCategory(categoryName) {
     const transactionId = currentDropdownInput.getAttribute('data-transaction-id');
     if (!transactionId) return;
 
+    // Get the transaction details for rule creation prompt
+    const transaction = state.getTransactions().find(t => t.transaction_id === transactionId);
+
     closeAllDropdowns();
 
     try {
@@ -632,10 +635,21 @@ async function selectCategory(categoryName) {
         if (result.success) {
             showToast(`Category set to "${categoryName}"`, 'success');
 
+            // Store the transaction and category for potential rule creation
+            window.lastCategorizedTransaction = {
+                merchantName: transaction?.merchant_name || transaction?.description,
+                category: categoryName
+            };
+
             if (result.similarTransactions && result.similarTransactions.length > 0) {
                 setTimeout(() => {
                     showSimilarTransactionsModal(result.similarTransactions, categoryName);
                 }, 300);
+            } else {
+                // Only show rule creation prompt if there are no similar transactions modal
+                setTimeout(() => {
+                    promptCreateRule(transaction?.merchant_name || transaction?.description, categoryName);
+                }, 500);
             }
 
             eventBus.emit('transactionsUpdated');
@@ -741,6 +755,13 @@ async function applyCategoryToSimilar() {
         if (result.success) {
             showToast(`Updated ${result.updated} similar transaction(s)`, 'success');
             closeSimilarTransactionsModal();
+
+            // Prompt to create a rule after applying to similar transactions
+            if (window.lastCategorizedTransaction) {
+                setTimeout(() => {
+                    promptCreateRule(window.lastCategorizedTransaction.merchantName, category);
+                }, 500);
+            }
 
             setTimeout(() => {
                 eventBus.emit('transactionsUpdated');
@@ -1904,11 +1925,191 @@ async function resetAllAmazonMatchings() {
     }
 }
 
+// ============================================================================
+// Rule Creation Functions
+// ============================================================================
+
+let rulePreviewTimeout = null;
+
+function promptCreateRule(merchantName, category) {
+    if (!merchantName || merchantName === 'Unknown') return;
+
+    // Use a toast notification with action buttons
+    const toastContainer = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-info';
+    toast.style.cssText = 'max-width: 500px; padding: 1rem;';
+
+    toast.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <div>
+                <strong>Create a categorization rule?</strong>
+                <div style="font-size: 0.9rem; margin-top: 0.25rem;">
+                    Automatically categorize future transactions from "${merchantName}" as "${category}"
+                </div>
+            </div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button class="btn btn-secondary" style="padding: 0.4rem 0.75rem; font-size: 0.875rem;" onclick="this.closest('.toast').remove()">
+                    No, thanks
+                </button>
+                <button class="btn btn-primary" style="padding: 0.4rem 0.75rem; font-size: 0.875rem;" onclick="this.closest('.toast').remove(); showCreateRuleModal('${escapeHtml(merchantName)}', '${escapeHtml(category)}')">
+                    Create Rule
+                </button>
+            </div>
+        </div>
+    `;
+
+    toastContainer.appendChild(toast);
+
+    // Auto-remove after 10 seconds
+    setTimeout(() => {
+        toast.remove();
+    }, 10000);
+}
+
+function showCreateRuleModal(merchantName, category) {
+    const modal = document.getElementById('createRuleModal');
+    const nameInput = document.getElementById('ruleNameInput');
+    const patternInput = document.getElementById('rulePatternInput');
+    const matchTypeSelect = document.getElementById('ruleMatchTypeSelect');
+    const categorySelect = document.getElementById('ruleCategorySelect');
+
+    // Prefill the form
+    nameInput.value = `Auto-categorize ${merchantName}`;
+    patternInput.value = merchantName;
+    matchTypeSelect.value = 'partial';
+
+    // Populate category dropdown
+    const categories = state.getCategories();
+    categorySelect.innerHTML = '<option value="">Select category...</option>' +
+        categories.map(cat => `<option value="${escapeHtml(cat.name)}" ${cat.name === category ? 'selected' : ''}>${escapeHtml(cat.name)}</option>`).join('');
+
+    modal.style.display = 'flex';
+
+    // Trigger initial preview
+    updateRulePreview();
+}
+
+function closeCreateRuleModal() {
+    const modal = document.getElementById('createRuleModal');
+    modal.style.display = 'none';
+
+    // Clear form
+    document.getElementById('ruleNameInput').value = '';
+    document.getElementById('rulePatternInput').value = '';
+    document.getElementById('ruleMatchTypeSelect').value = 'partial';
+    document.getElementById('ruleCategorySelect').value = '';
+    document.getElementById('rulePreviewList').innerHTML = '';
+    document.getElementById('rulePreviewCount').textContent = 'Enter a pattern to preview matching transactions';
+}
+
+async function updateRulePreview() {
+    const patternInput = document.getElementById('rulePatternInput');
+    const matchTypeSelect = document.getElementById('ruleMatchTypeSelect');
+    const previewLoading = document.getElementById('rulePreviewLoading');
+    const previewCount = document.getElementById('rulePreviewCount');
+    const previewList = document.getElementById('rulePreviewList');
+
+    const pattern = patternInput.value.trim();
+    const matchType = matchTypeSelect.value;
+
+    // Clear previous timeout
+    if (rulePreviewTimeout) {
+        clearTimeout(rulePreviewTimeout);
+    }
+
+    if (!pattern) {
+        previewCount.textContent = 'Enter a pattern to preview matching transactions';
+        previewList.innerHTML = '';
+        return;
+    }
+
+    // Debounce the preview update
+    rulePreviewTimeout = setTimeout(async () => {
+        try {
+            previewLoading.style.display = 'block';
+            previewCount.textContent = 'Loading...';
+            previewList.innerHTML = '';
+
+            const result = await fetchAPI('/api/category-mappings/rules/preview', {
+                method: 'POST',
+                body: JSON.stringify({ pattern, matchType })
+            });
+
+            previewLoading.style.display = 'none';
+
+            if (result.transactions && result.transactions.length > 0) {
+                previewCount.innerHTML = `<strong>${result.count}</strong> transaction(s) will match this rule`;
+                previewList.innerHTML = result.transactions.slice(0, 10).map(tx => `
+                    <div style="padding: 0.5rem; margin-bottom: 0.25rem; background: white; border: 1px solid #e5e7eb; border-radius: 0.25rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.875rem;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 500;">${escapeHtml(tx.merchant_name || tx.description)}</div>
+                            <div style="color: #666; font-size: 0.8rem;">${formatDate(tx.date)}</div>
+                        </div>
+                        <div style="font-weight: 500;">${formatCurrency(tx.amount)}</div>
+                    </div>
+                `).join('');
+
+                if (result.count > 10) {
+                    previewList.innerHTML += `<div style="padding: 0.5rem; text-align: center; color: #666; font-size: 0.875rem;">... and ${result.count - 10} more</div>`;
+                }
+            } else {
+                previewCount.textContent = 'No transactions match this pattern';
+                previewList.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">Try adjusting the pattern or match type</div>';
+            }
+        } catch (error) {
+            previewLoading.style.display = 'none';
+            previewCount.textContent = 'Error loading preview';
+            previewList.innerHTML = `<div style="padding: 1rem; text-align: center; color: #ef4444;">${escapeHtml(error.message)}</div>`;
+        }
+    }, 500);
+}
+
+async function saveNewRule() {
+    const nameInput = document.getElementById('ruleNameInput');
+    const patternInput = document.getElementById('rulePatternInput');
+    const matchTypeSelect = document.getElementById('ruleMatchTypeSelect');
+    const categorySelect = document.getElementById('ruleCategorySelect');
+
+    const name = nameInput.value.trim();
+    const pattern = patternInput.value.trim();
+    const matchType = matchTypeSelect.value;
+    const category = categorySelect.value;
+
+    if (!name || !pattern || !category) {
+        showToast('Please fill in all required fields', 'error');
+        return;
+    }
+
+    try {
+        const result = await fetchAPI('/api/category-mappings/rules', {
+            method: 'POST',
+            body: JSON.stringify({ name, pattern, category, matchType })
+        });
+
+        showToast('Rule created successfully!', 'success');
+        closeCreateRuleModal();
+
+        // Ask if user wants to apply the rule to existing transactions
+        setTimeout(() => {
+            if (confirm('Would you like to apply this rule to existing matching transactions?')) {
+                recategorizeExistingTransactions(false);
+            }
+        }, 500);
+    } catch (error) {
+        showToast(`Failed to create rule: ${error.message}`, 'error');
+    }
+}
+
 // Expose functions globally for onclick handlers
 window.aiAutoCategorizeUncategorized = aiAutoCategorizeUncategorized;
 window.aiSuggestCategory = aiSuggestCategory;
 window.showAmazonOrderDetails = showAmazonOrderDetails;
 window.resetAllAmazonMatchings = resetAllAmazonMatchings;
+window.showCreateRuleModal = showCreateRuleModal;
+window.closeCreateRuleModal = closeCreateRuleModal;
+window.updateRulePreview = updateRulePreview;
+window.saveNewRule = saveNewRule;
 
 // Export module
 export default {

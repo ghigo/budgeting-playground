@@ -760,6 +760,70 @@ app.get('/api/category-mappings/rules', async (req, res) => {
   }
 });
 
+// Create a new category rule
+app.post('/api/category-mappings/rules', async (req, res) => {
+  try {
+    const { name, pattern, category, matchType } = req.body;
+
+    if (!name || !pattern || !category || !matchType) {
+      return res.status(400).json({ error: 'Missing required fields: name, pattern, category, matchType' });
+    }
+
+    const ruleId = database.createCategoryRule(name, pattern, category, matchType, 'Yes');
+    res.json({ id: ruleId, message: 'Rule created successfully' });
+  } catch (error) {
+    console.error('Error creating category rule:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update an existing category rule
+app.put('/api/category-mappings/rules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, pattern, category, matchType, enabled } = req.body;
+
+    if (!name || !pattern || !category || !matchType) {
+      return res.status(400).json({ error: 'Missing required fields: name, pattern, category, matchType' });
+    }
+
+    database.updateCategoryRule(parseInt(id), name, pattern, category, matchType, enabled || 'Yes');
+    res.json({ message: 'Rule updated successfully' });
+  } catch (error) {
+    console.error('Error updating category rule:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a category rule
+app.delete('/api/category-mappings/rules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    database.deleteCategoryRule(parseInt(id));
+    res.json({ message: 'Rule deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting category rule:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Preview transactions that match a rule
+app.post('/api/category-mappings/rules/preview', async (req, res) => {
+  try {
+    const { pattern, matchType } = req.body;
+
+    if (!pattern || !matchType) {
+      return res.status(400).json({ error: 'Missing required fields: pattern, matchType' });
+    }
+
+    const matches = database.previewRuleMatches(pattern, matchType);
+    res.json({ transactions: matches, count: matches.length });
+  } catch (error) {
+    console.error('Error previewing rule matches:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get all institutions (Plaid items)
 app.get('/api/institutions', async (req, res) => {
   try {

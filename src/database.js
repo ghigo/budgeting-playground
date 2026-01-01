@@ -452,6 +452,23 @@ function runMigrations() {
     columnsAdded = true;
   }
 
+  // Check if match_type and user_created columns exist in category_rules table
+  const categoryRulesInfo = db.prepare("PRAGMA table_info(category_rules)").all();
+  const hasMatchType = categoryRulesInfo.some(col => col.name === 'match_type');
+  const hasUserCreated = categoryRulesInfo.some(col => col.name === 'user_created');
+
+  if (!hasMatchType) {
+    console.log('Adding match_type column to category_rules table...');
+    db.exec("ALTER TABLE category_rules ADD COLUMN match_type TEXT DEFAULT 'regex'");
+    columnsAdded = true;
+  }
+
+  if (!hasUserCreated) {
+    console.log('Adding user_created column to category_rules table...');
+    db.exec("ALTER TABLE category_rules ADD COLUMN user_created TEXT DEFAULT 'No'");
+    columnsAdded = true;
+  }
+
   // Update existing categories with default values to have appropriate icons and colors
   const categoriesToUpdate = db.prepare(`
     SELECT name FROM categories
@@ -1131,21 +1148,47 @@ function autoCategorizeTransaction(transaction, categorizationData, skipSavingMa
       }
     }
 
-    // STEP 2: Pattern matching (regex rules) - 85% confidence
+    // STEP 2: Pattern matching (rules with different match types) - 85% confidence
     for (const rule of categoryRules) {
       try {
-        const regex = new RegExp(rule.pattern, 'i');
-        if (regex.test(merchantName) || regex.test(description)) {
+        let isMatch = false;
+        const matchType = rule.match_type || 'regex'; // Default to regex for backward compatibility
+
+        switch (matchType) {
+          case 'exact':
+            // Exact match (case-insensitive)
+            isMatch =
+              merchantName?.toLowerCase() === rule.pattern.toLowerCase() ||
+              description?.toLowerCase() === rule.pattern.toLowerCase();
+            break;
+
+          case 'partial':
+            // Partial match (case-insensitive)
+            const patternLower = rule.pattern.toLowerCase();
+            isMatch =
+              merchantName?.toLowerCase().includes(patternLower) ||
+              description?.toLowerCase().includes(patternLower);
+            break;
+
+          case 'regex':
+          default:
+            // Regex match
+            const regex = new RegExp(rule.pattern, 'i');
+            isMatch = regex.test(merchantName) || regex.test(description);
+            break;
+        }
+
+        if (isMatch) {
           if (merchantName && !skipSavingMappings) {
             saveMerchantMapping(merchantName, rule.category);
           }
           if (process.env.DEBUG_CATEGORIZATION) {
-            console.log(`     ✓ Pattern match: "${rule.category}" (85%)`);
+            console.log(`     ✓ Pattern match (${matchType}): "${rule.category}" (85%)`);
           }
           return { category: rule.category, confidence: 85 };
         }
       } catch (e) {
-        console.warn(`Invalid regex pattern in rule "${rule.name}": ${rule.pattern}`);
+        console.warn(`Invalid pattern in rule "${rule.name}": ${rule.pattern}`, e);
       }
     }
 
@@ -1823,6 +1866,74 @@ export function savePlaidCategoryMapping(plaidCategory, userCategory) {
     VALUES (?, ?, 'Yes')
   `);
   stmt.run(plaidCategory, userCategory);
+}
+
+export function createCategoryRule(name, pattern, category, matchType = 'regex', userCreated = 'Yes') {
+  const stmt = db.prepare(`
+    INSERT INTO category_rules (name, pattern, category, match_type, user_created, enabled)
+    VALUES (?, ?, ?, ?, ?, 'Yes')
+  `);
+  const result = stmt.run(name, pattern, category, matchType, userCreated);
+  return result.lastInsertRowid;
+}
+
+export function updateCategoryRule(id, name, pattern, category, matchType, enabled = 'Yes') {
+  const stmt = db.prepare(`
+    UPDATE category_rules
+    SET name = ?, pattern = ?, category = ?, match_type = ?, enabled = ?
+    WHERE id = ?
+  `);
+  stmt.run(name, pattern, category, matchType, enabled, id);
+}
+
+export function deleteCategoryRule(id) {
+  const stmt = db.prepare('DELETE FROM category_rules WHERE id = ?');
+  stmt.run(id);
+}
+
+export function previewRuleMatches(pattern, matchType) {
+  let query;
+
+  switch (matchType) {
+    case 'exact':
+      // Exact match on merchant_name or description
+      query = db.prepare(`
+        SELECT * FROM transactions
+        WHERE merchant_name = ? OR description = ?
+        ORDER BY date DESC
+        LIMIT 100
+      `);
+      return query.all(pattern, pattern);
+
+    case 'partial':
+      // Case-insensitive partial match
+      const likePattern = `%${pattern}%`;
+      query = db.prepare(`
+        SELECT * FROM transactions
+        WHERE merchant_name LIKE ? OR description LIKE ?
+        ORDER BY date DESC
+        LIMIT 100
+      `);
+      return query.all(likePattern, likePattern);
+
+    case 'regex':
+    default:
+      // Regex match - fetch all transactions and filter in JavaScript
+      const allTransactions = db.prepare(`
+        SELECT * FROM transactions
+        ORDER BY date DESC
+      `).all();
+
+      try {
+        const regex = new RegExp(pattern, 'i');
+        return allTransactions.filter(t =>
+          regex.test(t.merchant_name || '') || regex.test(t.description || '')
+        ).slice(0, 100);
+      } catch (error) {
+        console.error('Invalid regex pattern:', error);
+        return [];
+      }
+  }
 }
 
 // ============================================================================
