@@ -810,6 +810,125 @@ RESPONSE FORMAT (JSON only):
     }
 
     /**
+     * Generate the best emoji for a category using AI
+     * @param {string} categoryName - The name of the category
+     * @param {string} description - Optional description of the category
+     * @returns {Promise<string>} - A single emoji character
+     */
+    async suggestEmojiForCategory(categoryName, description = '') {
+        if (!this.isOllamaAvailable) {
+            console.log('⚠️  AI not available for emoji suggestion, using fallback');
+            return this.fallbackEmojiForCategory(categoryName);
+        }
+
+        try {
+            const prompt = `You are an emoji suggestion assistant. Given a category name and optional description, respond with ONLY a single emoji character that best represents the category. No text, no explanation, just the emoji.
+
+Category Name: ${categoryName}
+${description ? `Description: ${description}` : ''}
+
+Examples:
+- Category: "Groceries" → 🛒
+- Category: "Restaurants" → 🍽️
+- Category: "Gas" → ⛽
+- Category: "Shopping" → 🛍️
+- Category: "Entertainment" → 🎬
+- Category: "Healthcare" → 🏥
+- Category: "Travel" → ✈️
+- Category: "Bills & Utilities" → 💡
+
+Now suggest the best emoji for: ${categoryName}`;
+
+            const response = await fetch(`${this.ollamaUrl}/api/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: this.modelName,
+                    prompt: prompt,
+                    stream: false,
+                    keep_alive: "2m",
+                    options: {
+                        temperature: 0.3,  // Slightly higher for creativity
+                        num_predict: 10    // Very short response
+                    }
+                }),
+                signal: AbortSignal.timeout(10000),  // 10 second timeout
+                agent: this.httpAgent
+            });
+
+            if (!response.ok) {
+                throw new Error(`Ollama API error: ${response.status}`);
+            }
+
+            const result = await response.json();
+            const emojiResponse = result.response?.trim() || '';
+
+            // Extract just the emoji (first character that's an emoji)
+            const emojiMatch = emojiResponse.match(/[\p{Emoji}\u200D]+/u);
+            if (emojiMatch) {
+                console.log(`✨ AI suggested emoji for "${categoryName}": ${emojiMatch[0]}`);
+                return emojiMatch[0];
+            }
+
+            console.log('⚠️  No valid emoji in AI response, using fallback');
+            return this.fallbackEmojiForCategory(categoryName);
+        } catch (error) {
+            console.error('Error generating emoji with AI:', error.message);
+            return this.fallbackEmojiForCategory(categoryName);
+        }
+    }
+
+    /**
+     * Fallback emoji suggestion based on category name
+     */
+    fallbackEmojiForCategory(categoryName) {
+        const name = categoryName.toLowerCase();
+        const emojiMap = {
+            'groceries': '🛒',
+            'food': '🍔',
+            'restaurants': '🍽️',
+            'dining': '🍽️',
+            'gas': '⛽',
+            'fuel': '⛽',
+            'shopping': '🛍️',
+            'entertainment': '🎬',
+            'movies': '🎬',
+            'healthcare': '🏥',
+            'medical': '🏥',
+            'health': '🏥',
+            'travel': '✈️',
+            'vacation': '🏖️',
+            'bills': '💡',
+            'utilities': '💡',
+            'rent': '🏠',
+            'housing': '🏠',
+            'transportation': '🚗',
+            'car': '🚗',
+            'insurance': '🛡️',
+            'fitness': '💪',
+            'gym': '🏋️',
+            'education': '📚',
+            'school': '🎓',
+            'pets': '🐾',
+            'subscriptions': '📺',
+            'clothing': '👕',
+            'gifts': '🎁',
+            'charity': '❤️',
+            'transfer': '🔄',
+            'income': '💰',
+            'salary': '💵'
+        };
+
+        for (const [keyword, emoji] of Object.entries(emojiMap)) {
+            if (name.includes(keyword)) {
+                return emoji;
+            }
+        }
+
+        return '📁';  // Default folder emoji
+    }
+
+    /**
      * Cleanup resources - called on server shutdown
      */
     async cleanup() {

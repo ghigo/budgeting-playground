@@ -235,7 +235,18 @@ app.post('/api/categories', async (req, res) => {
       return res.status(400).json({ error: 'Category name is required' });
     }
 
-    const result = database.addCategory(name, parent_category, icon, color, description);
+    // Use AI to suggest emoji if no icon provided
+    let categoryIcon = icon;
+    if (!categoryIcon) {
+      try {
+        categoryIcon = await aiCategorization.suggestEmojiForCategory(name, description);
+      } catch (error) {
+        console.error('Error generating emoji with AI:', error.message);
+        // Will fall back to suggestIconForCategory in database.addCategory
+      }
+    }
+
+    const result = database.addCategory(name, parent_category, categoryIcon, color, description);
     res.json(result);
   } catch (error) {
     console.error('Error adding category:', error);
