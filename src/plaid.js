@@ -157,6 +157,24 @@ export async function getAccounts(accessToken) {
 }
 
 /**
+ * Refresh transactions - forces Plaid to fetch latest data from institution
+ * This can take a while as Plaid pulls new historical data
+ */
+export async function refreshTransactions(accessToken) {
+  try {
+    console.log('  🔄 Requesting Plaid to refresh transaction data from institution...');
+    const response = await plaidClient.transactionsRefresh({
+      access_token: accessToken,
+    });
+    console.log('  ✓ Refresh initiated. Plaid will pull latest data from institution.');
+    return response.data;
+  } catch (error) {
+    console.error('Error refreshing transactions:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+/**
  * Get transactions for a date range
  */
 export async function getTransactions(accessToken, startDate, endDate) {

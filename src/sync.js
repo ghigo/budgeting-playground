@@ -337,15 +337,24 @@ export async function backfillHistoricalTransactions() {
     const maxRetries = 4;
     const retryDelays = [5000, 10000, 15000, 20000]; // 5s, 10s, 15s, 20s
 
+    console.log(`📊 Backfilling ${item.institution_name}...`);
+    console.log(`   Date range: ${startDate} to ${endDate}`);
+
+    // First, tell Plaid to refresh data from the institution
+    try {
+      await plaid.refreshTransactions(item.access_token);
+      console.log('  ⏳ Waiting 10 seconds for Plaid to fetch fresh data from institution...');
+      await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+    } catch (refreshError) {
+      console.warn(`  ⚠️  Refresh request failed (continuing anyway): ${refreshError.message}`);
+    }
+
     for (let attempt = 0; attempt < maxRetries && !backfillSuccessful; attempt++) {
       try {
         if (attempt > 0) {
           console.log(`   ⏳ Waiting before retry... (attempt ${attempt + 1}/${maxRetries})`);
           await new Promise(resolve => setTimeout(resolve, retryDelays[attempt - 1]));
         }
-
-        console.log(`📊 Backfilling ${item.institution_name}...`);
-        console.log(`   Date range: ${startDate} to ${endDate}`);
 
         const result = await plaid.getTransactions(item.access_token, startDate, endDate);
 
