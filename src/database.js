@@ -1912,10 +1912,10 @@ export function previewRuleMatches(pattern, matchType) {
 
   switch (matchType) {
     case 'exact':
-      // Exact match on merchant_name or description
+      // Exact match on merchant_name or description (case-insensitive)
       query = db.prepare(`
         SELECT * FROM transactions
-        WHERE merchant_name = ? OR description = ?
+        WHERE merchant_name = ? COLLATE NOCASE OR description = ? COLLATE NOCASE
         ORDER BY date DESC
         LIMIT 100
       `);
