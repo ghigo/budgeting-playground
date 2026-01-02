@@ -394,8 +394,10 @@
             <div class="page" id="link-page">
                 <div class="page-header">
                     <h2>Link Bank Account</h2>
-                    <p>Connect your bank account via Plaid</p>
+                    <p>Connect your bank account or import transactions</p>
                 </div>
+
+                <!-- Plaid Integration -->
                 <div class="card centered">
                     <div class="link-account-content">
                         <div class="icon-large">🏦</div>
@@ -407,6 +409,30 @@
                         </button>
                         <div id="linkStatus" class="status-message"></div>
                     </div>
+                </div>
+
+                <!-- Copilot Import -->
+                <div class="card" style="margin-top: 2rem;">
+                    <h3 style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-size: 1.5rem;">📊</span>
+                        Import from Copilot
+                    </h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+                        Import your transaction history from Copilot Money app by uploading a CSV export file.
+                    </p>
+                    <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 200px;">
+                            <label for="copilotFileInput" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">
+                                Select Copilot CSV File
+                            </label>
+                            <input type="file"
+                                   id="copilotFileInput"
+                                   accept=".csv"
+                                   onchange="handleCopilotFileUpload(event)"
+                                   style="display: block; width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 4px; background: white;">
+                        </div>
+                    </div>
+                    <div id="copilotImportStatus" style="margin-top: 1rem;"></div>
                 </div>
             </div>
 

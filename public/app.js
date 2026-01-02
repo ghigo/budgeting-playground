@@ -383,6 +383,75 @@ async function backfillHistoricalTransactions() {
     }
 }
 
+// ============================================================================
+// COPILOT CSV IMPORT
+// ============================================================================
+
+async function handleCopilotFileUpload(event) {
+    const file = event.target.files[0];
+
+    if (!file) {
+        return;
+    }
+
+    if (!file.name.endsWith('.csv')) {
+        showToast('Please upload a CSV file', 'error');
+        return;
+    }
+
+    showLoading();
+    showToast('Uploading and processing Copilot transactions...', 'info');
+
+    try {
+        const csvContent = await file.text();
+
+        const result = await fetchAPI('/api/copilot/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/plain'
+            },
+            body: csvContent
+        });
+
+        if (result.success) {
+            const statusEl = document.getElementById('copilotImportStatus');
+            statusEl.innerHTML = `
+                <div style="padding: 1rem; background: #d1fae5; border: 1px solid #10b981; border-radius: 6px; color: #065f46;">
+                    <strong style="display: block; margin-bottom: 0.5rem;">✓ Import Successful!</strong>
+                    <div style="font-size: 0.9rem;">
+                        • ${result.imported} transactions imported<br>
+                        • ${result.skipped || 0} transactions skipped (duplicates)<br>
+                        • ${result.categoriesCreated || 0} new categories created
+                    </div>
+                </div>
+            `;
+
+            showToast(`Successfully imported ${result.imported} transactions from Copilot!`, 'success');
+
+            // Clear the file input
+            event.target.value = '';
+
+            // Emit events to update all views
+            eventBus.emit('transactionsUpdated');
+            eventBus.emit('categoriesUpdated');
+        } else {
+            throw new Error(result.error || 'Import failed');
+        }
+    } catch (error) {
+        console.error('Error importing Copilot CSV:', error);
+        const statusEl = document.getElementById('copilotImportStatus');
+        statusEl.innerHTML = `
+            <div style="padding: 1rem; background: #fee2e2; border: 1px solid #dc2626; border-radius: 6px; color: #991b1b;">
+                <strong>✗ Import Failed</strong><br>
+                <span style="font-size: 0.9rem;">${error.message}</span>
+            </div>
+        `;
+        showToast('Import failed: ' + error.message, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
 // Note: fetchAPI is now imported from services/api.js
 // Note: formatCurrency, formatDate, escapeHtml, renderCategoryBadge,
 // getContrastColor, showLoading, hideLoading are imported from utils/formatters.js
@@ -606,6 +675,7 @@ async function saveSheetConfig() {
 
 // Navigation
 window.navigateTo = navigateTo;
+window.handleCopilotFileUpload = handleCopilotFileUpload;
 
 // Note: Transaction functions now exposed in pages/TransactionsPage.js
 // Note: Amazon functions now exposed in pages/AmazonPage.js

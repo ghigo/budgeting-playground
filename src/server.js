@@ -10,6 +10,7 @@ import { plaidEnvironment } from './plaid.js';
 import * as sync from './sync.js';
 import * as sheets from './sheets.js';
 import * as amazon from './amazon.js';
+import * as copilot from './copilot.js';
 import aiCategorization from '../services/aiCategorizationService.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1313,6 +1314,35 @@ app.get('/api/transactions/with-splits', (req, res) => {
     res.json(transactions);
   } catch (error) {
     console.error('Error getting transactions with splits:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// COPILOT IMPORT ENDPOINTS
+// ============================================================================
+
+// Import transactions from Copilot Money CSV export
+app.post('/api/copilot/import', express.text({ limit: '10mb' }), async (req, res) => {
+  try {
+    const csvContent = req.body;
+
+    if (!csvContent || csvContent.trim().length === 0) {
+      return res.status(400).json({ error: 'No CSV content provided' });
+    }
+
+    // Import transactions from CSV
+    const importResult = copilot.importCopilotTransactionsFromCSV(csvContent);
+
+    res.json({
+      success: true,
+      imported: importResult.imported,
+      skipped: importResult.skipped,
+      total: importResult.total,
+      categoriesCreated: importResult.categoriesCreated
+    });
+  } catch (error) {
+    console.error('Error importing Copilot transactions:', error);
     res.status(500).json({ error: error.message });
   }
 });
