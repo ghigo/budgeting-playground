@@ -973,24 +973,27 @@ Base your emoji suggestions primarily on the category name "${categoryName}".
 
 CRITICAL INSTRUCTIONS:
 - Respond with EXACTLY ${count} different emoji characters separated by spaces
-- Use ONLY simple base emojis (no skin tones, no compound emojis, no ZWJ sequences)
+- Use ONLY SIMPLE SINGLE emojis (like 🍎 🚗 ⭐ 🏠 🎨)
+- NEVER use family emojis, people combinations, or multi-person emojis
+- NEVER use skin tones or gender variants (NO 👨‍👩‍👧, NO 👶🏻, NO 👩‍🦰)
+- NEVER use compound emojis with zero-width joiners
 - NO text, NO explanation, NO punctuation, NO bullet points, NO dashes, NO newlines
-- JUST the emojis separated by spaces
+- JUST ${count} simple emojis separated by spaces
 
-Good examples:
+Good examples (SIMPLE objects, animals, symbols):
 🛒 🍎 🥦
 🍽️ 🍕 🍔
 ☕ 🍵 🥤
+🏠 🔑 🚗
+🎨 ✏️ 📐
 
-Bad examples (DO NOT DO THIS):
-- 🛒 🍎 🥦
-* 🛒 🍎 🥦
-1. 🛒 2. 🍎 3. 🥦
-🛒
-🍎
-🥦
+Bad examples (DO NOT USE THESE):
+👨‍👩‍👧‍👦 (family - too complex)
+👶🏻 (skin tone - not allowed)
+👩‍🦰 (person variant - not allowed)
+- 🛒 🍎 (formatting - not allowed)
 
-${count} emojis for "${categoryName}":`;
+${count} SIMPLE emojis for "${categoryName}":`;
 
             if (debug) {
                 console.log('\n--- PROMPT ---');
@@ -1009,7 +1012,7 @@ ${count} emojis for "${categoryName}":`;
                     stream: false,
                     keep_alive: "2m",
                     options: {
-                        temperature: 0.7,  // Higher for more variety
+                        temperature: 0.3,  // Lower for more consistent simple emojis
                         num_predict: 30    // Enough for multiple emojis
                     }
                 }),
@@ -1100,10 +1103,10 @@ ${count} emojis for "${categoryName}":`;
         // Combine primary with related, ensure we have enough
         const suggestions = [primaryEmoji, ...relatedEmojis].slice(0, count);
 
-        // Fill with better varied defaults if not enough
+        // Fill with colored circle defaults if not enough (grey first, then colors)
         while (suggestions.length < count) {
-            // More varied and visually appealing defaults
-            const defaults = ['⭐', '✨', '💫', '🌟', '💎', '🎯', '🎨', '🌈', '🔥', '💡'];
+            // Grey first, then color circles
+            const defaults = ['⚪', '🔵', '🟢', '🟡', '🔴', '🟣', '🟠', '⚫'];
             const index = suggestions.length % defaults.length;
             // Make sure we don't add duplicates
             if (!suggestions.includes(defaults[index])) {
@@ -1187,8 +1190,8 @@ ${count} emojis for "${categoryName}":`;
             }
         }
 
-        // Better varied defaults instead of office icons
-        return ['💫', '✨'];
+        // Grey and color circles as defaults
+        return ['🔵', '🟢'];
     }
 
     /**
@@ -1274,7 +1277,7 @@ ${count} emojis for "${categoryName}":`;
             }
         }
 
-        return '💫';  // Better default than folder
+        return '⚪';  // Grey circle as default
     }
 
     /**
