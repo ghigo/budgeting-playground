@@ -742,6 +742,27 @@
         </div>
     </div>
 
+    <!-- Copilot Category Mapping Modal -->
+    <div id="copilotMappingModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 700px;">
+            <div class="modal-header">
+                <h3>📊 Map Copilot Categories</h3>
+                <button class="modal-close" onclick="closeCopilotMappingModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 1.5rem; color: #666;">
+                    The following categories from your Copilot export don't exist in your app.
+                    Please map them to existing categories or leave blank to import without a category.
+                </p>
+                <div id="categoryMappingList"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCopilotMappingModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="completeCopilotImport()">Import Transactions</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Google Sheets Configuration Modal -->
     <div id="sheetsConfigModal" class="modal" style="display: none;">
         <div class="modal-content">

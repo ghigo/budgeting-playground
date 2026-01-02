@@ -158,14 +158,69 @@ function standardizeDate(dateStr) {
 }
 
 /**
- * Import Copilot transactions from CSV
+ * Analyze Copilot CSV and detect unmapped categories
  */
-export function importCopilotTransactionsFromCSV(csvContent) {
+export function analyzeCopilotCSV(csvContent) {
+    const parsedTransactions = parseCopilotCSV(csvContent);
+
+    // Get all existing categories
+    const existingCategories = database.getCategories();
+    const existingCategoryNames = new Set(existingCategories.map(c => c.name));
+
+    // Collect unique categories from Copilot that don't exist
+    const unmappedCategories = new Map(); // copilotCategory -> { count, sampleTransactions }
+
+    for (const transaction of parsedTransactions) {
+        if (transaction.category) {
+            // Check if category exists (case-insensitive)
+            const categoryExists = Array.from(existingCategoryNames).some(
+                existing => existing.toLowerCase() === transaction.category.toLowerCase()
+            );
+
+            if (!categoryExists) {
+                if (!unmappedCategories.has(transaction.category)) {
+                    unmappedCategories.set(transaction.category, {
+                        count: 0,
+                        sampleTransactions: []
+                    });
+                }
+                const categoryData = unmappedCategories.get(transaction.category);
+                categoryData.count++;
+                if (categoryData.sampleTransactions.length < 3) {
+                    categoryData.sampleTransactions.push({
+                        description: transaction.description,
+                        amount: transaction.amount,
+                        date: transaction.date
+                    });
+                }
+            }
+        }
+    }
+
+    // Convert to array for easier frontend handling
+    const unmappedList = Array.from(unmappedCategories.entries()).map(([category, data]) => ({
+        copilotCategory: category,
+        count: data.count,
+        sampleTransactions: data.sampleTransactions
+    }));
+
+    return {
+        totalTransactions: parsedTransactions.length,
+        unmappedCategories: unmappedList,
+        needsMapping: unmappedList.length > 0
+    };
+}
+
+/**
+ * Import Copilot transactions with category mappings
+ * @param {string} csvContent - CSV file content
+ * @param {Object} categoryMappings - Map of copilotCategory -> appCategory (or null to skip)
+ */
+export function importCopilotTransactionsWithMappings(csvContent, categoryMappings = {}) {
     const parsedTransactions = parseCopilotCSV(csvContent);
 
     let importedCount = 0;
     let skippedCount = 0;
-    const categoriesCreated = new Set();
 
     for (const transaction of parsedTransactions) {
         try {
@@ -190,42 +245,26 @@ export function importCopilotTransactionsFromCSV(csvContent) {
                 continue;
             }
 
-            // Create category if it doesn't exist and is provided
+            // Apply category mapping if category is provided
+            let finalCategory = null;
+            let confidence = 0;
+
             if (transaction.category) {
-                try {
-                    // Handle parent > child category structure
-                    const parts = transaction.category.split('>').map(p => p.trim());
-
-                    if (parts.length === 2) {
-                        // Ensure parent exists first
-                        try {
-                            database.addCategory(parts[0], null);
-                            categoriesCreated.add(parts[0]);
-                        } catch (error) {
-                            // Parent might already exist
-                        }
-
-                        // Then create child
-                        try {
-                            database.addCategory(parts[1], parts[0]);
-                            categoriesCreated.add(parts[1]);
-                        } catch (error) {
-                            // Child might already exist
-                        }
-
-                        // Use child as the category
-                        transaction.category = parts[1];
-                    } else {
-                        // Single category
-                        try {
-                            database.addCategory(transaction.category, null);
-                            categoriesCreated.add(transaction.category);
-                        } catch (error) {
-                            // Category might already exist
-                        }
+                // Check if we have a mapping for this category
+                if (categoryMappings[transaction.category]) {
+                    finalCategory = categoryMappings[transaction.category];
+                    confidence = 95; // High confidence from Copilot mapping
+                } else {
+                    // Check if category exists in app (case-insensitive)
+                    const existingCategories = database.getCategories();
+                    const matchingCategory = existingCategories.find(
+                        c => c.name.toLowerCase() === transaction.category.toLowerCase()
+                    );
+                    if (matchingCategory) {
+                        finalCategory = matchingCategory.name;
+                        confidence = 95;
                     }
-                } catch (error) {
-                    console.warn(`Error creating category "${transaction.category}":`, error.message);
+                    // If no mapping and doesn't exist, leave as null
                 }
             }
 
@@ -244,10 +283,10 @@ export function importCopilotTransactionsFromCSV(csvContent) {
                 transaction.merchant_name,
                 transaction.account_name,
                 transaction.amount,
-                transaction.category,
+                finalCategory,
                 transaction.pending,
                 transaction.verified,
-                transaction.confidence,
+                confidence,
                 transaction.notes,
                 transaction.payment_channel,
                 transaction.created_at
@@ -263,7 +302,6 @@ export function importCopilotTransactionsFromCSV(csvContent) {
     return {
         imported: importedCount,
         skipped: skippedCount,
-        total: parsedTransactions.length,
-        categoriesCreated: categoriesCreated.size
+        total: parsedTransactions.length
     };
 }

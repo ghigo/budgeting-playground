@@ -1322,8 +1322,8 @@ app.get('/api/transactions/with-splits', (req, res) => {
 // COPILOT IMPORT ENDPOINTS
 // ============================================================================
 
-// Import transactions from Copilot Money CSV export
-app.post('/api/copilot/import', express.text({ limit: '10mb' }), async (req, res) => {
+// Analyze Copilot CSV and detect unmapped categories
+app.post('/api/copilot/analyze', express.text({ limit: '10mb' }), async (req, res) => {
   try {
     const csvContent = req.body;
 
@@ -1331,15 +1331,36 @@ app.post('/api/copilot/import', express.text({ limit: '10mb' }), async (req, res
       return res.status(400).json({ error: 'No CSV content provided' });
     }
 
-    // Import transactions from CSV
-    const importResult = copilot.importCopilotTransactionsFromCSV(csvContent);
+    // Analyze CSV for unmapped categories
+    const analysis = copilot.analyzeCopilotCSV(csvContent);
+
+    res.json({
+      success: true,
+      ...analysis
+    });
+  } catch (error) {
+    console.error('Error analyzing Copilot CSV:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Import transactions from Copilot Money CSV export with category mappings
+app.post('/api/copilot/import', express.json({ limit: '10mb' }), async (req, res) => {
+  try {
+    const { csvContent, categoryMappings } = req.body;
+
+    if (!csvContent || csvContent.trim().length === 0) {
+      return res.status(400).json({ error: 'No CSV content provided' });
+    }
+
+    // Import transactions with category mappings
+    const importResult = copilot.importCopilotTransactionsWithMappings(csvContent, categoryMappings || {});
 
     res.json({
       success: true,
       imported: importResult.imported,
       skipped: importResult.skipped,
-      total: importResult.total,
-      categoriesCreated: importResult.categoriesCreated
+      total: importResult.total
     });
   } catch (error) {
     console.error('Error importing Copilot transactions:', error);
