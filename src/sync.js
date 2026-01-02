@@ -409,6 +409,26 @@ export async function backfillHistoricalTransactions() {
         // Check if this is a PRODUCT_NOT_READY error
         const errorCode = error.response?.data?.error_code;
         const errorMessage = error.response?.data?.error_message || error.message;
+        const errorType = error.response?.data?.error_type;
+
+        // Log detailed error information for debugging
+        if (errorCode) {
+          console.error(`  ❌ Plaid Error Details:`);
+          console.error(`     - Error Code: ${errorCode}`);
+          console.error(`     - Error Type: ${errorType}`);
+          console.error(`     - Message: ${errorMessage}`);
+
+          // Provide helpful guidance for common errors
+          if (errorCode === 'INSTITUTION_NOT_AVAILABLE' || errorCode === 'INSTITUTION_NOT_SUPPORTED') {
+            console.error(`     ⚠️  This institution may not be enabled in your Plaid account`);
+            console.error(`     ℹ️  Check: https://dashboard.plaid.com → Account → Institutions`);
+          } else if (errorCode === 'INVALID_CREDENTIALS' || errorCode === 'ITEM_LOGIN_REQUIRED') {
+            console.error(`     ⚠️  Account authentication issue - user may need to re-link`);
+          } else if (errorCode === 'INSTITUTION_REGISTRATION_REQUIRED') {
+            console.error(`     ⚠️  This institution requires additional Plaid approval`);
+            console.error(`     ℹ️  Request access in Plaid Dashboard → Institutions`);
+          }
+        }
 
         if (errorCode === 'PRODUCT_NOT_READY' && attempt < maxRetries - 1) {
           // Retry for PRODUCT_NOT_READY
