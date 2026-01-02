@@ -840,7 +840,9 @@ RESPONSE FORMAT (JSON only):
 **Category Name (MOST IMPORTANT):** ${categoryName}
 ${description ? `Additional context: ${description}` : ''}
 
-Base your emoji suggestion primarily on the category name "${categoryName}". Respond with ONLY a single emoji character. No text, no explanation.
+Base your emoji suggestion primarily on the category name "${categoryName}".
+
+CRITICAL: Respond with ONLY ONE single simple emoji character. No text, no explanation, no multiple emojis, just ONE emoji.
 
 Examples:
 - "Groceries" → 🛒
@@ -852,7 +854,7 @@ Examples:
 - "Healthcare" → 🏥
 - "Travel" → ✈️
 
-Emoji for "${categoryName}":`;
+ONE single emoji for "${categoryName}":`;
 
             if (debug) {
                 console.log('\n--- PROMPT ---');
@@ -951,17 +953,19 @@ Emoji for "${categoryName}":`;
 **Category Name (MOST IMPORTANT):** ${categoryName}
 ${description ? `Additional context: ${description}` : ''}
 
-Base your emoji suggestions primarily on the category name "${categoryName}". Respond with EXACTLY ${count} different emoji characters separated by spaces. No text, no explanation.
+Base your emoji suggestions primarily on the category name "${categoryName}".
+
+CRITICAL: Respond with EXACTLY ${count} different SINGLE simple emoji characters separated by spaces. Each emoji must be ONE character only. No text, no explanation, no compound emojis.
 
 Examples:
 - "Groceries" → 🛒 🍎 🥦
 - "Restaurants" → 🍽️ 🍕 🍔
-- "Coffee" → ☕ 🍵 ☕
+- "Coffee" → ☕ 🍵 🥤
 - "Shopping" → 🛍️ 🛒 💳
 - "Entertainment" → 🎬 🎮 🎭
 - "Healthcare" → 🏥 💊 🩺
 
-${count} emojis for "${categoryName}":`;
+${count} single emojis for "${categoryName}":`;
 
             if (debug) {
                 console.log('\n--- PROMPT ---');
