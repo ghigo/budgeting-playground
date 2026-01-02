@@ -818,15 +818,19 @@ RESPONSE FORMAT (JSON only):
     async suggestEmojiForCategory(categoryName, description = '') {
         const debug = process.env.DEBUG_EMOJI_GENERATION || process.env.DEBUG_CATEGORIZATION;
 
+        console.log(`[Emoji Service] Generating single emoji for category: "${categoryName}"`);
         if (debug) {
             console.log('\n--- EMOJI GENERATION (Single) ---');
             console.log(`Category: "${categoryName}"`);
             if (description) console.log(`Description: "${description}"`);
         }
 
+        console.log(`[Emoji Service] Ollama available: ${this.isOllamaAvailable}`);
         if (!this.isOllamaAvailable) {
+            console.log('[Emoji Service] Using fallback emoji generation');
             if (debug) console.log('⚠️  AI not available, using fallback');
             const fallbackEmoji = this.fallbackEmojiForCategory(categoryName);
+            console.log(`[Emoji Service] Fallback result: ${fallbackEmoji}`);
             if (debug) {
                 console.log(`Fallback emoji: ${fallbackEmoji}`);
                 console.log('--- END EMOJI GENERATION ---\n');
@@ -862,6 +866,7 @@ ONE single emoji for "${categoryName}":`;
                 console.log('--- END PROMPT ---\n');
             }
 
+            console.log(`[Emoji Service] Calling Ollama API at ${this.ollamaUrl}...`);
             const startTime = Date.now();
             const response = await fetch(`${this.ollamaUrl}/api/generate`, {
                 method: 'POST',
@@ -881,6 +886,7 @@ ONE single emoji for "${categoryName}":`;
             });
 
             if (!response.ok) {
+                console.error(`[Emoji Service] Ollama API error: ${response.status}`);
                 throw new Error(`Ollama API error: ${response.status}`);
             }
 
@@ -888,6 +894,7 @@ ONE single emoji for "${categoryName}":`;
             const duration = Date.now() - startTime;
             const emojiResponse = result.response?.trim() || '';
 
+            console.log(`[Emoji Service] AI responded in ${duration}ms: "${emojiResponse}"`);
             if (debug) {
                 console.log(`AI response (${duration}ms): "${emojiResponse}"`);
             }
@@ -895,6 +902,7 @@ ONE single emoji for "${categoryName}":`;
             // Extract just the emoji (first character that's an emoji)
             const emojiMatch = emojiResponse.match(/[\p{Emoji}\u200D]+/u);
             if (emojiMatch) {
+                console.log(`[Emoji Service] Successfully extracted emoji: ${emojiMatch[0]}`);
                 if (debug) {
                     console.log(`✨ Extracted emoji: ${emojiMatch[0]}`);
                     console.log('--- END EMOJI GENERATION ---\n');
@@ -902,16 +910,20 @@ ONE single emoji for "${categoryName}":`;
                 return emojiMatch[0];
             }
 
+            console.warn('[Emoji Service] No valid emoji in AI response, using fallback');
             if (debug) console.log('⚠️  No valid emoji in response, using fallback');
             const fallbackEmoji = this.fallbackEmojiForCategory(categoryName);
+            console.log(`[Emoji Service] Fallback result: ${fallbackEmoji}`);
             if (debug) {
                 console.log(`Fallback emoji: ${fallbackEmoji}`);
                 console.log('--- END EMOJI GENERATION ---\n');
             }
             return fallbackEmoji;
         } catch (error) {
+            console.error(`[Emoji Service] Error generating emoji: ${error.message}`);
             if (debug) console.error('Error:', error.message);
             const fallbackEmoji = this.fallbackEmojiForCategory(categoryName);
+            console.log(`[Emoji Service] Fallback result: ${fallbackEmoji}`);
             if (debug) {
                 console.log(`Fallback emoji: ${fallbackEmoji}`);
                 console.log('--- END EMOJI GENERATION ---\n');
@@ -930,6 +942,7 @@ ONE single emoji for "${categoryName}":`;
     async suggestMultipleEmojis(categoryName, description = '', count = 3) {
         const debug = process.env.DEBUG_EMOJI_GENERATION || process.env.DEBUG_CATEGORIZATION;
 
+        console.log(`[Emoji Service] Generating ${count} emojis for category: "${categoryName}"`);
         if (debug) {
             console.log('\n--- EMOJI GENERATION (Multiple) ---');
             console.log(`Category: "${categoryName}"`);
@@ -937,9 +950,12 @@ ONE single emoji for "${categoryName}":`;
             console.log(`Count: ${count}`);
         }
 
+        console.log(`[Emoji Service] Ollama available: ${this.isOllamaAvailable}`);
         if (!this.isOllamaAvailable) {
+            console.log('[Emoji Service] Using fallback emoji generation');
             if (debug) console.log('⚠️  AI not available, using fallback');
             const fallbackEmojis = this.fallbackMultipleEmojis(categoryName, count);
+            console.log(`[Emoji Service] Fallback result: ${fallbackEmojis.join(' ')}`);
             if (debug) {
                 console.log(`Fallback emojis: ${fallbackEmojis.join(' ')}`);
                 console.log('--- END EMOJI GENERATION ---\n');
@@ -973,6 +989,7 @@ ${count} single emojis for "${categoryName}":`;
                 console.log('--- END PROMPT ---\n');
             }
 
+            console.log(`[Emoji Service] Calling Ollama API at ${this.ollamaUrl}...`);
             const startTime = Date.now();
             const response = await fetch(`${this.ollamaUrl}/api/generate`, {
                 method: 'POST',
@@ -992,6 +1009,7 @@ ${count} single emojis for "${categoryName}":`;
             });
 
             if (!response.ok) {
+                console.error(`[Emoji Service] Ollama API error: ${response.status}`);
                 throw new Error(`Ollama API error: ${response.status}`);
             }
 
@@ -999,6 +1017,7 @@ ${count} single emojis for "${categoryName}":`;
             const duration = Date.now() - startTime;
             const emojiResponse = result.response?.trim() || '';
 
+            console.log(`[Emoji Service] AI responded in ${duration}ms: "${emojiResponse}"`);
             if (debug) {
                 console.log(`AI response (${duration}ms): "${emojiResponse}"`);
             }
@@ -1007,6 +1026,7 @@ ${count} single emojis for "${categoryName}":`;
             const emojiMatches = emojiResponse.match(/[\p{Emoji}\u200D]+/gu);
             if (emojiMatches && emojiMatches.length >= count) {
                 const emojis = emojiMatches.slice(0, count);
+                console.log(`[Emoji Service] Successfully extracted ${count} emojis: ${emojis.join(' ')}`);
                 if (debug) {
                     console.log(`✨ Extracted ${count} emojis: ${emojis.join(' ')}`);
                     console.log('--- END EMOJI GENERATION ---\n');
@@ -1014,16 +1034,20 @@ ${count} single emojis for "${categoryName}":`;
                 return emojis;
             }
 
+            console.warn(`[Emoji Service] Only found ${emojiMatches?.length || 0} emojis, needed ${count}. Using fallback`);
             if (debug) console.log('⚠️  Not enough valid emojis in response, using fallback');
             const fallbackEmojis = this.fallbackMultipleEmojis(categoryName, count);
+            console.log(`[Emoji Service] Fallback result: ${fallbackEmojis.join(' ')}`);
             if (debug) {
                 console.log(`Fallback emojis: ${fallbackEmojis.join(' ')}`);
                 console.log('--- END EMOJI GENERATION ---\n');
             }
             return fallbackEmojis;
         } catch (error) {
+            console.error(`[Emoji Service] Error generating emojis: ${error.message}`);
             if (debug) console.error('Error:', error.message);
             const fallbackEmojis = this.fallbackMultipleEmojis(categoryName, count);
+            console.log(`[Emoji Service] Fallback result: ${fallbackEmojis.join(' ')}`);
             if (debug) {
                 console.log(`Fallback emojis: ${fallbackEmojis.join(' ')}`);
                 console.log('--- END EMOJI GENERATION ---\n');
