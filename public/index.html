@@ -680,7 +680,26 @@
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
                     <div class="form-group">
                         <label for="editCategoryIcon">Icon (Emoji):</label>
-                        <input type="text" id="editCategoryIcon" class="form-input" style="width: 100%; padding: 0.75rem; font-size: 1.5rem; text-align: center;" placeholder="📁" maxlength="2">
+                        <div style="display: flex; gap: 0.5rem; align-items: flex-start;">
+                            <input type="text" id="editCategoryIcon" class="form-input" style="flex: 1; padding: 0.75rem; font-size: 1.5rem; text-align: center;" placeholder="📁" maxlength="2">
+                            <button onclick="generateEmojiSuggestions()" class="btn btn-secondary" style="padding: 0.75rem 1rem; white-space: nowrap;" title="Generate AI emoji suggestions">
+                                ✨ AI
+                            </button>
+                        </div>
+                        <div id="emojiSuggestions" style="display: none; margin-top: 0.5rem; padding: 0.75rem; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.5rem;">
+                            <div style="font-size: 0.875rem; color: #666; margin-bottom: 0.5rem;">AI Suggestions:</div>
+                            <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                                <button type="button" class="emoji-suggestion-btn" data-emoji-index="0" onclick="selectSuggestedEmoji(0)" style="font-size: 2rem; padding: 0.5rem 1rem; border: 2px solid #e5e7eb; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s;">
+                                    ?
+                                </button>
+                                <button type="button" class="emoji-suggestion-btn" data-emoji-index="1" onclick="selectSuggestedEmoji(1)" style="font-size: 2rem; padding: 0.5rem 1rem; border: 2px solid #e5e7eb; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s;">
+                                    ?
+                                </button>
+                                <button type="button" class="emoji-suggestion-btn" data-emoji-index="2" onclick="selectSuggestedEmoji(2)" style="font-size: 2rem; padding: 0.5rem 1rem; border: 2px solid #e5e7eb; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s;">
+                                    ?
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="form-group">

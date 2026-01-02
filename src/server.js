@@ -284,6 +284,23 @@ app.delete('/api/categories/:categoryName', async (req, res) => {
   }
 });
 
+// Generate emoji suggestions for a category
+app.post('/api/categories/suggest-emojis', async (req, res) => {
+  try {
+    const { name, description, count = 3 } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Category name is required' });
+    }
+
+    const emojis = await aiCategorization.suggestMultipleEmojis(name, description, count);
+    res.json({ emojis });
+  } catch (error) {
+    console.error('Error generating emoji suggestions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Update multiple transactions with the same category
 // IMPORTANT: This must come BEFORE the :transactionId route to avoid "bulk" being treated as an ID
 app.patch('/api/transactions/bulk/category', async (req, res) => {
