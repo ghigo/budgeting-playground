@@ -262,7 +262,7 @@ export async function linkAccount(publicToken) {
         } else {
           // Non-retryable error or max retries reached
           console.warn(`  ⚠️  Could not fetch historical transactions: ${errorMessage}`);
-          console.log(`  ℹ️  You can use "Backfill History (2yrs)" button later to fetch them`);
+          console.log(`  ℹ️  You can use "Backfill All History" button later to fetch them`);
           break;
         }
       }
