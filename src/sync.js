@@ -243,6 +243,30 @@ export async function linkAccount(publicToken) {
 
         console.log(`  📥 Received ${result.transactions.length} transaction(s) from Plaid`);
 
+        // Debug: Show transaction date range returned by Plaid
+        if (result.transactions.length > 0) {
+          const dates = result.transactions.map(t => t.date).sort();
+          const oldestDate = dates[0];
+          const newestDate = dates[dates.length - 1];
+          console.log(`  📅 Transaction date range: ${oldestDate} to ${newestDate}`);
+          console.log(`  🔍 Requested range: ${startDate} to ${endDate}`);
+
+          // Calculate how much history we got
+          const oldestTransactionDate = new Date(oldestDate);
+          const requestedStartDate = new Date(startDate);
+          const daysDifference = Math.floor((oldestTransactionDate - requestedStartDate) / (1000 * 60 * 60 * 24));
+
+          if (daysDifference > 365) {
+            console.warn(`  ⚠️  Gap detected: Oldest transaction is ${Math.floor(daysDifference / 365)} years newer than requested start date`);
+            console.warn(`  ⚠️  Institution may be limiting available history to ${Math.floor(daysDifference / 365)} years`);
+          }
+        }
+
+        // Debug: Log Plaid response metadata if available
+        if (result.total_transactions !== undefined) {
+          console.log(`  📊 Plaid metadata - Total available: ${result.total_transactions}`);
+        }
+
         // Add account_name to transactions
         for (const transaction of result.transactions) {
           const account = accounts.find(acc => acc.account_id === transaction.account_id);
@@ -327,6 +351,30 @@ export async function backfillHistoricalTransactions() {
 
         console.log(`  📥 Received ${result.transactions.length} transaction(s) from Plaid`);
         console.log(`  📥 Received ${result.accounts.length} account(s) from Plaid`);
+
+        // Debug: Show transaction date range returned by Plaid
+        if (result.transactions.length > 0) {
+          const dates = result.transactions.map(t => t.date).sort();
+          const oldestDate = dates[0];
+          const newestDate = dates[dates.length - 1];
+          console.log(`  📅 Transaction date range: ${oldestDate} to ${newestDate}`);
+          console.log(`  🔍 Requested range: ${startDate} to ${endDate}`);
+
+          // Calculate how much history we got
+          const oldestTransactionDate = new Date(oldestDate);
+          const requestedStartDate = new Date(startDate);
+          const daysDifference = Math.floor((oldestTransactionDate - requestedStartDate) / (1000 * 60 * 60 * 24));
+
+          if (daysDifference > 365) {
+            console.warn(`  ⚠️  Gap detected: Oldest transaction is ${Math.floor(daysDifference / 365)} years newer than requested start date`);
+            console.warn(`  ⚠️  This suggests Plaid/institution is limiting available history`);
+          }
+        }
+
+        // Debug: Log Plaid response metadata if available
+        if (result.total_transactions !== undefined) {
+          console.log(`  📊 Plaid metadata - Total available: ${result.total_transactions}`);
+        }
 
         // Update accounts
         for (const account of result.accounts) {

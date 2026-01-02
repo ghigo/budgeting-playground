@@ -174,6 +174,15 @@ export async function getTransactions(accessToken, startDate, endDate) {
     let transactions = response.data.transactions;
     const totalTransactions = response.data.total_transactions;
 
+    // Debug: Log Plaid API response details
+    console.log(`  🔍 Plaid API Response Debug:`);
+    console.log(`     - Requested dates: ${startDate} to ${endDate}`);
+    console.log(`     - Total transactions available: ${totalTransactions}`);
+    console.log(`     - Transactions in first batch: ${transactions.length}`);
+    if (response.data.request_id) {
+      console.log(`     - Plaid request_id: ${response.data.request_id}`);
+    }
+
     // Fetch additional transactions if there are more than 500
     while (transactions.length < totalTransactions) {
       const paginatedResponse = await plaidClient.transactionsGet({
@@ -191,6 +200,7 @@ export async function getTransactions(accessToken, startDate, endDate) {
     return {
       transactions,
       accounts: response.data.accounts,
+      total_transactions: totalTransactions,
     };
   } catch (error) {
     console.error('Error getting transactions:', error.response?.data || error.message);
