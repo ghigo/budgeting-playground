@@ -1004,7 +1004,7 @@ app.post('/api/sync/:itemId', async (req, res) => {
   }
 });
 
-// Backfill historical transactions (up to 2 years)
+// Backfill all available historical transactions
 app.post('/api/backfill', async (req, res) => {
   try {
     console.log('🔄 Starting historical backfill...');

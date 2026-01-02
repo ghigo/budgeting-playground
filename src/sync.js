@@ -21,7 +21,8 @@ export async function syncAllAccounts() {
     try {
       console.log(`\n📊 Syncing ${item.institution_name}...`);
 
-      // Get transactions from the last 90 days (3 months) for regular syncs
+      // Get transactions from the last 90 days for regular syncs (incremental updates)
+      // For full history, use the backfill endpoint
       const endDate = new Date().toISOString().split('T')[0];
       const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
@@ -216,11 +217,14 @@ export async function linkAccount(publicToken) {
     }
     console.log(`  ✓ Added ${accounts.length} account(s)`);
 
-    // Initial transaction sync (last 2 years - Plaid's maximum for most institutions)
+    // Initial transaction sync - fetch ALL available history from Plaid
+    // Plaid automatically limits this to what the institution provides (typically 2-10 years)
     const endDate = new Date().toISOString().split('T')[0];
-    const startDate = new Date(Date.now() - 730 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // Use a date far in the past to get maximum available history
+    // Plaid will automatically limit to institution's available history
+    const startDate = '2000-01-01';
 
-    console.log(`  📥 Fetching historical transactions (up to 2 years)...`);
+    console.log(`  📥 Fetching all available historical transactions...`);
 
     // Retry logic for PRODUCT_NOT_READY errors (common with newly linked accounts)
     const maxRetries = 4;
@@ -283,8 +287,8 @@ export async function linkAccount(publicToken) {
 }
 
 /**
- * Backfill historical transactions (up to 2 years)
- * Useful for accounts that were linked before this feature
+ * Backfill all available historical transactions
+ * Fetches maximum available history from Plaid (institution-dependent, typically 2-10 years)
  */
 export async function backfillHistoricalTransactions() {
   const items = database.getPlaidItems();
@@ -294,15 +298,15 @@ export async function backfillHistoricalTransactions() {
     return { success: false, error: 'No linked accounts' };
   }
 
-  console.log(`\n📜 Backfilling historical transactions (up to 2 years)...`);
+  console.log(`\n📜 Backfilling all available historical transactions...`);
   console.log('⚠️  This may take a while for accounts with lots of transactions.\n');
 
   let totalTransactions = 0;
   const errors = [];
 
-  // Fetch last 2 years (730 days)
+  // Fetch all available history - Plaid will limit to institution's maximum
   const endDate = new Date().toISOString().split('T')[0];
-  const startDate = new Date(Date.now() - 730 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const startDate = '2000-01-01'; // Far in the past to get maximum available history
 
   for (const item of items) {
     let backfillSuccessful = false;

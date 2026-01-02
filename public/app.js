@@ -279,7 +279,7 @@ async function initiatePlaidLink() {
                     // Show results
                     const transactionCount = result.transactions || 0;
                     if (transactionCount > 0) {
-                        showToast(`Account linked! Fetched ${transactionCount} transaction(s) from the last 2 years`, 'success');
+                        showToast(`Account linked! Fetched ${transactionCount} available historical transaction(s)`, 'success');
                         statusEl.textContent = `✓ Account linked! Fetched ${transactionCount} transaction(s). Redirecting...`;
                     } else {
                         showToast('Account linked! Historical transactions may take a moment to sync. Check back shortly.', 'info');
@@ -366,7 +366,7 @@ async function backfillHistoricalTransactions() {
     btn.disabled = true;
     btn.innerHTML = '<span class="icon">⏳</span> Backfilling...';
 
-    showToast('Fetching up to 2 years of historical transactions... This may take a few minutes.', 'info');
+    showToast('Fetching all available historical transactions... This may take a few minutes.', 'info');
 
     try {
         const result = await fetchAPI('/api/backfill', { method: 'POST' });
