@@ -2624,6 +2624,12 @@ const DEFAULT_SETTINGS = {
     min: 50,
     max: 5000,
     step: 50
+  },
+  use_relative_dates: {
+    value: false,
+    type: 'boolean',
+    description: 'Display dates in relative format (e.g., "2 days ago") instead of absolute format',
+    category: 'General'
   }
 };
 

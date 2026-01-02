@@ -20,12 +20,68 @@ export function formatCurrency(amount) {
 }
 
 /**
+ * Format date in relative format (e.g., "2 days ago", "yesterday")
+ * @param {string} dateString - ISO date string
+ * @returns {string} Relative date string
+ */
+export function formatRelativeDate(dateString) {
+    if (!dateString) return '';
+
+    const date = new Date(dateString);
+    const now = new Date();
+
+    // Get the difference in milliseconds
+    const diffMs = now - date;
+    const diffSeconds = Math.floor(diffMs / 1000);
+    const diffMinutes = Math.floor(diffSeconds / 60);
+    const diffHours = Math.floor(diffMinutes / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    const diffWeeks = Math.floor(diffDays / 7);
+    const diffMonths = Math.floor(diffDays / 30);
+    const diffYears = Math.floor(diffDays / 365);
+
+    // Future dates
+    if (diffMs < 0) {
+        const absDays = Math.abs(diffDays);
+        const absWeeks = Math.abs(diffWeeks);
+        const absMonths = Math.abs(diffMonths);
+        const absYears = Math.abs(diffYears);
+
+        if (absDays === 0) return 'today';
+        if (absDays === 1) return 'tomorrow';
+        if (absDays < 7) return `in ${absDays} days`;
+        if (absWeeks < 4) return `in ${absWeeks} week${absWeeks > 1 ? 's' : ''}`;
+        if (absMonths < 12) return `in ${absMonths} month${absMonths > 1 ? 's' : ''}`;
+        return `in ${absYears} year${absYears > 1 ? 's' : ''}`;
+    }
+
+    // Past dates
+    if (diffSeconds < 60) return 'just now';
+    if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays === 0) return 'today';
+    if (diffDays === 1) return 'yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffWeeks < 4) return `${diffWeeks} week${diffWeeks > 1 ? 's' : ''} ago`;
+    if (diffMonths < 12) return `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`;
+    return `${diffYears} year${diffYears > 1 ? 's' : ''} ago`;
+}
+
+/**
  * Format date string to readable format
  * @param {string} dateString - ISO date string
- * @returns {string} Formatted date (e.g., "Jan 15, 2024")
+ * @returns {string} Formatted date (e.g., "Jan 15, 2024" or "2 days ago" depending on settings)
  */
 export function formatDate(dateString) {
     if (!dateString) return '';
+
+    // Check if relative dates are enabled
+    const useRelativeDates = window.appSettings?.use_relative_dates || false;
+
+    if (useRelativeDates) {
+        return formatRelativeDate(dateString);
+    }
+
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }

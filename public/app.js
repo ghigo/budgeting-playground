@@ -18,6 +18,24 @@ import { initializeSettingsPage, loadSettingsPage } from './pages/SettingsPage.j
 let plaidHandler = null;
 let currentPage = 'dashboard';
 
+// Initialize app settings cache
+window.appSettings = {
+    use_relative_dates: false
+};
+
+// Fetch and cache app settings
+async function loadAppSettings() {
+    try {
+        const settings = await fetchAPI('/api/settings');
+        window.appSettings = {
+            use_relative_dates: settings.use_relative_dates?.value || false
+        };
+        console.log('App settings loaded:', window.appSettings);
+    } catch (error) {
+        console.error('Failed to load app settings:', error);
+    }
+}
+
 // Setup automatic view updates
 function setupReactiveUpdates() {
     // When accounts change, refresh accounts page and transaction filters
@@ -59,6 +77,34 @@ function setupReactiveUpdates() {
             loadMappings();
         }
     });
+
+    // When settings change, reload app settings and refresh current page
+    eventBus.on('settingsUpdated', async () => {
+        console.log('📡 Settings updated, reloading app settings and refreshing views...');
+        await loadAppSettings();
+
+        // Refresh current page to apply new settings
+        switch (currentPage) {
+            case 'dashboard':
+                loadDashboard();
+                break;
+            case 'accounts':
+                loadAccounts();
+                break;
+            case 'transactions':
+                loadTransactions();
+                break;
+            case 'categories':
+                loadCategories();
+                break;
+            case 'mappings':
+                loadMappings();
+                break;
+            case 'amazon':
+                loadAmazonPage();
+                break;
+        }
+    });
 }
 
 // Initialize app
@@ -94,6 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     setupReactiveUpdates();
     checkEnvironment();
+    loadAppSettings(); // Load app settings cache
 });
 
 // Navigation
