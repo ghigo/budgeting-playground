@@ -340,14 +340,9 @@ export async function backfillHistoricalTransactions() {
     console.log(`📊 Backfilling ${item.institution_name}...`);
     console.log(`   Date range: ${startDate} to ${endDate}`);
 
-    // First, tell Plaid to refresh data from the institution
-    try {
-      await plaid.refreshTransactions(item.access_token);
-      console.log('  ⏳ Waiting 10 seconds for Plaid to fetch fresh data from institution...');
-      await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
-    } catch (refreshError) {
-      console.warn(`  ⚠️  Refresh request failed (continuing anyway): ${refreshError.message}`);
-    }
+    // Note: Transactions refresh requires the "transactions_refresh" Plaid product
+    // If you get INVALID_PRODUCT errors, your Plaid account doesn't have this feature
+    // Check: https://dashboard.plaid.com → Team Settings → API Products
 
     for (let attempt = 0; attempt < maxRetries && !backfillSuccessful; attempt++) {
       try {
