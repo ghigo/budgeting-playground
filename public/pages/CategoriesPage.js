@@ -31,6 +31,16 @@ export function initializeCategoriesPage(deps) {
     window.viewCategoryTransactions = viewCategoryTransactions;
     window.generateEmojiSuggestions = generateEmojiSuggestions;
     window.selectSuggestedEmoji = selectSuggestedEmoji;
+
+    // Close edit category modal on ESC key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('editCategoryModal');
+            if (modal && modal.style.display === 'flex') {
+                closeEditCategoryModal();
+            }
+        }
+    });
 }
 
 export async function loadCategories() {
@@ -278,6 +288,15 @@ function editCategory(categoryName, parentCategory, icon = '📁', color = '#6B7
     document.getElementById('editCategoryColor').value = color || '#6B7280';
     document.getElementById('editCategoryDescription').value = categoryDescription;
 
+    // Hide emoji suggestions from previous session
+    const emojiSuggestionsDiv = document.getElementById('emojiSuggestions');
+    if (emojiSuggestionsDiv) {
+        emojiSuggestionsDiv.style.display = 'none';
+    }
+
+    // Reset suggested emojis
+    suggestedEmojis = [];
+
     // Populate parent category dropdown
     const parentSelect = document.getElementById('editCategoryParent');
     parentSelect.innerHTML = '<option value="">No parent (top-level category)</option>';
@@ -300,6 +319,15 @@ function editCategory(categoryName, parentCategory, icon = '📁', color = '#6B7
 function closeEditCategoryModal() {
     document.getElementById('editCategoryModal').style.display = 'none';
     currentEditingCategory = null;
+
+    // Hide emoji suggestions
+    const emojiSuggestionsDiv = document.getElementById('emojiSuggestions');
+    if (emojiSuggestionsDiv) {
+        emojiSuggestionsDiv.style.display = 'none';
+    }
+
+    // Reset suggested emojis
+    suggestedEmojis = [];
 }
 
 async function saveEditCategory() {

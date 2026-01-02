@@ -816,29 +816,51 @@ RESPONSE FORMAT (JSON only):
      * @returns {Promise<string>} - A single emoji character
      */
     async suggestEmojiForCategory(categoryName, description = '') {
+        const debug = process.env.DEBUG_EMOJI_GENERATION || process.env.DEBUG_CATEGORIZATION;
+
+        if (debug) {
+            console.log('\n--- EMOJI GENERATION (Single) ---');
+            console.log(`Category: "${categoryName}"`);
+            if (description) console.log(`Description: "${description}"`);
+        }
+
         if (!this.isOllamaAvailable) {
-            console.log('⚠️  AI not available for emoji suggestion, using fallback');
-            return this.fallbackEmojiForCategory(categoryName);
+            if (debug) console.log('⚠️  AI not available, using fallback');
+            const fallbackEmoji = this.fallbackEmojiForCategory(categoryName);
+            if (debug) {
+                console.log(`Fallback emoji: ${fallbackEmoji}`);
+                console.log('--- END EMOJI GENERATION ---\n');
+            }
+            return fallbackEmoji;
         }
 
         try {
-            const prompt = `You are an emoji suggestion assistant. Given a category name and optional description, respond with ONLY a single emoji character that best represents the category. No text, no explanation, just the emoji.
+            const prompt = `You are an emoji suggestion assistant. Your PRIMARY focus is the category name. The description is only secondary context.
 
-Category Name: ${categoryName}
-${description ? `Description: ${description}` : ''}
+**Category Name (MOST IMPORTANT):** ${categoryName}
+${description ? `Additional context: ${description}` : ''}
+
+Base your emoji suggestion primarily on the category name "${categoryName}". Respond with ONLY a single emoji character. No text, no explanation.
 
 Examples:
-- Category: "Groceries" → 🛒
-- Category: "Restaurants" → 🍽️
-- Category: "Gas" → ⛽
-- Category: "Shopping" → 🛍️
-- Category: "Entertainment" → 🎬
-- Category: "Healthcare" → 🏥
-- Category: "Travel" → ✈️
-- Category: "Bills & Utilities" → 💡
+- "Groceries" → 🛒
+- "Restaurants" → 🍽️
+- "Gas" → ⛽
+- "Coffee" → ☕
+- "Shopping" → 🛍️
+- "Entertainment" → 🎬
+- "Healthcare" → 🏥
+- "Travel" → ✈️
 
-Now suggest the best emoji for: ${categoryName}`;
+Emoji for "${categoryName}":`;
 
+            if (debug) {
+                console.log('\n--- PROMPT ---');
+                console.log(prompt);
+                console.log('--- END PROMPT ---\n');
+            }
+
+            const startTime = Date.now();
             const response = await fetch(`${this.ollamaUrl}/api/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -861,20 +883,38 @@ Now suggest the best emoji for: ${categoryName}`;
             }
 
             const result = await response.json();
+            const duration = Date.now() - startTime;
             const emojiResponse = result.response?.trim() || '';
+
+            if (debug) {
+                console.log(`AI response (${duration}ms): "${emojiResponse}"`);
+            }
 
             // Extract just the emoji (first character that's an emoji)
             const emojiMatch = emojiResponse.match(/[\p{Emoji}\u200D]+/u);
             if (emojiMatch) {
-                console.log(`✨ AI suggested emoji for "${categoryName}": ${emojiMatch[0]}`);
+                if (debug) {
+                    console.log(`✨ Extracted emoji: ${emojiMatch[0]}`);
+                    console.log('--- END EMOJI GENERATION ---\n');
+                }
                 return emojiMatch[0];
             }
 
-            console.log('⚠️  No valid emoji in AI response, using fallback');
-            return this.fallbackEmojiForCategory(categoryName);
+            if (debug) console.log('⚠️  No valid emoji in response, using fallback');
+            const fallbackEmoji = this.fallbackEmojiForCategory(categoryName);
+            if (debug) {
+                console.log(`Fallback emoji: ${fallbackEmoji}`);
+                console.log('--- END EMOJI GENERATION ---\n');
+            }
+            return fallbackEmoji;
         } catch (error) {
-            console.error('Error generating emoji with AI:', error.message);
-            return this.fallbackEmojiForCategory(categoryName);
+            if (debug) console.error('Error:', error.message);
+            const fallbackEmoji = this.fallbackEmojiForCategory(categoryName);
+            if (debug) {
+                console.log(`Fallback emoji: ${fallbackEmoji}`);
+                console.log('--- END EMOJI GENERATION ---\n');
+            }
+            return fallbackEmoji;
         }
     }
 
@@ -886,27 +926,50 @@ Now suggest the best emoji for: ${categoryName}`;
      * @returns {Promise<string[]>} - Array of emoji characters
      */
     async suggestMultipleEmojis(categoryName, description = '', count = 3) {
+        const debug = process.env.DEBUG_EMOJI_GENERATION || process.env.DEBUG_CATEGORIZATION;
+
+        if (debug) {
+            console.log('\n--- EMOJI GENERATION (Multiple) ---');
+            console.log(`Category: "${categoryName}"`);
+            if (description) console.log(`Description: "${description}"`);
+            console.log(`Count: ${count}`);
+        }
+
         if (!this.isOllamaAvailable) {
-            console.log('⚠️  AI not available for emoji suggestions, using fallback');
-            return this.fallbackMultipleEmojis(categoryName, count);
+            if (debug) console.log('⚠️  AI not available, using fallback');
+            const fallbackEmojis = this.fallbackMultipleEmojis(categoryName, count);
+            if (debug) {
+                console.log(`Fallback emojis: ${fallbackEmojis.join(' ')}`);
+                console.log('--- END EMOJI GENERATION ---\n');
+            }
+            return fallbackEmojis;
         }
 
         try {
-            const prompt = `You are an emoji suggestion assistant. Given a category name and optional description, respond with EXACTLY ${count} different emoji characters that best represent the category, separated by spaces. No text, no explanation, just ${count} emojis.
+            const prompt = `You are an emoji suggestion assistant. Your PRIMARY focus is the category name. The description is only secondary context.
 
-Category Name: ${categoryName}
-${description ? `Description: ${description}` : ''}
+**Category Name (MOST IMPORTANT):** ${categoryName}
+${description ? `Additional context: ${description}` : ''}
+
+Base your emoji suggestions primarily on the category name "${categoryName}". Respond with EXACTLY ${count} different emoji characters separated by spaces. No text, no explanation.
 
 Examples:
-- Category: "Groceries" → 🛒 🍎 🥦
-- Category: "Restaurants" → 🍽️ 🍕 🍔
-- Category: "Gas" → ⛽ 🚗 ⛽
-- Category: "Shopping" → 🛍️ 🛒 💳
-- Category: "Entertainment" → 🎬 🎮 🎭
-- Category: "Healthcare" → 🏥 💊 🩺
+- "Groceries" → 🛒 🍎 🥦
+- "Restaurants" → 🍽️ 🍕 🍔
+- "Coffee" → ☕ 🍵 ☕
+- "Shopping" → 🛍️ 🛒 💳
+- "Entertainment" → 🎬 🎮 🎭
+- "Healthcare" → 🏥 💊 🩺
 
-Now suggest ${count} different emojis for: ${categoryName}`;
+${count} emojis for "${categoryName}":`;
 
+            if (debug) {
+                console.log('\n--- PROMPT ---');
+                console.log(prompt);
+                console.log('--- END PROMPT ---\n');
+            }
+
+            const startTime = Date.now();
             const response = await fetch(`${this.ollamaUrl}/api/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -929,21 +992,39 @@ Now suggest ${count} different emojis for: ${categoryName}`;
             }
 
             const result = await response.json();
+            const duration = Date.now() - startTime;
             const emojiResponse = result.response?.trim() || '';
+
+            if (debug) {
+                console.log(`AI response (${duration}ms): "${emojiResponse}"`);
+            }
 
             // Extract all emojis from response
             const emojiMatches = emojiResponse.match(/[\p{Emoji}\u200D]+/gu);
             if (emojiMatches && emojiMatches.length >= count) {
                 const emojis = emojiMatches.slice(0, count);
-                console.log(`✨ AI suggested ${count} emojis for "${categoryName}": ${emojis.join(' ')}`);
+                if (debug) {
+                    console.log(`✨ Extracted ${count} emojis: ${emojis.join(' ')}`);
+                    console.log('--- END EMOJI GENERATION ---\n');
+                }
                 return emojis;
             }
 
-            console.log('⚠️  Not enough valid emojis in AI response, using fallback');
-            return this.fallbackMultipleEmojis(categoryName, count);
+            if (debug) console.log('⚠️  Not enough valid emojis in response, using fallback');
+            const fallbackEmojis = this.fallbackMultipleEmojis(categoryName, count);
+            if (debug) {
+                console.log(`Fallback emojis: ${fallbackEmojis.join(' ')}`);
+                console.log('--- END EMOJI GENERATION ---\n');
+            }
+            return fallbackEmojis;
         } catch (error) {
-            console.error('Error generating emojis with AI:', error.message);
-            return this.fallbackMultipleEmojis(categoryName, count);
+            if (debug) console.error('Error:', error.message);
+            const fallbackEmojis = this.fallbackMultipleEmojis(categoryName, count);
+            if (debug) {
+                console.log(`Fallback emojis: ${fallbackEmojis.join(' ')}`);
+                console.log('--- END EMOJI GENERATION ---\n');
+            }
+            return fallbackEmojis;
         }
     }
 
