@@ -837,20 +837,58 @@ export function getTransactions(limit = 50, filters = {}) {
   params.push(limit);
 
   const transactions = db.prepare(sql).all(...params);
-  return transactions.map(tx => ({
-    ...tx,
-    amount: parseFloat(tx.amount),
-    confidence: parseInt(tx.confidence) || 0,
-    verified: tx.verified === 'Yes',
-    // Amazon order information (if matched)
-    amazon_order: tx.amazon_order_id ? {
-      order_id: tx.amazon_order_id,
-      total_amount: parseFloat(tx.amazon_total),
-      order_date: tx.amazon_order_date,
-      match_confidence: parseInt(tx.amazon_match_confidence) || 0,
-      order_status: tx.amazon_order_status
-    } : null
-  }));
+
+  // Process transactions: replace split parents with their children
+  const processedTransactions = [];
+
+  for (const tx of transactions) {
+    // Check if this transaction has splits
+    const splits = db.prepare('SELECT * FROM transaction_splits WHERE parent_transaction_id = ? ORDER BY split_index').all(tx.transaction_id);
+
+    if (splits.length > 0) {
+      // Add split children as "virtual transactions"
+      for (const split of splits) {
+        processedTransactions.push({
+          ...tx,
+          transaction_id: split.id, // Use split ID
+          amount: parseFloat(split.amount),
+          category: split.category,
+          confidence: 95, // High confidence for manual splits
+          verified: 'Yes', // Manual splits are verified
+          description: split.description || tx.description,
+          is_split: true,
+          split_parent_id: tx.transaction_id,
+          // Amazon order information (if matched)
+          amazon_order: tx.amazon_order_id ? {
+            order_id: tx.amazon_order_id,
+            total_amount: parseFloat(tx.amazon_total),
+            order_date: tx.amazon_order_date,
+            match_confidence: parseInt(tx.amazon_match_confidence) || 0,
+            order_status: tx.amazon_order_status
+          } : null
+        });
+      }
+    } else {
+      // Regular transaction (no splits)
+      processedTransactions.push({
+        ...tx,
+        amount: parseFloat(tx.amount),
+        confidence: parseInt(tx.confidence) || 0,
+        verified: tx.verified === 'Yes',
+        is_split: false,
+        // Amazon order information (if matched)
+        amazon_order: tx.amazon_order_id ? {
+          order_id: tx.amazon_order_id,
+          total_amount: parseFloat(tx.amazon_total),
+          order_date: tx.amazon_order_date,
+          match_confidence: parseInt(tx.amazon_match_confidence) || 0,
+          order_status: tx.amazon_order_status
+        } : null
+      });
+    }
+  }
+
+  return processedTransactions;
 }
 
 export function saveTransactions(transactions, categorizationData) {

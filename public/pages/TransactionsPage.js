@@ -199,7 +199,10 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
             <td>${formatDate(tx.date)}</td>
             <td>
                 <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-                    <span>${escapeHtml(tx.description || tx.name)}</span>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span>${escapeHtml(tx.description || tx.name)}</span>
+                        ${tx.is_split ? `<span style="background: #fbbf24; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">SPLIT</span>` : ''}
+                    </div>
                     ${tx.amazon_order ? `
                         <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem;">
                             <span style="background: #FF9900; color: white; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 0.75rem;">
@@ -264,6 +267,23 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
             <td>${escapeHtml(tx.account_name || 'Unknown')}</td>
             <td class="amount-cell ${parseFloat(tx.amount) > 0 ? 'positive' : 'negative'}">
                 ${formatCurrency(tx.amount)}
+            </td>
+            <td>
+                ${tx.is_split ? `
+                    <button
+                        onclick="unsplitTransaction('${tx.split_parent_id}')"
+                        style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 0.25rem; cursor: pointer; color: #92400e;"
+                        title="Unsplit transaction">
+                        Unsplit
+                    </button>
+                ` : `
+                    <button
+                        onclick="showSplitModal('${tx.transaction_id}')"
+                        style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 0.25rem; cursor: pointer;"
+                        title="Split transaction">
+                        Split
+                    </button>
+                `}
             </td>
         </tr>
         `;
@@ -2223,6 +2243,255 @@ function showUndoableToast(message, undoCallback) {
     }, 10000);
 }
 
+// ============================================================================
+// Transaction Splitting
+// ============================================================================
+
+let currentSplitTransaction = null;
+let splitRows = [];
+
+function showSplitModal(transactionId) {
+    const transaction = allTransactions.find(tx => tx.transaction_id === transactionId);
+    if (!transaction) {
+        showToast('Transaction not found', 'error');
+        return;
+    }
+
+    currentSplitTransaction = transaction;
+    splitRows = [];
+
+    // Populate modal with transaction details
+    document.getElementById('splitOriginalDescription').textContent = transaction.description || transaction.name;
+    document.getElementById('splitOriginalDate').textContent = formatDate(transaction.date);
+    document.getElementById('splitOriginalAmount').textContent = formatCurrency(transaction.amount);
+
+    // Initialize with 2 splits at 50% each
+    const splitAmount = Math.abs(parseFloat(transaction.amount)) / 2;
+    addSplitRow(splitAmount);
+    addSplitRow(splitAmount);
+
+    // Show modal
+    document.getElementById('splitTransactionModal').style.display = 'flex';
+
+    updateSplitTotals();
+}
+
+function closeSplitModal() {
+    document.getElementById('splitTransactionModal').style.display = 'none';
+    currentSplitTransaction = null;
+    splitRows = [];
+    document.getElementById('splitItemsContainer').innerHTML = '';
+}
+
+function addSplitRow(defaultAmount = null) {
+    const index = splitRows.length;
+    const amount = defaultAmount !== null ? defaultAmount : 0;
+    const percentage = currentSplitTransaction ? (amount / Math.abs(parseFloat(currentSplitTransaction.amount)) * 100).toFixed(2) : 0;
+
+    const splitRow = {
+        index,
+        amount,
+        percentage,
+        category: currentSplitTransaction?.category || '',
+        description: ''
+    };
+
+    splitRows.push(splitRow);
+    renderSplitRows();
+}
+
+function removeSplitRow(index) {
+    if (splitRows.length <= 2) {
+        showToast('You must have at least 2 splits', 'error');
+        return;
+    }
+    splitRows.splice(index, 1);
+    // Re-index
+    splitRows.forEach((row, idx) => {
+        row.index = idx;
+    });
+    renderSplitRows();
+}
+
+function renderSplitRows() {
+    const container = document.getElementById('splitItemsContainer');
+    const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
+
+    container.innerHTML = splitRows.map((split, index) => `
+        <div class="split-row" data-index="${index}" style="background: #fff; border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                <span style="font-weight: 600; color: #666;">Split #${index + 1}</span>
+                ${splitRows.length > 2 ? `<button onclick="removeSplitRow(${index})" style="color: #dc2626; background: none; border: none; cursor: pointer; font-size: 1.25rem;">&times;</button>` : ''}
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+                <div>
+                    <label style="display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem;">Amount</label>
+                    <input type="number"
+                           step="0.01"
+                           value="${split.amount.toFixed(2)}"
+                           onchange="updateSplitAmount(${index}, this.value)"
+                           style="width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem;">
+                </div>
+                <div>
+                    <label style="display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem;">Percentage</label>
+                    <input type="number"
+                           step="0.01"
+                           value="${split.percentage}"
+                           onchange="updateSplitPercentage(${index}, this.value)"
+                           style="width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem;">
+                </div>
+            </div>
+
+            <div style="margin-bottom: 0.75rem;">
+                <label style="display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem;">Category</label>
+                <select onchange="updateSplitCategory(${index}, this.value)"
+                        style="width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem;">
+                    <option value="">Select category...</option>
+                    ${allCategories.map(cat =>
+                        `<option value="${escapeHtml(cat.name)}" ${cat.name === split.category ? 'selected' : ''}>${escapeHtml(cat.name)}</option>`
+                    ).join('')}
+                </select>
+            </div>
+
+            <div>
+                <label style="display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem;">Description (optional)</label>
+                <input type="text"
+                       value="${escapeHtml(split.description)}"
+                       onchange="updateSplitDescription(${index}, this.value)"
+                       placeholder="e.g., Groceries portion"
+                       style="width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem;">
+            </div>
+        </div>
+    `).join('');
+
+    updateSplitTotals();
+}
+
+function updateSplitAmount(index, value) {
+    const amount = parseFloat(value) || 0;
+    const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
+    const percentage = (amount / originalAmount * 100).toFixed(2);
+
+    splitRows[index].amount = amount;
+    splitRows[index].percentage = percentage;
+
+    updateSplitTotals();
+}
+
+function updateSplitPercentage(index, value) {
+    const percentage = parseFloat(value) || 0;
+    const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
+    const amount = (originalAmount * percentage / 100).toFixed(2);
+
+    splitRows[index].percentage = percentage;
+    splitRows[index].amount = parseFloat(amount);
+
+    renderSplitRows();
+}
+
+function updateSplitCategory(index, category) {
+    splitRows[index].category = category;
+}
+
+function updateSplitDescription(index, description) {
+    splitRows[index].description = description;
+}
+
+function updateSplitTotals() {
+    const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
+    const total = splitRows.reduce((sum, split) => sum + parseFloat(split.amount || 0), 0);
+    const difference = Math.abs(total - originalAmount);
+
+    document.getElementById('splitTotalAmount').textContent = formatCurrency(total);
+
+    const warningDiv = document.getElementById('splitTotalWarning');
+    const differenceText = document.getElementById('splitDifferenceText');
+    const saveBtn = document.getElementById('saveSplitsBtn');
+
+    if (difference < 0.01) {
+        warningDiv.style.background = '#d1fae5';
+        warningDiv.style.borderColor = '#10b981';
+        differenceText.textContent = '✓ Total matches original amount';
+        differenceText.style.color = '#059669';
+        saveBtn.disabled = false;
+    } else {
+        warningDiv.style.background = '#fef3c7';
+        warningDiv.style.borderColor = '#fbbf24';
+        differenceText.textContent = `⚠ Difference: ${formatCurrency(difference)}`;
+        differenceText.style.color = '#dc2626';
+        saveBtn.disabled = true;
+    }
+}
+
+async function saveSplits() {
+    if (!currentSplitTransaction) {
+        showToast('No transaction selected', 'error');
+        return;
+    }
+
+    // Validate splits
+    const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
+    const total = splitRows.reduce((sum, split) => sum + parseFloat(split.amount || 0), 0);
+    const difference = Math.abs(total - originalAmount);
+
+    if (difference >= 0.01) {
+        showToast('Split amounts must equal the original amount', 'error');
+        return;
+    }
+
+    // Check all splits have categories
+    const missingCategory = splitRows.some(split => !split.category);
+    if (missingCategory) {
+        showToast('All splits must have a category', 'error');
+        return;
+    }
+
+    try {
+        // Prepare splits data
+        const isNegative = parseFloat(currentSplitTransaction.amount) < 0;
+        const splits = splitRows.map(split => ({
+            amount: isNegative ? -Math.abs(parseFloat(split.amount)) : Math.abs(parseFloat(split.amount)),
+            category: split.category,
+            description: split.description || null,
+            source: 'manual'
+        }));
+
+        // Save via API
+        const result = await fetchAPI(`/api/transactions/${currentSplitTransaction.transaction_id}/splits`, {
+            method: 'POST',
+            body: JSON.stringify({ splits })
+        });
+
+        showToast(`Transaction split into ${splits.length} parts`, 'success');
+        closeSplitModal();
+
+        // Reload transactions to reflect changes
+        await loadTransactions();
+        eventBus.emit('transactionsUpdated');
+    } catch (error) {
+        showToast(`Failed to split transaction: ${error.message}`, 'error');
+    }
+}
+
+async function unsplitTransaction(transactionId) {
+    if (!confirm('Remove all splits and restore the original transaction?')) {
+        return;
+    }
+
+    try {
+        await fetchAPI(`/api/transactions/${transactionId}/splits`, {
+            method: 'DELETE'
+        });
+
+        showToast('Transaction splits removed', 'success');
+        await loadTransactions();
+        eventBus.emit('transactionsUpdated');
+    } catch (error) {
+        showToast(`Failed to unsplit transaction: ${error.message}`, 'error');
+    }
+}
+
 // Expose functions globally for onclick handlers
 window.aiAutoCategorizeUncategorized = aiAutoCategorizeUncategorized;
 window.aiSuggestCategory = aiSuggestCategory;
@@ -2232,6 +2501,16 @@ window.showCreateRuleModal = showCreateRuleModal;
 window.closeCreateRuleModal = closeCreateRuleModal;
 window.updateRulePreview = updateRulePreview;
 window.saveNewRule = saveNewRule;
+window.showSplitModal = showSplitModal;
+window.closeSplitModal = closeSplitModal;
+window.addSplitRow = addSplitRow;
+window.removeSplitRow = removeSplitRow;
+window.updateSplitAmount = updateSplitAmount;
+window.updateSplitPercentage = updateSplitPercentage;
+window.updateSplitCategory = updateSplitCategory;
+window.updateSplitDescription = updateSplitDescription;
+window.saveSplits = saveSplits;
+window.unsplitTransaction = unsplitTransaction;
 
 // Export module
 export default {
