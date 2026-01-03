@@ -305,6 +305,40 @@ function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_transaction_splits_parent ON transaction_splits(parent_transaction_id);
   `);
 
+  // Add external category tracking fields to transactions table
+  const hasExternalCategory = transactionsInfo.some(col => col.name === 'external_category');
+  const hasCategorySource = transactionsInfo.some(col => col.name === 'category_source');
+
+  if (!hasExternalCategory) {
+    console.log('Adding external category tracking fields to transactions table...');
+    db.exec("ALTER TABLE transactions ADD COLUMN external_category TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasCategorySource) {
+    db.exec("ALTER TABLE transactions ADD COLUMN category_source TEXT");
+    columnsAdded = true;
+  }
+
+  // Create external_category_mappings table for all external category sources
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS external_category_mappings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      external_category TEXT NOT NULL,
+      source TEXT NOT NULL,
+      user_category TEXT,
+      confidence INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'pending',
+      reviewed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(external_category, source)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_external_mappings_source ON external_category_mappings(source);
+    CREATE INDEX IF NOT EXISTS idx_external_mappings_status ON external_category_mappings(status);
+  `);
+
   // Check if account_name column exists in amazon_orders table
   const amazonOrdersInfo = db.prepare("PRAGMA table_info(amazon_orders)").all();
   const hasAccountName = amazonOrdersInfo.some(col => col.name === 'account_name');
@@ -928,14 +962,39 @@ export function saveTransactions(transactions, categorizationData) {
       amount, category, confidence, verified, pending, payment_channel, notes, created_at,
       plaid_primary_category, plaid_detailed_category, plaid_confidence_level,
       location_city, location_region, location_address,
-      transaction_type, authorized_datetime, merchant_entity_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      transaction_type, authorized_datetime, merchant_entity_id,
+      external_category, category_source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let inserted = 0;
   let duplicates = 0;
   const insertMany = db.transaction((txns) => {
     for (const tx of txns) {
+      // Extract Plaid personal_finance_category
+      const pfc = tx.personal_finance_category || {};
+      const plaidPrimary = pfc.primary || null;
+      const plaidDetailed = pfc.detailed || null;
+      const plaidConfidence = pfc.confidence_level || null;
+
+      // Track external category source
+      let externalCategory = null;
+      let categorySource = null;
+
+      // If transaction has a Plaid category, track it as external
+      if (plaidDetailed || plaidPrimary) {
+        externalCategory = plaidDetailed || plaidPrimary;
+        categorySource = 'plaid';
+
+        // Check if there's an approved mapping for this external category
+        const mappedCategory = getExternalCategoryMapping(externalCategory, categorySource);
+        if (mappedCategory) {
+          // Use the mapped category (will be null if user chose "unmapped")
+          tx.category = mappedCategory;
+          tx.confidence = 90; // High confidence for approved mappings
+        }
+      }
+
       // Auto-categorize if not already categorized
       let category = tx.category || '';
       let confidence = tx.confidence || 0;
@@ -945,12 +1004,6 @@ export function saveTransactions(transactions, categorizationData) {
         category = result.category;
         confidence = result.confidence;
       }
-
-      // Extract Plaid personal_finance_category
-      const pfc = tx.personal_finance_category || {};
-      const plaidPrimary = pfc.primary || null;
-      const plaidDetailed = pfc.detailed || null;
-      const plaidConfidence = pfc.confidence_level || null;
 
       // Extract location data
       const location = tx.location || {};
@@ -984,7 +1037,9 @@ export function saveTransactions(transactions, categorizationData) {
         locationAddress,
         transactionType,
         authorizedDatetime,
-        merchantEntityId
+        merchantEntityId,
+        externalCategory,
+        categorySource
       );
 
       if (info.changes > 0) {
@@ -2807,5 +2862,127 @@ export function resetSetting(key) {
  */
 export function resetAllSettings() {
   db.prepare('DELETE FROM config').run();
+  return { success: true };
+}
+
+// ============================================================================
+// EXTERNAL CATEGORY MAPPINGS
+// ============================================================================
+
+/**
+ * Get pending external category mappings (need user review)
+ * @param {string} source - Optional source filter (plaid, amazon, copilot, etc.)
+ * @returns {Array} Pending mappings
+ */
+export function getPendingExternalMappings(source = null) {
+  let sql = 'SELECT * FROM external_category_mappings WHERE status = ?';
+  const params = ['pending'];
+
+  if (source) {
+    sql += ' AND source = ?';
+    params.push(source);
+  }
+
+  sql += ' ORDER BY created_at DESC';
+
+  return db.prepare(sql).all(...params);
+}
+
+/**
+ * Get all external category mappings
+ * @returns {Array} All mappings
+ */
+export function getAllExternalMappings() {
+  return db.prepare('SELECT * FROM external_category_mappings ORDER BY source, external_category').all();
+}
+
+/**
+ * Get or create external category mapping
+ * @param {string} externalCategory - External category name
+ * @param {string} source - Source (plaid, amazon, copilot, etc.)
+ * @returns {Object} Mapping record
+ */
+export function getOrCreateExternalMapping(externalCategory, source) {
+  let mapping = db.prepare(
+    'SELECT * FROM external_category_mappings WHERE external_category = ? AND source = ?'
+  ).get(externalCategory, source);
+
+  if (!mapping) {
+    const result = db.prepare(`
+      INSERT INTO external_category_mappings (
+        external_category, source, status, created_at, updated_at
+      ) VALUES (?, ?, 'pending', datetime('now'), datetime('now'))
+    `).run(externalCategory, source);
+
+    mapping = db.prepare('SELECT * FROM external_category_mappings WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  return mapping;
+}
+
+/**
+ * Update external category mapping
+ * @param {number} id - Mapping ID
+ * @param {string} userCategory - User category to map to (or null for unmapped)
+ * @param {string} status - Status: pending, approved, rejected, unmapped
+ * @param {number} confidence - Confidence score 0-100
+ */
+export function updateExternalMapping(id, userCategory, status = 'approved', confidence = 100) {
+  db.prepare(`
+    UPDATE external_category_mappings
+    SET user_category = ?, status = ?, confidence = ?,
+        reviewed_at = datetime('now'), updated_at = datetime('now')
+    WHERE id = ?
+  `).run(userCategory, status, confidence, id);
+
+  return { success: true };
+}
+
+/**
+ * Apply external category mapping to a transaction
+ * @param {string} externalCategory - External category
+ * @param {string} source - Source
+ * @returns {string|null} Mapped user category or null
+ */
+export function getExternalCategoryMapping(externalCategory, source) {
+  const mapping = db.prepare(`
+    SELECT user_category FROM external_category_mappings
+    WHERE external_category = ? AND source = ?
+      AND status IN ('approved', 'unmapped')
+  `).get(externalCategory, source);
+
+  return mapping?.user_category || null;
+}
+
+/**
+ * Get unmapped external categories from transactions
+ * @returns {Array} Categories that need mapping
+ */
+export function getUnmappedExternalCategories() {
+  return db.prepare(`
+    SELECT DISTINCT
+      t.external_category,
+      t.category_source as source,
+      COUNT(*) as transaction_count,
+      MIN(t.date) as first_seen,
+      MAX(t.date) as last_seen
+    FROM transactions t
+    LEFT JOIN external_category_mappings ecm
+      ON t.external_category = ecm.external_category
+      AND t.category_source = ecm.source
+    WHERE t.external_category IS NOT NULL
+      AND t.category_source IS NOT NULL
+      AND (ecm.id IS NULL OR ecm.status = 'pending')
+    GROUP BY t.external_category, t.category_source
+    ORDER BY transaction_count DESC
+  `).all();
+}
+
+/**
+ * Delete external category mapping
+ * @param {number} id - Mapping ID
+ */
+export function deleteExternalMapping(id) {
+  db.prepare('DELETE FROM external_category_mappings WHERE id = ?').run(id);
   return { success: true };
 }

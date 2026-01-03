@@ -1424,6 +1424,144 @@ app.post('/api/settings/reset-all', (req, res) => {
   }
 });
 
+// ============================================================================
+// EXTERNAL CATEGORY MAPPINGS
+// ============================================================================
+
+// Get unmapped external categories
+app.get('/api/external-categories/unmapped', (req, res) => {
+  try {
+    const unmapped = database.getUnmappedExternalCategories();
+    res.json({ categories: unmapped });
+  } catch (error) {
+    console.error('Error getting unmapped categories:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all external category mappings
+app.get('/api/external-categories/mappings', (req, res) => {
+  try {
+    const mappings = database.getAllExternalMappings();
+    res.json({ mappings });
+  } catch (error) {
+    console.error('Error getting external mappings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get pending external category mappings
+app.get('/api/external-categories/pending', (req, res) => {
+  try {
+    const { source } = req.query;
+    const pending = database.getPendingExternalMappings(source || null);
+    res.json({ mappings: pending });
+  } catch (error) {
+    console.error('Error getting pending mappings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create or update external category mapping
+app.post('/api/external-categories/mappings', (req, res) => {
+  try {
+    const { external_category, source, user_category, status, confidence } = req.body;
+
+    if (!external_category || !source) {
+      return res.status(400).json({ error: 'external_category and source are required' });
+    }
+
+    // Get or create mapping
+    const mapping = database.getOrCreateExternalMapping(external_category, source);
+
+    // Update it with user's choice
+    database.updateExternalMapping(
+      mapping.id,
+      user_category || null,
+      status || 'approved',
+      confidence || 90
+    );
+
+    res.json({ success: true, mapping });
+  } catch (error) {
+    console.error('Error creating/updating external mapping:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update external category mapping
+app.put('/api/external-categories/mappings/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_category, status, confidence } = req.body;
+
+    database.updateExternalMapping(
+      parseInt(id),
+      user_category || null,
+      status || 'approved',
+      confidence || 90
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating external mapping:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete external category mapping
+app.delete('/api/external-categories/mappings/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    database.deleteExternalMapping(parseInt(id));
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting external mapping:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get LLM suggestions for external category mappings
+app.post('/api/external-categories/suggest-mapping', async (req, res) => {
+  try {
+    const { external_category, source } = req.body;
+
+    if (!external_category) {
+      return res.status(400).json({ error: 'external_category is required' });
+    }
+
+    // Get all user categories
+    const userCategories = database.getCategories();
+
+    // Use LLM to suggest best mapping
+    const aiService = await import('./services/aiCategorizationService.js');
+    const suggestion = await aiService.suggestCategoryMapping(
+      external_category,
+      source,
+      userCategories
+    );
+
+    res.json(suggestion);
+  } catch (error) {
+    console.error('Error getting LLM suggestion:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// SERVER START
+// ============================================================================
+
+app.post('/api/settings/reset-all-OLD', (req, res) => {
+  try {
+    const result = database.resetAllSettings();
+    res.json(result);
+  } catch (error) {
+    console.error('Error resetting all settings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Serve index.html for all other routes (SPA)
 app.get('*', (req, res) => {
   res.sendFile(join(__dirname, '../public/index.html'));
