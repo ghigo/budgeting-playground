@@ -82,10 +82,10 @@ function displayAccounts(accounts) {
 
     // Group accounts by type
     const accountsByType = {};
-    const typeOrder = ['depository', 'credit', 'loan', 'investment', 'other'];
+    const typeOrder = ['credit', 'depository', 'loan', 'investment', 'other'];
     const typeLabels = {
-        'depository': 'Checking & Savings',
-        'credit': 'Credit Cards',
+        'depository': 'Depository',
+        'credit': 'Credit cards',
         'loan': 'Loans',
         'investment': 'Investments',
         'other': 'Other Accounts'
@@ -99,40 +99,113 @@ function displayAccounts(accounts) {
         accountsByType[type].push(acc);
     });
 
+    // Make toggleAccountGroup globally available
+    window.toggleAccountGroup = (type) => {
+        const content = document.getElementById(`account-group-${type}`);
+        const arrow = document.getElementById(`arrow-${type}`);
+        if (content && arrow) {
+            const isCollapsed = content.style.display === 'none';
+            content.style.display = isCollapsed ? 'block' : 'none';
+            arrow.textContent = isCollapsed ? '▼' : '▶';
+        }
+    };
+
     // Render accounts grouped by type
     let html = '';
 
     typeOrder.forEach(type => {
         if (accountsByType[type] && accountsByType[type].length > 0) {
+            const typeAccounts = accountsByType[type];
+            const totalBalance = typeAccounts.reduce((sum, acc) => sum + (parseFloat(acc.current_balance) || 0), 0);
+
             html += `
-                <div style="margin-bottom: 2.5rem;">
-                    <h3 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; color: var(--text-primary); padding-left: 0.5rem;">
-                        ${typeLabels[type] || type}
-                    </h3>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem;">
-                        ${accountsByType[type].map(acc => `
-                            <div class="account-card" style="position: relative;">
-                                <button class="btn-icon"
-                                        onclick="event.stopPropagation(); renameAccount('${acc.account_id}', '${escapeHtml(acc.name)}');"
-                                        style="position: absolute; top: 0.5rem; right: 0.5rem; z-index: 10;"
-                                        title="Rename account">
-                                    ✏️
-                                </button>
-                                <div onclick="viewAccountTransactions('${escapeHtml(acc.name)}')" style="cursor: pointer;">
-                                    <div class="account-header">
-                                        <div>
-                                            <div class="account-name">${escapeHtml(acc.name)}</div>
-                                            <div class="account-type">${escapeHtml(acc.type)}</div>
+                <div style="margin-bottom: 1.5rem;">
+                    <div
+                        onclick="toggleAccountGroup('${type}')"
+                        style="
+                            display: flex;
+                            align-items: center;
+                            gap: 0.5rem;
+                            padding: 0.75rem 0.5rem;
+                            cursor: pointer;
+                            user-select: none;
+                        ">
+                        <span id="arrow-${type}" style="font-size: 0.75rem; color: #666;">▼</span>
+                        <h3 style="font-size: 1rem; font-weight: 600; color: var(--text-secondary); margin: 0;">
+                            ${typeLabels[type] || type}
+                        </h3>
+                    </div>
+                    <div id="account-group-${type}" style="display: block;">
+                        ${typeAccounts.map(acc => {
+                            const balance = parseFloat(acc.current_balance) || 0;
+                            const updatedAt = acc.updated_at;
+                            const timeAgo = getTimeAgo(updatedAt);
+
+                            return `
+                                <div
+                                    onclick="viewAccountTransactions('${escapeHtml(acc.name)}')"
+                                    style="
+                                        display: flex;
+                                        align-items: center;
+                                        gap: 1rem;
+                                        padding: 1rem;
+                                        background: #f8f9fa;
+                                        border-radius: 0.5rem;
+                                        margin-bottom: 0.5rem;
+                                        cursor: pointer;
+                                        transition: background 0.2s;
+                                    "
+                                    onmouseover="this.style.background='#e9ecef'"
+                                    onmouseout="this.style.background='#f8f9fa'">
+
+                                    <div style="
+                                        width: 48px;
+                                        height: 48px;
+                                        border-radius: 50%;
+                                        background: #fff;
+                                        display: flex;
+                                        align-items: center;
+                                        justify-content: center;
+                                        font-size: 1.5rem;
+                                        flex-shrink: 0;
+                                    ">🏦</div>
+
+                                    <div style="flex: 1; min-width: 0;">
+                                        <div style="font-weight: 600; font-size: 0.95rem; color: #1a1a1a;">
+                                            ${escapeHtml(acc.name)}
                                         </div>
-                                        <div style="font-size: 2rem;">🏦</div>
+                                        <div style="font-size: 0.8rem; color: #666; margin-top: 0.125rem;">
+                                            ${timeAgo}
+                                        </div>
                                     </div>
-                                    <div class="account-balance">${formatCurrency(acc.current_balance || 0)}</div>
-                                    <div class="account-institution">
-                                        ${escapeHtml(acc.institution_name || acc.institution)} ${acc.mask ? `••${acc.mask}` : ''}
+
+                                    <div style="text-align: right;">
+                                        <div style="font-weight: 600; font-size: 1.1rem; color: #1a1a1a;">
+                                            ${formatCurrency(balance)}
+                                        </div>
                                     </div>
+
+                                    <button
+                                        class="btn-icon"
+                                        onclick="event.stopPropagation(); renameAccount('${acc.account_id}', '${escapeHtml(acc.name)}');"
+                                        style="flex-shrink: 0;"
+                                        title="Rename account">
+                                        ✏️
+                                    </button>
                                 </div>
-                            </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
+
+                        <div style="
+                            display: flex;
+                            justify-content: flex-end;
+                            padding: 0.75rem 1rem;
+                            font-weight: 600;
+                            font-size: 1.1rem;
+                            color: #1a1a1a;
+                        ">
+                            ${formatCurrency(totalBalance)}
+                        </div>
                     </div>
                 </div>
             `;
@@ -140,6 +213,27 @@ function displayAccounts(accounts) {
     });
 
     container.innerHTML = html;
+}
+
+function getTimeAgo(dateString) {
+    if (!dateString) return 'Unknown';
+
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    const diffMonths = Math.floor(diffDays / 30);
+    const diffYears = Math.floor(diffDays / 365);
+
+    if (diffYears > 0) return `${diffYears} year${diffYears > 1 ? 's' : ''} ago`;
+    if (diffMonths > 0) return `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`;
+    if (diffDays > 0) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    if (diffHours > 0) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffMins > 0) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+    return 'Just now';
 }
 
 function viewAccountTransactions(accountName) {
