@@ -110,6 +110,10 @@ function displayAccounts(accounts) {
         }
     };
 
+    // Override grid layout to ensure vertical stacking
+    container.style.display = 'block';
+    container.style.maxWidth = '100%';
+
     // Render accounts grouped by type
     let html = '';
 
