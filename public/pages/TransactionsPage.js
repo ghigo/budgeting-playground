@@ -264,7 +264,10 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
                     }
                 </div>
             </td>
-            <td>${escapeHtml(tx.account_name || 'Unknown')}</td>
+            <td>
+                <div>${escapeHtml(tx.account_name || 'Unknown')}</div>
+                ${tx.institution_name ? `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.125rem;">${escapeHtml(tx.institution_name)}</div>` : ''}
+            </td>
             <td class="amount-cell ${parseFloat(tx.amount) > 0 ? 'positive' : 'negative'}">
                 ${formatCurrency(tx.amount)}
             </td>
@@ -646,6 +649,22 @@ async function selectCategory(categoryName) {
 
     closeAllDropdowns();
 
+    // Check if there are multiple transactions selected
+    const hasSelectedTransactions = selectedTransactions.size > 0;
+    const isCurrentSelected = selectedTransactions.has(transactionId);
+
+    if (hasSelectedTransactions && !isCurrentSelected) {
+        // If other transactions are selected but not this one, ask user
+        const confirmed = confirm(`Apply category "${categoryName}" to all ${selectedTransactions.size} selected transaction(s)?`);
+        if (confirmed) {
+            return await bulkUpdateCategory(categoryName);
+        }
+    } else if (hasSelectedTransactions && isCurrentSelected) {
+        // If this transaction is part of the selection, automatically apply to all
+        return await bulkUpdateCategory(categoryName);
+    }
+
+    // Single transaction update
     try {
         const result = await fetchAPI(`/api/transactions/${transactionId}/category`, {
             method: 'PATCH',
@@ -672,6 +691,33 @@ async function selectCategory(categoryName) {
     } catch (error) {
         showToast(`Failed to set category: ${error.message}`, 'error');
         console.error(error);
+    }
+}
+
+async function bulkUpdateCategory(categoryName) {
+    showLoading();
+
+    try {
+        const result = await fetchAPI('/api/transactions/bulk/category', {
+            method: 'PATCH',
+            body: JSON.stringify({
+                transactionIds: Array.from(selectedTransactions),
+                category: categoryName
+            })
+        });
+
+        if (result.success) {
+            showToast(`Updated ${result.updated} transaction(s) to "${categoryName}"`, 'success');
+            selectedTransactions.clear();
+            updateBulkActionsBar();
+            updateSelectAllCheckbox();
+            eventBus.emit('transactionsUpdated');
+        }
+    } catch (error) {
+        showToast(`Failed to update categories: ${error.message}`, 'error');
+        console.error(error);
+    } finally {
+        hideLoading();
     }
 }
 

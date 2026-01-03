@@ -80,29 +80,64 @@ function displayAccounts(accounts) {
         return;
     }
 
-    container.innerHTML = accounts.map(acc => `
-        <div class="account-card" style="position: relative;">
-            <button class="btn-icon"
-                    onclick="event.stopPropagation(); renameAccount('${acc.account_id}', '${escapeHtml(acc.name)}');"
-                    style="position: absolute; top: 0.5rem; right: 0.5rem; z-index: 10;"
-                    title="Rename account">
-                ✏️
-            </button>
-            <div onclick="viewAccountTransactions('${escapeHtml(acc.name)}')" style="cursor: pointer;">
-                <div class="account-header">
-                    <div>
-                        <div class="account-name">${escapeHtml(acc.name)}</div>
-                        <div class="account-type">${escapeHtml(acc.type)}</div>
-                    </div>
-                    <div style="font-size: 2rem;">🏦</div>
+    // Group accounts by type
+    const accountsByType = {};
+    const typeOrder = ['depository', 'credit', 'loan', 'investment', 'other'];
+    const typeLabels = {
+        'depository': 'Checking & Savings',
+        'credit': 'Credit Cards',
+        'loan': 'Loans',
+        'investment': 'Investments',
+        'other': 'Other Accounts'
+    };
+
+    accounts.forEach(acc => {
+        const type = acc.type?.toLowerCase() || 'other';
+        if (!accountsByType[type]) {
+            accountsByType[type] = [];
+        }
+        accountsByType[type].push(acc);
+    });
+
+    // Render accounts grouped by type
+    let html = '';
+
+    typeOrder.forEach(type => {
+        if (accountsByType[type] && accountsByType[type].length > 0) {
+            html += `
+                <div style="margin-bottom: 2rem;">
+                    <h3 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; color: var(--text-primary); padding-left: 0.5rem;">
+                        ${typeLabels[type] || type}
+                    </h3>
+                    ${accountsByType[type].map(acc => `
+                        <div class="account-card" style="position: relative; margin-bottom: 1rem;">
+                            <button class="btn-icon"
+                                    onclick="event.stopPropagation(); renameAccount('${acc.account_id}', '${escapeHtml(acc.name)}');"
+                                    style="position: absolute; top: 0.5rem; right: 0.5rem; z-index: 10;"
+                                    title="Rename account">
+                                ✏️
+                            </button>
+                            <div onclick="viewAccountTransactions('${escapeHtml(acc.name)}')" style="cursor: pointer;">
+                                <div class="account-header">
+                                    <div>
+                                        <div class="account-name">${escapeHtml(acc.name)}</div>
+                                        <div class="account-type">${escapeHtml(acc.type)}</div>
+                                    </div>
+                                    <div style="font-size: 2rem;">🏦</div>
+                                </div>
+                                <div class="account-balance">${formatCurrency(acc.current_balance || 0)}</div>
+                                <div class="account-institution">
+                                    ${escapeHtml(acc.institution_name || acc.institution)} ${acc.mask ? `••${acc.mask}` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
                 </div>
-                <div class="account-balance">${formatCurrency(acc.current_balance || 0)}</div>
-                <div class="account-institution">
-                    ${escapeHtml(acc.institution_name || acc.institution)} ${acc.mask ? `••${acc.mask}` : ''}
-                </div>
-            </div>
-        </div>
-    `).join('');
+            `;
+        }
+    });
+
+    container.innerHTML = html;
 }
 
 function viewAccountTransactions(accountName) {

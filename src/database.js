@@ -826,7 +826,7 @@ export function renameAccount(accountId, newName) {
 // ============================================================================
 
 export function getTransactions(limit = 50, filters = {}) {
-  // Join with amazon_orders to include matching information
+  // Join with amazon_orders to include matching information and accounts for institution name
   let sql = `
     SELECT
       t.*,
@@ -834,9 +834,11 @@ export function getTransactions(limit = 50, filters = {}) {
       ao.total_amount as amazon_total,
       ao.order_date as amazon_order_date,
       ao.match_confidence as amazon_match_confidence,
-      ao.order_status as amazon_order_status
+      ao.order_status as amazon_order_status,
+      acc.institution_name
     FROM transactions t
     LEFT JOIN amazon_orders ao ON t.transaction_id = ao.matched_transaction_id
+    LEFT JOIN accounts acc ON t.account_name = acc.name
     WHERE 1=1
   `;
   const params = [];
