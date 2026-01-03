@@ -135,6 +135,12 @@ After enabling, you should be able to:
 - Fetch 7+ years of American Express transactions
 - Fetch 2+ years of transactions from most other banks
 
+**Important Timing Note:**
+- The refresh process is **asynchronous** - Plaid fetches historical data in the background
+- It can take **24-48 hours** (or longer) for full historical data to become available
+- You may need to click "Backfill All History" multiple times over several days
+- Each time you run backfill, check if more historical transactions have appeared
+
 ---
 
 ## ⚙️ Step 3: Update Your Configuration
@@ -303,6 +309,28 @@ npm start
 **Workaround if unavailable:**
 - Use the **Copilot CSV Import** feature to import historical transactions
 - Export data from your bank/credit card website and import via the app
+
+### Backfill returns same limited transactions even after running refresh
+
+**Cause:** Plaid's refresh process is asynchronous and can take 24-48 hours to complete
+
+**Why this happens:**
+- When you run "Backfill All History", it triggers `/transactions/refresh` which tells Plaid to start fetching historical data
+- This is a **background job** that doesn't complete immediately
+- Plaid gradually pulls historical data from the institution over hours or days
+- The `/transactions/get` endpoint only returns data Plaid has already fetched
+
+**Fix:**
+1. Run "Backfill All History" to trigger the refresh (you've already done this)
+2. **Wait 24-48 hours** for Plaid to fetch historical data in the background
+3. Run "Backfill All History" again tomorrow to check for new transactions
+4. Repeat every 24 hours until you see all historical data
+5. For 7+ years of Amex history, this may take 2-3 days of progressive backfills
+
+**How to monitor progress:**
+- Check the console logs for "Transaction date range" each time you run backfill
+- If the oldest date gets progressively older, Plaid is working in the background
+- If it stays the same for 3+ days, you may have hit the institution's limit
 
 ### "Invalid credentials" error
 

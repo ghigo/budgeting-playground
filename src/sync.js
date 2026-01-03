@@ -323,7 +323,9 @@ export async function backfillHistoricalTransactions() {
   }
 
   console.log(`\n📜 Backfilling all available historical transactions...`);
-  console.log('⚠️  This may take a while for accounts with lots of transactions.\n');
+  console.log('⚠️  This may take a while for accounts with lots of transactions.');
+  console.log('ℹ️  Note: Plaid fetches historical data asynchronously. If you only see recent');
+  console.log('   transactions now, wait 24-48 hours and run backfill again to get older data.\n');
 
   let totalTransactions = 0;
   const errors = [];
@@ -345,7 +347,9 @@ export async function backfillHistoricalTransactions() {
     // Enable at: https://dashboard.plaid.com/settings/team/products
     try {
       await plaid.refreshTransactions(item.access_token);
-      console.log('  ⏳ Waiting 10 seconds for Plaid to fetch fresh data from institution...');
+      console.log('  ✓ Refresh request sent to Plaid (this is an asynchronous background process)');
+      console.log('  ℹ️  Full historical data may take 24-48 hours to become available');
+      console.log('  ⏳ Waiting 10 seconds before fetching currently available data...');
       await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
     } catch (refreshError) {
       const refreshErrorCode = refreshError.response?.data?.error_code;
