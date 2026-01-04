@@ -58,11 +58,12 @@ class AmazonItemCategorization {
         if (item.asin) {
             const asinRule = database.findAmazonItemRuleByASIN(item.asin);
             if (asinRule) {
-                console.log(`[Amazon Item] ASIN rule matched: ${item.asin} -> ${asinRule.category}`);
+                const reasoning = `Matched by ASIN rule: ${asinRule.name}`;
+                console.log(`[Amazon Item] ASIN rule matched: ${item.asin} -> ${asinRule.category} - ${reasoning}`);
                 return {
                     category: asinRule.category,
                     confidence: 95,
-                    reasoning: `Matched by ASIN rule: ${asinRule.name}`,
+                    reasoning: reasoning,
                     method: 'asin-rule',
                     ruleId: asinRule.id
                 };
@@ -73,11 +74,12 @@ class AmazonItemCategorization {
         if (item.title) {
             const titleRule = database.findAmazonItemRuleByTitle(item.title);
             if (titleRule) {
-                console.log(`[Amazon Item] Title rule matched: ${item.title} -> ${titleRule.category}`);
+                const reasoning = `Matched by title pattern: ${titleRule.pattern}`;
+                console.log(`[Amazon Item] Title rule matched: ${item.title} -> ${titleRule.category} - ${reasoning}`);
                 return {
                     category: titleRule.category,
                     confidence: 90,
-                    reasoning: `Matched by title pattern: ${titleRule.pattern}`,
+                    reasoning: reasoning,
                     method: 'title-rule',
                     ruleId: titleRule.id
                 };
@@ -90,7 +92,7 @@ class AmazonItemCategorization {
             try {
                 const aiResult = await this.categorizeWithAI(item, categories);
                 if (aiResult && aiResult.confidence >= 50) {
-                    console.log(`[Amazon Item] AI categorization: ${item.title} -> ${aiResult.category} (${aiResult.confidence}%)`);
+                    console.log(`[Amazon Item] AI categorization: ${item.title} -> ${aiResult.category} (${aiResult.confidence}%) - ${aiResult.reasoning}`);
                     return {
                         ...aiResult,
                         method: 'ai'
@@ -105,10 +107,12 @@ class AmazonItemCategorization {
         if (item.category) {
             const mappedCategory = this.mapAmazonCategoryToUserCategory(item.category, categories);
             if (mappedCategory) {
+                const reasoning = `Mapped from Amazon category: ${item.category}`;
+                console.log(`[Amazon Item] Amazon category mapping: ${item.title} -> ${mappedCategory} - ${reasoning}`);
                 return {
                     category: mappedCategory,
                     confidence: 70,
-                    reasoning: `Mapped from Amazon category: ${item.category}`,
+                    reasoning: reasoning,
                     method: 'amazon-category-mapping'
                 };
             }
@@ -117,18 +121,22 @@ class AmazonItemCategorization {
         // Method 5: Fallback - categorize as "Shopping" or "Uncategorized"
         const shoppingCategory = categories.find(c => c.name === 'Shopping' || c.name === 'Online Shopping');
         if (shoppingCategory) {
+            const reasoning = 'Default categorization for Amazon purchases';
+            console.log(`[Amazon Item] Fallback categorization: ${item.title} -> ${shoppingCategory.name} - ${reasoning}`);
             return {
                 category: shoppingCategory.name,
                 confidence: 40,
-                reasoning: 'Default categorization for Amazon purchases',
+                reasoning: reasoning,
                 method: 'fallback-shopping'
             };
         }
 
+        const reasoning = 'No matching rules or AI categorization available';
+        console.log(`[Amazon Item] Uncategorized: ${item.title} - ${reasoning}`);
         return {
             category: 'Uncategorized',
             confidence: 10,
-            reasoning: 'No matching rules or AI categorization available',
+            reasoning: reasoning,
             method: 'fallback'
         };
     }
