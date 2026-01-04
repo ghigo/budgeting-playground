@@ -120,6 +120,8 @@ class AmazonItemCategorization {
                         ...aiResult,
                         method: 'ai'
                     };
+                } else if (aiResult) {
+                    console.log(`[Amazon Item] AI returned low confidence (${aiResult.confidence}%), falling back to other methods`);
                 }
             } catch (error) {
                 console.error('[Amazon Item] AI categorization failed:', error.message);
@@ -260,28 +262,42 @@ class AmazonItemCategorization {
 Available categories:
 ${categoryDetails}
 
-RULES:
-1. Search category descriptions for explicit mentions of the item type
-   - If you find the item type mentioned in a description, use that category with 90-95% confidence
-   - Example: if item is "shampoo" and a description says "shampoo", use that category
+CRITICAL RULES:
 
-2. If NOT explicitly mentioned, match the item to the category whose name or description best fits what the item is
-   - Read each category name and description carefully
-   - Match based on what the item fundamentally is (its type/purpose)
-   - Use the category that most directly relates to the item's nature
+1. IT IS BETTER TO USE LOW CONFIDENCE THAN TO BE WRONG
+   - If you're not sure, use 30-50% confidence
+   - Only use 90-95% confidence if you're absolutely certain
+   - A wrong categorization with high confidence is worse than low confidence
 
-3. Do NOT categorize based on where items are sold or purchased
-   - Wrong: "This is sold at grocery stores so it goes in category X"
-   - Correct: "This is food so it matches the description of category Y"
+2. Match items to what they ARE, not what they're used FOR
+   - Wrong: Wine glass → Food (glasses are NOT food, even if they hold food)
+   - Wrong: Laptop → Groceries (absurd reasoning like "could be used to buy groceries")
+   - Correct: Wine glass → Kitchenware/Home (it's a household item)
+   - Correct: Laptop → Electronics (it IS an electronic device)
 
-4. If no category fits well, choose the most general category available
+3. Search category descriptions for explicit mentions first
+   - If the item type is explicitly mentioned in a description, use that category with 85-95% confidence
+   - Example: "shampoo" item + description mentions "shampoo" = high confidence match
+
+4. Understand common category types (these are EXAMPLES to guide your thinking - use ONLY the categories provided above):
+   - Food/Groceries = edible items (coffee, snacks, ingredients)
+   - Supplies = household/personal care consumables (soap, shampoo, cleaning products, paper towels)
+   - Tools/Hardware = drill bits, screws, power tools, hand tools, fasteners
+   - Electronics = computers, cables, transistors, resistors, power adapters, electronic components
+   - Healthcare = medicine, first aid, vitamins, supplements
+   - Kitchenware/Home = dishes, glasses, cookware, decorations, furniture
+
+5. Do NOT force items into wrong categories
+   - If no category fits well, use the most general category with LOW confidence (30-50%)
+   - Never use high confidence (>70%) unless you're certain the category is correct
+   - Tools are NOT supplies, electronics are NOT supplies, dishes are NOT food
 
 You must choose from these exact names: ${categoryNames}
 
 Respond ONLY in this format:
 CATEGORY: [exact name from above list]
-CONFIDENCE: [number 0-100]
-REASONING: [one sentence explaining why - mention if found in description or what item type is]`;
+CONFIDENCE: [number 0-100 - use 30-50 if unsure, 90-95 only if certain]
+REASONING: [one sentence - explain what the item IS and why it matches, or admit uncertainty]`;
     }
 
     /**
