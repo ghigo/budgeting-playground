@@ -281,13 +281,20 @@ CRITICAL RULES:
    - Bandages/medicine ARE healthcare items
    - Coffee/snacks ARE groceries/food (edible items)
 
-4. Read the category DESCRIPTIONS carefully
-   - If a description explicitly mentions the item type, use that category with high confidence (80-95%)
-   - If the category NAME closely matches what the item is, use that category
-   - Example: "drill bits" should match a category about tools/hardware/appliances, not supplies
+4. Parse category NAMES carefully when descriptions are missing
+   - "Appliances & Tools" or "Tools" = power tools, drill bits, screws, fasteners, hardware, electronic components
+   - "Supplies" = ONLY personal care/household consumables (shampoo, soap, cleaning products, paper goods)
+   - "House" or "Furniture" = household items, kitchenware, dishes, glasses, decorations, furniture, mattresses
+   - "Groceries" or "Food" = edible items, food, beverages, snacks, ingredients
+   - "Healthcare" = medicine, first aid, vitamins, supplements
+   - "Activities" or "Fun" or "Entertainment" = games, toys, sports, hobbies
 
-5. Do NOT force items into "Supplies" as a catch-all
-   - Supplies = personal care and household consumables (soap, shampoo, paper towels, cleaning products)
+5. Read the category DESCRIPTIONS if provided
+   - If a description explicitly mentions the item type, use that category with high confidence (80-95%)
+   - Descriptions override category names
+
+6. Do NOT force items into "Supplies" as a catch-all
+   - Supplies = ONLY personal care and household consumables (soap, shampoo, paper towels, cleaning products)
    - Supplies ≠ tools, electronics, kitchenware, or general household items
    - If uncertain, use the most general category with LOW confidence (30-50%)
 
