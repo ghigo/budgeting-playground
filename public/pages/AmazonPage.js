@@ -100,6 +100,12 @@ async function loadAmazonOrders(filters = {}) {
         const url = `/api/amazon/orders${queryString ? '?' + queryString : ''}`;
         amazonOrders = await fetchAPI(url);
 
+        // Log item categorization data for debugging
+        const totalItems = amazonOrders.reduce((sum, order) => sum + (order.items?.length || 0), 0);
+        const categorizedItems = amazonOrders.reduce((sum, order) =>
+            sum + (order.items?.filter(item => item.user_category)?.length || 0), 0);
+        console.log(`[Amazon Orders] Loaded ${amazonOrders.length} orders with ${totalItems} items (${categorizedItems} categorized)`);
+
         // Populate account filter dropdown with unique account names
         populateAccountFilter();
 
@@ -1181,6 +1187,8 @@ async function pollJobProgress(jobId, totalItems) {
 
             // Check if job is complete
             if (job.status === 'completed') {
+                console.log('[Amazon Item Categorization] Job completed successfully, reloading orders...');
+
                 progressNotification.showSuccess(
                     jobId,
                     'Categorization Complete',
@@ -1189,9 +1197,33 @@ async function pollJobProgress(jobId, totalItems) {
                 );
 
                 // Reload orders to show updated categorizations
-                // Only reload if user is still on Amazon page
-                if (window.location.hash === '#/amazon') {
-                    await loadAmazonOrders();
+                // Check multiple possible hash values for Amazon page
+                const currentHash = window.location.hash.toLowerCase();
+                const isAmazonPage = currentHash === '#/amazon' ||
+                                    currentHash === '#amazon' ||
+                                    currentHash.startsWith('#/amazon');
+
+                console.log('[Amazon Item Categorization] Current hash:', window.location.hash, 'Is Amazon page:', isAmazonPage);
+
+                if (isAmazonPage) {
+                    console.log('[Amazon Item Categorization] Reloading Amazon orders...');
+                    try {
+                        // Add small delay to ensure database writes are committed
+                        await new Promise(resolve => setTimeout(resolve, 500));
+
+                        // Force reload by clearing cached data
+                        amazonOrders = [];
+
+                        await loadAmazonOrders();
+                        console.log('[Amazon Item Categorization] Orders reloaded successfully');
+
+                        // Also reload stats to update item categorization counts
+                        await loadAmazonStats();
+                    } catch (error) {
+                        console.error('[Amazon Item Categorization] Error reloading orders:', error);
+                    }
+                } else {
+                    console.log('[Amazon Item Categorization] Not on Amazon page, skipping reload');
                 }
                 return;
             }
