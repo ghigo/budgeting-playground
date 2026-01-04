@@ -3,7 +3,7 @@
  * Handles all Amazon purchases page functionality including order display, matching, and charts
  */
 
-import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
+import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading, createCategoryDropdown, populateCategoryDropdown } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { debounce } from '../utils/helpers.js';
 import { progressNotification } from '../services/progressNotification.js';
@@ -441,9 +441,13 @@ function displayAmazonOrders(orders) {
                             </div>
                             <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                                 ${categoryBadge}
-                                <select id="item-category-${item.id}" onchange="updateItemCategory(${item.id}, this.value)" style="padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.75rem; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);">
-                                    <option value="">Change category...</option>
-                                </select>
+                                ${createCategoryDropdown({
+                                    id: `item-category-${item.id}`,
+                                    categories: userCategories || [],
+                                    placeholder: 'Change category...',
+                                    onchange: `updateItemCategory(${item.id}, this.value)`,
+                                    size: 'small'
+                                })}
                                 ${item.user_category ? `
                                     ${isVerified ?
                                         `<button onclick="unverifyItemCategory(${item.id}, ${confidence})" style="padding: 0.2rem 0.5rem; background: #F59E0B; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Unverify</button>` :
@@ -1231,22 +1235,15 @@ function updateItemInUI(itemId, update) {
             // Update the controls HTML
             controlsContainer.innerHTML = `
                 ${categoryBadge}
-                <select id="item-category-${itemId}" onchange="updateItemCategory(${itemId}, this.value)" style="padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.75rem; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);">
-                    <option value="">Change category...</option>
-                </select>
+                ${createCategoryDropdown({
+                    id: `item-category-${itemId}`,
+                    categories: userCategories || [],
+                    placeholder: 'Change category...',
+                    onchange: `updateItemCategory(${itemId}, this.value)`,
+                    size: 'small'
+                })}
                 ${actionButtons}
             `;
-
-            // Populate the dropdown with categories
-            const dropdown = document.getElementById(`item-category-${itemId}`);
-            if (dropdown && userCategories) {
-                userCategories.forEach(cat => {
-                    const option = document.createElement('option');
-                    option.value = cat.name;
-                    option.textContent = cat.name;
-                    dropdown.appendChild(option);
-                });
-            }
         }
 
         // Update reasoning text
