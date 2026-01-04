@@ -194,7 +194,11 @@ class AmazonItemCategorization {
      * @returns {string} Prompt
      */
     buildAIPrompt(item, categories) {
-        const categoryList = categories
+        // Build list of category names only (for clarity)
+        const categoryNames = categories.map(c => c.name).join(', ');
+
+        // Build detailed category list with descriptions
+        const categoryDetails = categories
             .map(c => {
                 const desc = c.description ? ` - ${c.description}` : '';
                 const keywords = c.keywords ? ` (Keywords: ${c.keywords})` : '';
@@ -204,8 +208,11 @@ class AmazonItemCategorization {
 
         return `You are a financial transaction categorization assistant. Categorize this Amazon purchase item into ONE of the available categories.
 
-Available Categories:
-${categoryList}
+IMPORTANT: You MUST choose from EXACTLY these category names (DO NOT modify or combine them):
+${categoryNames}
+
+Category Details (for understanding what belongs in each category):
+${categoryDetails}
 
 Amazon Item Details:
 - Title: ${item.title}
@@ -215,22 +222,28 @@ ${item.quantity > 1 ? `- Quantity: ${item.quantity}` : ''}
 ${item.seller ? `- Seller: ${item.seller}` : ''}
 ${item.asin ? `- ASIN: ${item.asin}` : ''}
 
-Instructions:
-1. Carefully read each category's DESCRIPTION and KEYWORDS above as primary guidance
-2. Use the category descriptions to understand what types of items belong in each category
-3. Analyze the item title and details to determine the most appropriate category
-4. Consider the Amazon category as a hint but use your judgment based on the user's category descriptions
-5. Choose the MOST SPECIFIC category that matches the item based on the category descriptions
-6. Respond ONLY in this exact format (no additional text):
+CRITICAL INSTRUCTIONS:
+1. You MUST use the EXACT category name from the list above - DO NOT create new category names
+2. DO NOT combine category name with description (e.g., "House - House ordinary expenses" is WRONG, use just "House")
+3. DO NOT make up categories like "Electronics & Gadgets" - use only the exact names provided
+4. Read each category's DESCRIPTION and KEYWORDS to understand what belongs in each category
+5. Use the category descriptions as primary guidance for matching items
+6. Consider the Amazon category as a hint but use your judgment based on the user's category descriptions
+7. Choose the MOST SPECIFIC category that matches the item
 
-CATEGORY: [exact category name]
+Valid category names to choose from:
+${categoryNames}
+
+Respond in this EXACT format (no additional text):
+
+CATEGORY: [exact category name from the list above]
 CONFIDENCE: [number from 0-100]
 REASONING: [brief explanation]
 
-Example:
+Example (assuming "Groceries" is in the category list):
 CATEGORY: Groceries
 CONFIDENCE: 95
-REASONING: Food item based on title and Amazon category`;
+REASONING: Food item matches Groceries category description for consumable food products`;
     }
 
     /**
@@ -254,13 +267,33 @@ REASONING: Food item based on title and Amazon category`;
             const confidence = confidenceMatch ? parseInt(confidenceMatch[1]) : 70;
             const reasoning = reasoningMatch ? reasoningMatch[1].trim() : 'AI-based categorization';
 
-            // Validate category exists (case-insensitive)
-            const validCategory = categories.find(c =>
+            // Validate category exists (case-insensitive exact match)
+            let validCategory = categories.find(c =>
                 c.name.toLowerCase() === category.toLowerCase()
             );
 
+            // If exact match fails, try fuzzy matching as fallback
             if (!validCategory) {
-                console.error(`[Amazon Item AI] Invalid category suggested: ${category}`);
+                // Try to find close matches (e.g., "Groceries" vs "Grocery", "Health Care" vs "Healthcare")
+                validCategory = categories.find(c => {
+                    const suggested = category.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const actual = c.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    return suggested === actual ||
+                           suggested.includes(actual) ||
+                           actual.includes(suggested);
+                });
+
+                if (validCategory) {
+                    console.warn(`[Amazon Item AI] Fuzzy matched "${category}" to "${validCategory.name}"`);
+                }
+            }
+
+            // If still no match, log error and return null
+            if (!validCategory) {
+                const availableCategories = categories.map(c => c.name).join(', ');
+                console.error(`[Amazon Item AI] Invalid category suggested: "${category}"`);
+                console.error(`[Amazon Item AI] Available categories: ${availableCategories}`);
+                console.error(`[Amazon Item AI] Full AI response: ${response}`);
                 return null;
             }
 
