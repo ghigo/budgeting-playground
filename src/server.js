@@ -12,6 +12,7 @@ import * as sheets from './sheets.js';
 import * as amazon from './amazon.js';
 import * as copilot from './copilot.js';
 import aiCategorization from '../services/aiCategorizationService.js';
+import { amazonItemCategorization } from '../services/amazonItemCategorizationService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1245,6 +1246,203 @@ app.get('/api/amazon/accounts', (req, res) => {
     res.json(accounts);
   } catch (error) {
     console.error('Error fetching Amazon accounts:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// AMAZON ITEM CATEGORIZATION ENDPOINTS
+// ============================================================================
+
+// Get Amazon items with optional filters
+app.get('/api/amazon/items', (req, res) => {
+  try {
+    const { categorized, verified, orderId } = req.query;
+    const filters = {};
+
+    if (categorized) filters.categorized = categorized;
+    if (verified) filters.verified = verified;
+    if (orderId) filters.orderId = orderId;
+
+    const items = database.getAmazonItems(filters);
+    res.json(items);
+  } catch (error) {
+    console.error('Error fetching Amazon items:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get Amazon item categorization stats
+app.get('/api/amazon/items/stats', (req, res) => {
+  try {
+    const stats = database.getAmazonItemStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching Amazon item stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Categorize a single Amazon item
+app.post('/api/amazon/items/:itemId/categorize', async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const items = database.getAmazonItems({ itemId });
+
+    if (items.length === 0) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    const item = items[0];
+    const result = await amazonItemCategorization.categorizeItem(item);
+
+    // Save the categorization
+    database.updateAmazonItemCategory(
+      itemId,
+      result.category,
+      result.confidence,
+      result.reasoning
+    );
+
+    // Update rule stats if a rule was used
+    if (result.ruleId) {
+      database.updateAmazonItemRuleStats(result.ruleId, true);
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error categorizing Amazon item:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Batch categorize Amazon items
+app.post('/api/amazon/items/categorize-batch', async (req, res) => {
+  try {
+    const { limit, itemIds, categorizedOnly } = req.body;
+
+    let items;
+    if (itemIds && itemIds.length > 0) {
+      // Categorize specific items
+      items = database.getAmazonItems({}).filter(item => itemIds.includes(item.id));
+    } else if (categorizedOnly === false) {
+      // Only uncategorized items
+      items = database.getAmazonItems({ categorized: 'no' });
+    } else {
+      // All items
+      items = database.getAmazonItems({});
+    }
+
+    const results = await amazonItemCategorization.categorizeItemsBatch(items, limit);
+
+    // Save all categorizations
+    for (const result of results) {
+      database.updateAmazonItemCategory(
+        result.itemId,
+        result.category,
+        result.confidence,
+        result.reasoning
+      );
+
+      // Update rule stats if a rule was used
+      if (result.ruleId) {
+        database.updateAmazonItemRuleStats(result.ruleId, true);
+      }
+    }
+
+    res.json({ success: true, count: results.length, results });
+  } catch (error) {
+    console.error('Error batch categorizing Amazon items:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update item category (manual selection)
+app.post('/api/amazon/items/:itemId/category', async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const { category } = req.body;
+
+    if (!category) {
+      return res.status(400).json({ error: 'Category required' });
+    }
+
+    // Get the item
+    const items = database.getAmazonItems({});
+    const item = items.find(i => i.id === parseInt(itemId));
+
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    // Update category
+    database.updateAmazonItemCategory(itemId, category, 100, 'User selected');
+
+    // Learn from user's choice
+    const learnResult = await amazonItemCategorization.learnFromUser(item, category);
+
+    res.json({ success: true, learnResult });
+  } catch (error) {
+    console.error('Error updating Amazon item category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Verify item category
+app.post('/api/amazon/items/:itemId/verify', (req, res) => {
+  try {
+    const { itemId } = req.params;
+    database.verifyAmazonItemCategory(itemId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error verifying Amazon item category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Unverify item category
+app.post('/api/amazon/items/:itemId/unverify', (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const { originalConfidence } = req.body;
+    database.unverifyAmazonItemCategory(itemId, originalConfidence || 0);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error unverifying Amazon item category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get Amazon item rules
+app.get('/api/amazon/items/rules', (req, res) => {
+  try {
+    const rules = database.getAmazonItemRules();
+    res.json(rules);
+  } catch (error) {
+    console.error('Error fetching Amazon item rules:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create Amazon item rule
+app.post('/api/amazon/items/rules', (req, res) => {
+  try {
+    const result = database.createAmazonItemRule(req.body);
+    res.json(result);
+  } catch (error) {
+    console.error('Error creating Amazon item rule:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete Amazon item rule
+app.delete('/api/amazon/items/rules/:ruleId', (req, res) => {
+  try {
+    const { ruleId } = req.params;
+    database.deleteAmazonItemRule(ruleId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting Amazon item rule:', error);
     res.status(500).json({ error: error.message });
   }
 });
