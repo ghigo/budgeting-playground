@@ -6,6 +6,7 @@
 import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { debounce } from '../utils/helpers.js';
+import { progressNotification } from '../services/progressNotification.js';
 
 // Module state
 let amazonOrders = [];
@@ -1093,58 +1094,136 @@ async function unverifyItemCategory(itemId, originalConfidence) {
     }
 }
 
-// Categorize all Amazon items
+// Categorize all Amazon items (background job)
 async function categorizeAllAmazonItems() {
-    if (!confirm('This will categorize ALL Amazon items. This may take a while. Continue?')) {
+    if (!confirm('This will categorize ALL Amazon items. This may take a while. You can navigate to other pages while this runs. Continue?')) {
         return;
     }
 
     try {
-        showLoading();
-
-        const result = await fetchAPI('/api/amazon/items/categorize-batch', {
+        // Start background job
+        const result = await fetchAPI('/api/amazon/items/categorize-background', {
             method: 'POST',
             body: JSON.stringify({ categorizedOnly: false })
         });
 
-        showToast(
-            `✓ Successfully categorized ${result.count} items!`,
-            'success'
+        const { jobId, totalItems } = result;
+
+        // Show progress notification
+        progressNotification.show(
+            jobId,
+            'Categorizing Amazon Items',
+            0,
+            { status: `Processing ${totalItems} items...` }
         );
 
-        // Reload orders to show updated categorizations
-        await loadAmazonOrders();
+        // Poll for progress
+        pollJobProgress(jobId, totalItems);
     } catch (error) {
-        console.error('Error batch categorizing items:', error);
-        showToast(`Failed to categorize items: ${error.message}`, 'error');
-    } finally {
-        hideLoading();
+        console.error('Error starting categorization:', error);
+        showToast(`Failed to start categorization: ${error.message}`, 'error');
     }
 }
 
 // Categorize first 20 items (for debugging)
 async function categorizeFirst20Items() {
     try {
-        showLoading();
-
-        const result = await fetchAPI('/api/amazon/items/categorize-batch', {
+        // Start background job
+        const result = await fetchAPI('/api/amazon/items/categorize-background', {
             method: 'POST',
             body: JSON.stringify({ limit: 20 })
         });
 
-        showToast(
-            `✓ Successfully categorized ${result.count} items (first 20)`,
-            'success'
+        const { jobId, totalItems } = result;
+
+        // Show progress notification
+        progressNotification.show(
+            jobId,
+            'Categorizing Amazon Items (Debug)',
+            0,
+            { status: `Processing ${totalItems} items...` }
         );
 
-        // Reload orders to show updated categorizations
-        await loadAmazonOrders();
+        // Poll for progress
+        pollJobProgress(jobId, totalItems);
     } catch (error) {
-        console.error('Error batch categorizing items:', error);
-        showToast(`Failed to categorize items: ${error.message}`, 'error');
-    } finally {
-        hideLoading();
+        console.error('Error starting categorization:', error);
+        showToast(`Failed to start categorization: ${error.message}`, 'error');
     }
+}
+
+// Poll for job progress
+async function pollJobProgress(jobId, totalItems) {
+    const pollInterval = 1000; // Poll every second
+    let previousProgress = 0;
+
+    const poll = async () => {
+        try {
+            const job = await fetchAPI(`/api/jobs/${jobId}`);
+
+            if (!job) {
+                progressNotification.showError(
+                    jobId,
+                    'Categorization Error',
+                    'Job not found'
+                );
+                return;
+            }
+
+            // Update progress notification
+            const progress = job.progress || 0;
+            const status = `${job.processed || 0} of ${totalItems} items categorized`;
+
+            progressNotification.updateProgress(jobId, progress, {
+                status,
+                state: job.status
+            });
+
+            // Check if job is complete
+            if (job.status === 'completed') {
+                progressNotification.showSuccess(
+                    jobId,
+                    'Categorization Complete',
+                    `Successfully categorized ${job.result?.count || totalItems} items!`,
+                    5000
+                );
+
+                // Reload orders to show updated categorizations
+                // Only reload if user is still on Amazon page
+                if (window.location.hash === '#/amazon') {
+                    await loadAmazonOrders();
+                }
+                return;
+            }
+
+            // Check if job failed
+            if (job.status === 'failed') {
+                progressNotification.showError(
+                    jobId,
+                    'Categorization Failed',
+                    job.error || 'Unknown error occurred',
+                    10000
+                );
+                return;
+            }
+
+            // Continue polling if job is still running
+            if (job.status === 'running' || job.status === 'pending') {
+                setTimeout(poll, pollInterval);
+            }
+        } catch (error) {
+            console.error('Error polling job progress:', error);
+            progressNotification.showError(
+                jobId,
+                'Categorization Error',
+                'Failed to fetch job status',
+                5000
+            );
+        }
+    };
+
+    // Start polling
+    poll();
 }
 
 export default {

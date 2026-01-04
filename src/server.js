@@ -13,6 +13,7 @@ import * as amazon from './amazon.js';
 import * as copilot from './copilot.js';
 import aiCategorization from '../services/aiCategorizationService.js';
 import { amazonItemCategorization } from '../services/amazonItemCategorizationService.js';
+import { backgroundJobService } from '../services/backgroundJobService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1316,7 +1317,7 @@ app.post('/api/amazon/items/:itemId/categorize', async (req, res) => {
   }
 });
 
-// Batch categorize Amazon items
+// Batch categorize Amazon items (synchronous - for small batches)
 app.post('/api/amazon/items/categorize-batch', async (req, res) => {
   try {
     const { limit, itemIds, categorizedOnly } = req.body;
@@ -1356,6 +1357,113 @@ app.post('/api/amazon/items/categorize-batch', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Start background categorization job
+app.post('/api/amazon/items/categorize-background', async (req, res) => {
+  try {
+    const { limit, itemIds, categorizedOnly } = req.body;
+
+    // Get items to categorize
+    let items;
+    if (itemIds && itemIds.length > 0) {
+      items = database.getAmazonItems({}).filter(item => itemIds.includes(item.id));
+    } else if (categorizedOnly === false) {
+      items = database.getAmazonItems({ categorized: 'no' });
+    } else {
+      items = database.getAmazonItems({});
+    }
+
+    // Apply limit if specified
+    const itemsToProcess = limit ? items.slice(0, limit) : items;
+
+    // Create background job
+    const jobId = backgroundJobService.createJob('amazon-item-categorization', {
+      totalItems: itemsToProcess.length,
+      limit
+    });
+
+    // Start processing in background (don't await)
+    processCategorizationJob(jobId, itemsToProcess).catch(error => {
+      console.error(`[Background Job ${jobId}] Uncaught error:`, error);
+      backgroundJobService.failJob(jobId, error);
+    });
+
+    // Return job ID immediately
+    res.json({ success: true, jobId, totalItems: itemsToProcess.length });
+  } catch (error) {
+    console.error('Error starting background categorization:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get job status
+app.get('/api/jobs/:jobId', (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = backgroundJobService.getJob(jobId);
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    res.json(job);
+  } catch (error) {
+    console.error('Error fetching job status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Process categorization job in background
+ * @param {string} jobId - Job ID
+ * @param {Array} items - Items to categorize
+ */
+async function processCategorizationJob(jobId, items) {
+  try {
+    backgroundJobService.startJob(jobId, items.length);
+
+    const results = [];
+
+    for (const item of items) {
+      try {
+        const result = await amazonItemCategorization.categorizeItem(item);
+
+        // Save categorization
+        database.updateAmazonItemCategory(
+          item.id,
+          result.category,
+          result.confidence,
+          result.reasoning
+        );
+
+        // Update rule stats if a rule was used
+        if (result.ruleId) {
+          database.updateAmazonItemRuleStats(result.ruleId, true);
+        }
+
+        results.push({
+          itemId: item.id,
+          ...result
+        });
+
+        // Update progress
+        backgroundJobService.incrementProgress(jobId);
+      } catch (error) {
+        console.error(`[Background Job ${jobId}] Error categorizing item ${item.id}:`, error);
+        // Continue processing other items
+        backgroundJobService.incrementProgress(jobId);
+      }
+    }
+
+    // Mark job as completed
+    backgroundJobService.completeJob(jobId, {
+      count: results.length,
+      results
+    });
+  } catch (error) {
+    backgroundJobService.failJob(jobId, error);
+  }
+}
 
 // Update item category (manual selection)
 app.post('/api/amazon/items/:itemId/category', async (req, res) => {
