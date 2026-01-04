@@ -71,7 +71,10 @@ class AmazonItemCategorization {
             const asinRule = database.findAmazonItemRuleByASIN(item.asin);
             if (asinRule) {
                 const reasoning = `Matched by ASIN rule: ${asinRule.name}`;
-                console.log(`[Amazon Item] ASIN rule matched: ${item.asin} -> ${asinRule.category} - ${reasoning}`);
+                console.log('[Amazon Item] ASIN Rule Match');
+                console.log('  INPUT:  ' + item.asin + ' | ' + (item.title.length > 50 ? item.title.substring(0, 47) + '...' : item.title));
+                console.log('  OUTPUT: ' + asinRule.category + ' (95% confidence)');
+                console.log('  REASON: ' + reasoning);
                 return {
                     category: asinRule.category,
                     confidence: 95,
@@ -87,7 +90,10 @@ class AmazonItemCategorization {
             const titleRule = database.findAmazonItemRuleByTitle(item.title);
             if (titleRule) {
                 const reasoning = `Matched by title pattern: ${titleRule.pattern}`;
-                console.log(`[Amazon Item] Title rule matched: ${item.title} -> ${titleRule.category} - ${reasoning}`);
+                console.log('[Amazon Item] Title Pattern Match');
+                console.log('  INPUT:  ' + (item.title.length > 70 ? item.title.substring(0, 67) + '...' : item.title));
+                console.log('  OUTPUT: ' + titleRule.category + ' (90% confidence)');
+                console.log('  REASON: ' + reasoning);
                 return {
                     category: titleRule.category,
                     confidence: 90,
@@ -104,7 +110,12 @@ class AmazonItemCategorization {
             try {
                 const aiResult = await this.categorizeWithAI(item, categories);
                 if (aiResult && aiResult.confidence >= 50) {
-                    console.log(`[Amazon Item] AI categorization: ${item.title} -> ${aiResult.category} (${aiResult.confidence}%) - ${aiResult.reasoning}`);
+                    console.log('\n' + '─'.repeat(80));
+                    console.log('[Amazon Item] AI Categorization');
+                    console.log('  INPUT:  ' + (item.title.length > 70 ? item.title.substring(0, 67) + '...' : item.title));
+                    console.log('  OUTPUT: ' + aiResult.category + ` (${aiResult.confidence}% confidence)`);
+                    console.log('  REASON: ' + aiResult.reasoning);
+                    console.log('─'.repeat(80) + '\n');
                     return {
                         ...aiResult,
                         method: 'ai'
@@ -120,7 +131,10 @@ class AmazonItemCategorization {
             const mappedCategory = this.mapAmazonCategoryToUserCategory(item.category, categories);
             if (mappedCategory) {
                 const reasoning = `Mapped from Amazon category: ${item.category}`;
-                console.log(`[Amazon Item] Amazon category mapping: ${item.title} -> ${mappedCategory} - ${reasoning}`);
+                console.log('[Amazon Item] Amazon Category Mapping');
+                console.log('  INPUT:  Amazon: "' + item.category + '" | ' + (item.title.length > 45 ? item.title.substring(0, 42) + '...' : item.title));
+                console.log('  OUTPUT: ' + mappedCategory + ' (70% confidence)');
+                console.log('  REASON: ' + reasoning);
                 return {
                     category: mappedCategory,
                     confidence: 70,
@@ -134,7 +148,10 @@ class AmazonItemCategorization {
         const shoppingCategory = categories.find(c => c.name === 'Shopping' || c.name === 'Online Shopping');
         if (shoppingCategory) {
             const reasoning = 'Default categorization for Amazon purchases';
-            console.log(`[Amazon Item] Fallback categorization: ${item.title} -> ${shoppingCategory.name} - ${reasoning}`);
+            console.log('[Amazon Item] Fallback (Shopping)');
+            console.log('  INPUT:  ' + (item.title.length > 70 ? item.title.substring(0, 67) + '...' : item.title));
+            console.log('  OUTPUT: ' + shoppingCategory.name + ' (40% confidence)');
+            console.log('  REASON: ' + reasoning);
             return {
                 category: shoppingCategory.name,
                 confidence: 40,
@@ -144,7 +161,10 @@ class AmazonItemCategorization {
         }
 
         const reasoning = 'No matching rules or AI categorization available';
-        console.log(`[Amazon Item] Uncategorized: ${item.title} - ${reasoning}`);
+        console.log('[Amazon Item] Uncategorized');
+        console.log('  INPUT:  ' + (item.title.length > 70 ? item.title.substring(0, 67) + '...' : item.title));
+        console.log('  OUTPUT: Uncategorized (10% confidence)');
+        console.log('  REASON: ' + reasoning);
         return {
             category: 'Uncategorized',
             confidence: 10,
@@ -189,15 +209,24 @@ class AmazonItemCategorization {
             const db = await import('../src/database.js');
             const logSetting = db.getSetting('enable_amazon_item_ai_logs');
             if (logSetting && logSetting.value === true) {
-                console.log('\n' + '='.repeat(80));
-                console.log('[Amazon Item AI] Response for item:', item.title?.substring(0, 60) + '...');
-                console.log('-'.repeat(80));
-                console.log('Prompt sent to AI:');
-                console.log(prompt);
-                console.log('-'.repeat(80));
-                console.log('AI Response:');
-                console.log(data.response);
-                console.log('='.repeat(80) + '\n');
+                console.log('\n' + '═'.repeat(80));
+                console.log('╔═══ DETAILED AI CATEGORIZATION LOG ═══╗');
+                console.log('╠═══ INPUT ═══╗');
+                console.log('║ Item: ' + item.title?.substring(0, 60) + (item.title?.length > 60 ? '...' : ''));
+                console.log('║ ASIN: ' + (item.asin || 'N/A'));
+                console.log('║ Amazon Category: ' + (item.category || 'N/A'));
+                console.log('╚═════════════╝');
+                console.log('');
+                console.log('╔═══ PROMPT SENT TO AI ═══╗');
+                console.log('║');
+                prompt.split('\n').forEach(line => console.log('║ ' + line));
+                console.log('╚═════════════════════════╝');
+                console.log('');
+                console.log('╔═══ RAW AI RESPONSE ═══╗');
+                console.log('║');
+                data.response.split('\n').forEach(line => console.log('║ ' + line));
+                console.log('╚═══════════════════════╝');
+                console.log('═'.repeat(80) + '\n');
             }
 
             return this.parseAIResponse(data.response, categories);
