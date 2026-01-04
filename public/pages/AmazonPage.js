@@ -1158,6 +1158,122 @@ async function categorizeFirst20Items() {
     }
 }
 
+// Update a single item in the UI (reactive update)
+function updateItemInUI(itemId, update) {
+    try {
+        console.log(`[Amazon Item UI] Updating item ${itemId} with category: ${update.category}`);
+
+        // Find the item container
+        const itemElement = document.getElementById(`item-${itemId}`);
+        if (!itemElement) {
+            console.warn(`[Amazon Item UI] Item element not found for item ${itemId}`);
+            return;
+        }
+
+        // Update the item in amazonOrders array
+        let itemFound = false;
+        for (const order of amazonOrders) {
+            if (order.items) {
+                const item = order.items.find(i => i.id === itemId);
+                if (item) {
+                    item.user_category = update.category;
+                    item.confidence = update.confidence;
+                    item.categorization_reasoning = update.reasoning;
+                    item.verified = update.verified || 'No';
+                    itemFound = true;
+                    break;
+                }
+            }
+        }
+
+        if (!itemFound) {
+            console.warn(`[Amazon Item UI] Item ${itemId} not found in amazonOrders array`);
+        }
+
+        // Calculate category color
+        const confidence = update.confidence || 0;
+        const isVerified = update.verified === 'Yes';
+        let categoryColor = '#6B7280';
+
+        if (update.category) {
+            if (isVerified || confidence === 100) {
+                categoryColor = '#3B82F6'; // blue for verified
+            } else if (confidence >= 85) {
+                categoryColor = '#10B981'; // green for high confidence
+            } else if (confidence >= 70) {
+                categoryColor = '#F59E0B'; // amber for medium confidence
+            } else if (confidence >= 50) {
+                categoryColor = '#F97316'; // orange for low confidence
+            } else {
+                categoryColor = '#EF4444'; // red for very low confidence
+            }
+        }
+
+        // Build new category badge
+        const categoryBadge = update.category
+            ? `<span style="background: ${categoryColor}; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;">
+                   ${escapeHtml(update.category)} ${isVerified ? '✓' : ''} ${confidence}%
+               </span>`
+            : `<span style="background: #6B7280; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; white-space: nowrap;">
+                   Uncategorized
+               </span>`;
+
+        // Build action buttons
+        const actionButtons = update.category
+            ? (isVerified
+                ? `<button onclick="unverifyItemCategory(${itemId}, ${confidence})" style="padding: 0.2rem 0.5rem; background: #F59E0B; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Unverify</button>`
+                : `<button onclick="verifyItemCategory(${itemId})" style="padding: 0.2rem 0.5rem; background: #10B981; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Verify</button>`)
+            : `<button onclick="categorizeItem(${itemId})" style="padding: 0.2rem 0.5rem; background: #3B82F6; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Categorize</button>`;
+
+        // Find the controls container (has the badge, dropdown, and buttons)
+        const controlsContainer = itemElement.querySelector('div[style*="display: flex"][style*="gap: 0.5rem"]');
+        if (controlsContainer) {
+            // Update the controls HTML
+            controlsContainer.innerHTML = `
+                ${categoryBadge}
+                <select id="item-category-${itemId}" onchange="updateItemCategory(${itemId}, this.value)" style="padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.75rem; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary);">
+                    <option value="">Change category...</option>
+                </select>
+                ${actionButtons}
+            `;
+
+            // Populate the dropdown with categories
+            const dropdown = document.getElementById(`item-category-${itemId}`);
+            if (dropdown && userCategories) {
+                userCategories.forEach(cat => {
+                    const option = document.createElement('option');
+                    option.value = cat.name;
+                    option.textContent = cat.name;
+                    dropdown.appendChild(option);
+                });
+            }
+        }
+
+        // Update reasoning text
+        const reasoningContainer = itemElement.querySelector('div[style*="font-style: italic"]');
+        if (update.reasoning) {
+            if (reasoningContainer) {
+                reasoningContainer.textContent = update.reasoning;
+            } else {
+                // Add reasoning element if it doesn't exist
+                const itemContent = itemElement.querySelector('div[style*="flex: 1"]');
+                if (itemContent) {
+                    const reasoningDiv = document.createElement('div');
+                    reasoningDiv.style = 'font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem; font-style: italic;';
+                    reasoningDiv.textContent = update.reasoning;
+                    itemContent.appendChild(reasoningDiv);
+                }
+            }
+        } else if (reasoningContainer) {
+            reasoningContainer.remove();
+        }
+
+        console.log(`[Amazon Item UI] Successfully updated item ${itemId}`);
+    } catch (error) {
+        console.error(`[Amazon Item UI] Error updating item ${itemId}:`, error);
+    }
+}
+
 // Poll for job progress
 async function pollJobProgress(jobId, totalItems) {
     const pollInterval = 1000; // Poll every second
@@ -1176,6 +1292,14 @@ async function pollJobProgress(jobId, totalItems) {
                 return;
             }
 
+            // Process incremental updates for reactive UI
+            if (job.updates && job.updates.length > 0) {
+                console.log(`[Amazon Item Categorization] Processing ${job.updates.length} incremental updates`);
+                for (const update of job.updates) {
+                    updateItemInUI(update.itemId, update);
+                }
+            }
+
             // Update progress notification
             const progress = job.progress || 0;
             const status = `${job.processed || 0} of ${totalItems} items categorized`;
@@ -1187,7 +1311,7 @@ async function pollJobProgress(jobId, totalItems) {
 
             // Check if job is complete
             if (job.status === 'completed') {
-                console.log('[Amazon Item Categorization] Job completed successfully, reloading orders...');
+                console.log('[Amazon Item Categorization] Job completed successfully');
 
                 progressNotification.showSuccess(
                     jobId,
@@ -1196,35 +1320,15 @@ async function pollJobProgress(jobId, totalItems) {
                     5000
                 );
 
-                // Reload orders to show updated categorizations
-                // Check multiple possible hash values for Amazon page
-                const currentHash = window.location.hash.toLowerCase();
-                const isAmazonPage = currentHash === '#/amazon' ||
-                                    currentHash === '#amazon' ||
-                                    currentHash.startsWith('#/amazon');
-
-                console.log('[Amazon Item Categorization] Current hash:', window.location.hash, 'Is Amazon page:', isAmazonPage);
-
-                if (isAmazonPage) {
-                    console.log('[Amazon Item Categorization] Reloading Amazon orders...');
-                    try {
-                        // Add small delay to ensure database writes are committed
-                        await new Promise(resolve => setTimeout(resolve, 500));
-
-                        // Force reload by clearing cached data
-                        amazonOrders = [];
-
-                        await loadAmazonOrders();
-                        console.log('[Amazon Item Categorization] Orders reloaded successfully');
-
-                        // Also reload stats to update item categorization counts
-                        await loadAmazonStats();
-                    } catch (error) {
-                        console.error('[Amazon Item Categorization] Error reloading orders:', error);
-                    }
-                } else {
-                    console.log('[Amazon Item Categorization] Not on Amazon page, skipping reload');
+                // Reload stats to update item categorization counts
+                // No need to reload orders - UI was updated reactively
+                try {
+                    await loadAmazonStats();
+                    console.log('[Amazon Item Categorization] Stats reloaded');
+                } catch (error) {
+                    console.error('[Amazon Item Categorization] Error reloading stats:', error);
                 }
+
                 return;
             }
 

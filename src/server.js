@@ -1406,7 +1406,14 @@ app.get('/api/jobs/:jobId', (req, res) => {
       return res.status(404).json({ error: 'Job not found' });
     }
 
-    res.json(job);
+    // Get incremental updates and clear them
+    const updates = backgroundJobService.getAndClearUpdates(jobId);
+
+    // Return job status with incremental updates
+    res.json({
+      ...job,
+      updates  // Only includes new updates since last poll
+    });
   } catch (error) {
     console.error('Error fetching job status:', error);
     res.status(500).json({ error: error.message });
@@ -1444,6 +1451,15 @@ async function processCategorizationJob(jobId, items) {
         results.push({
           itemId: item.id,
           ...result
+        });
+
+        // Add incremental update for reactive UI
+        backgroundJobService.addUpdate(jobId, {
+          itemId: item.id,
+          category: result.category,
+          confidence: result.confidence,
+          reasoning: result.reasoning,
+          verified: 'No'
         });
 
         // Update progress
