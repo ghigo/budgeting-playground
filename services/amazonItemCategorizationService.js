@@ -219,29 +219,28 @@ class AmazonItemCategorization {
 Available categories:
 ${categoryDetails}
 
-INSTRUCTIONS:
-1. First, check if the item type is explicitly mentioned in any category description
-   - If "shampoo" is in the item and a description says "shampoo" → use that category
-   - If "drill" is in the item and a description says "tools" → use that category
+RULES:
+1. Search category descriptions for explicit mentions of the item type
+   - If you find the item type mentioned in a description, use that category with 90-95% confidence
+   - Example: if item is "shampoo" and a description says "shampoo", use that category
 
-2. If NOT explicitly mentioned, match based on what the item fundamentally IS:
-   - Food items → Groceries or Food
-   - Medicine, medical supplies → Healthcare
-   - Tools, hardware, electronics, appliances → Appliances & Tools
-   - Cleaning supplies, toiletries, paper products → Supplies
-   - Games, toys, entertainment → Fun
-   - Furniture items → Furniture
-   - If truly unsure → Other
+2. If NOT explicitly mentioned, match the item to the category whose name or description best fits what the item is
+   - Read each category name and description carefully
+   - Match based on what the item fundamentally is (its type/purpose)
+   - Use the category that most directly relates to the item's nature
 
-3. NEVER use reasoning like "found in grocery stores" or "typically purchased at"
-   Focus ONLY on what the item IS, not where it's sold
+3. Do NOT categorize based on where items are sold or purchased
+   - Wrong: "This is sold at grocery stores so it goes in category X"
+   - Correct: "This is food so it matches the description of category Y"
 
-Choose from these names EXACTLY: ${categoryNames}
+4. If no category fits well, choose the most general category available
 
-Respond in this format:
-CATEGORY: [exact name from list]
-CONFIDENCE: [0-100]
-REASONING: [why this category - mention if explicitly in description or what the item type is]`;
+You must choose from these exact names: ${categoryNames}
+
+Respond ONLY in this format:
+CATEGORY: [exact name from above list]
+CONFIDENCE: [number 0-100]
+REASONING: [one sentence explaining why - mention if found in description or what item type is]`;
     }
 
     /**
