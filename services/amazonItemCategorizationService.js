@@ -264,40 +264,39 @@ ${categoryDetails}
 
 CRITICAL RULES:
 
-1. IT IS BETTER TO USE LOW CONFIDENCE THAN TO BE WRONG
-   - If you're not sure, use 30-50% confidence
-   - Only use 90-95% confidence if you're absolutely certain
-   - A wrong categorization with high confidence is worse than low confidence
+1. ONLY use the category names listed above - do NOT invent or guess categories
+   - If you think an item should go in "Electronics" but that category doesn't exist, find the closest match or use low confidence
+   - The categories above are the ONLY valid options
 
-2. Match items to what they ARE, not what they're used FOR
-   - Wrong: Wine glass → Food (glasses are NOT food, even if they hold food)
-   - Wrong: Laptop → Groceries (absurd reasoning like "could be used to buy groceries")
-   - Correct: Wine glass → Kitchenware/Home (it's a household item)
-   - Correct: Laptop → Electronics (it IS an electronic device)
+2. IT IS BETTER TO USE LOW CONFIDENCE THAN TO BE WRONG
+   - If you're not sure which category fits, use 30-50% confidence
+   - Only use 80-95% confidence if you're absolutely certain
+   - Wrong categorization with high confidence is WORSE than low confidence
 
-3. Search category descriptions for explicit mentions first
-   - If the item type is explicitly mentioned in a description, use that category with 85-95% confidence
-   - Example: "shampoo" item + description mentions "shampoo" = high confidence match
+3. Match items to what they ARE, not what they're used FOR
+   - Drill bits ARE tools/hardware (not supplies)
+   - Wine glasses ARE kitchenware/household items (NOT food, even though they hold food)
+   - Power adapters/cables/transistors ARE electronics or tools (not supplies)
+   - Shampoo/soap/detergent ARE supplies (household/personal care consumables)
+   - Bandages/medicine ARE healthcare items
+   - Coffee/snacks ARE groceries/food (edible items)
 
-4. Understand common category types (these are EXAMPLES to guide your thinking - use ONLY the categories provided above):
-   - Food/Groceries = edible items (coffee, snacks, ingredients)
-   - Supplies = household/personal care consumables (soap, shampoo, cleaning products, paper towels)
-   - Tools/Hardware = drill bits, screws, power tools, hand tools, fasteners
-   - Electronics = computers, cables, transistors, resistors, power adapters, electronic components
-   - Healthcare = medicine, first aid, vitamins, supplements
-   - Kitchenware/Home = dishes, glasses, cookware, decorations, furniture
+4. Read the category DESCRIPTIONS carefully
+   - If a description explicitly mentions the item type, use that category with high confidence (80-95%)
+   - If the category NAME closely matches what the item is, use that category
+   - Example: "drill bits" should match a category about tools/hardware/appliances, not supplies
 
-5. Do NOT force items into wrong categories
-   - If no category fits well, use the most general category with LOW confidence (30-50%)
-   - Never use high confidence (>70%) unless you're certain the category is correct
-   - Tools are NOT supplies, electronics are NOT supplies, dishes are NOT food
+5. Do NOT force items into "Supplies" as a catch-all
+   - Supplies = personal care and household consumables (soap, shampoo, paper towels, cleaning products)
+   - Supplies ≠ tools, electronics, kitchenware, or general household items
+   - If uncertain, use the most general category with LOW confidence (30-50%)
 
 You must choose from these exact names: ${categoryNames}
 
 Respond ONLY in this format:
 CATEGORY: [exact name from above list]
-CONFIDENCE: [number 0-100 - use 30-50 if unsure, 90-95 only if certain]
-REASONING: [one sentence - explain what the item IS and why it matches, or admit uncertainty]`;
+CONFIDENCE: [number 0-100 - use 30-50 if unsure, 80-95 only if certain]
+REASONING: [explain what the item IS and why it matches this category]`;
     }
 
     /**
