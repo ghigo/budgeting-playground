@@ -187,6 +187,7 @@ function runMigrations() {
   const hasDescription = tableInfo.some(col => col.name === 'description');
   const hasKeywords = tableInfo.some(col => col.name === 'keywords');
   const hasExamples = tableInfo.some(col => col.name === 'examples');
+  const hasUseForAmazon = tableInfo.some(col => col.name === 'use_for_amazon');
 
   let columnsAdded = false;
 
@@ -217,6 +218,12 @@ function runMigrations() {
   if (!hasExamples) {
     console.log('Adding examples column to categories table...');
     db.exec("ALTER TABLE categories ADD COLUMN examples TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasUseForAmazon) {
+    console.log('Adding use_for_amazon column to categories table...');
+    db.exec("ALTER TABLE categories ADD COLUMN use_for_amazon INTEGER DEFAULT 1");
     columnsAdded = true;
   }
 
@@ -1813,25 +1820,29 @@ export function getCategories() {
     const lowerName = cat.name.toLowerCase();
     if (!seen.has(lowerName)) {
       seen.set(lowerName, true);
-      unique.push(cat);
+      // Convert use_for_amazon from integer to boolean
+      unique.push({
+        ...cat,
+        use_for_amazon: cat.use_for_amazon === 1
+      });
     }
   }
 
   return unique;
 }
 
-export function addCategory(name, parentCategory = null, icon = null, color = null, description = null) {
+export function addCategory(name, parentCategory = null, icon = null, color = null, description = null, useForAmazon = true) {
   // Auto-generate icon and color if not provided
   const categoryIcon = icon || suggestIconForCategory(name);
   const categoryColor = color || getNextCategoryColor();
 
   const stmt = db.prepare(`
-    INSERT INTO categories (name, parent_category, icon, color, description) VALUES (?, ?, ?, ?, ?)
+    INSERT INTO categories (name, parent_category, icon, color, description, use_for_amazon) VALUES (?, ?, ?, ?, ?, ?)
   `);
 
   try {
-    stmt.run(name, parentCategory || '', categoryIcon, categoryColor, description || '');
-    return { success: true, name, parent_category: parentCategory, icon: categoryIcon, color: categoryColor, description };
+    stmt.run(name, parentCategory || '', categoryIcon, categoryColor, description || '', useForAmazon ? 1 : 0);
+    return { success: true, name, parent_category: parentCategory, icon: categoryIcon, color: categoryColor, description, use_for_amazon: useForAmazon };
   } catch (error) {
     if (error.message.includes('UNIQUE constraint')) {
       throw new Error('Category already exists');
@@ -1840,7 +1851,7 @@ export function addCategory(name, parentCategory = null, icon = null, color = nu
   }
 }
 
-export function updateCategory(oldName, newName, newParentCategory = null, icon = null, color = null, description = null) {
+export function updateCategory(oldName, newName, newParentCategory = null, icon = null, color = null, description = null, useForAmazon = null) {
   // Check if category exists
   const existingCategory = db.prepare('SELECT * FROM categories WHERE name = ?').get(oldName);
   if (!existingCategory) {
@@ -1859,16 +1870,40 @@ export function updateCategory(oldName, newName, newParentCategory = null, icon 
   const categoryIcon = icon || existingCategory.icon || suggestIconForCategory(newName);
   const categoryColor = color || existingCategory.color || getNextCategoryColor();
   const categoryDescription = description !== null ? description : existingCategory.description || '';
+  const categoryUseForAmazon = useForAmazon !== null ? (useForAmazon ? 1 : 0) : existingCategory.use_for_amazon;
 
   // Use transaction to update both category and all related transactions
   const transaction = db.transaction(() => {
     // Update category
     const updateCategoryStmt = db.prepare(`
       UPDATE categories
-      SET name = ?, parent_category = ?, icon = ?, color = ?, description = ?
+      SET name = ?, parent_category = ?, icon = ?, color = ?, description = ?, use_for_amazon = ?
       WHERE name = ?
     `);
-    updateCategoryStmt.run(newName, newParentCategory || '', categoryIcon, categoryColor, categoryDescription, oldName);
+    updateCategoryStmt.run(newName, newParentCategory || '', categoryIcon, categoryColor, categoryDescription, categoryUseForAmazon, oldName);
+
+    // Handle parent/child cascade for use_for_amazon changes
+    if (useForAmazon !== null && categoryUseForAmazon !== existingCategory.use_for_amazon) {
+      // Find all children of this category
+      const children = db.prepare('SELECT name FROM categories WHERE parent_category = ?').all(oldName === newName ? oldName : newName);
+
+      if (children.length > 0) {
+        // Cascade the use_for_amazon value to all children
+        const updateChildrenStmt = db.prepare('UPDATE categories SET use_for_amazon = ? WHERE parent_category = ?');
+        updateChildrenStmt.run(categoryUseForAmazon, oldName === newName ? oldName : newName);
+        console.log(`[Category] Cascaded use_for_amazon=${categoryUseForAmazon} to ${children.length} child category(ies)`);
+      }
+
+      // If enabling this category and it has a parent that's disabled, enable the parent
+      if (categoryUseForAmazon === 1 && newParentCategory) {
+        const parent = db.prepare('SELECT use_for_amazon FROM categories WHERE name = ?').get(newParentCategory);
+        if (parent && parent.use_for_amazon === 0) {
+          const updateParentStmt = db.prepare('UPDATE categories SET use_for_amazon = 1 WHERE name = ?');
+          updateParentStmt.run(newParentCategory);
+          console.log(`[Category] Auto-enabled parent category "${newParentCategory}" because child was enabled`);
+        }
+      }
+    }
 
     // Update all transactions that use this category
     const updateTransactionsStmt = db.prepare(`
@@ -1878,7 +1913,7 @@ export function updateCategory(oldName, newName, newParentCategory = null, icon 
     `);
     const result = updateTransactionsStmt.run(newName, oldName);
 
-    return { success: true, name: newName, parent_category: newParentCategory, icon: categoryIcon, color: categoryColor, description: categoryDescription, transactionsUpdated: result.changes };
+    return { success: true, name: newName, parent_category: newParentCategory, icon: categoryIcon, color: categoryColor, description: categoryDescription, use_for_amazon: categoryUseForAmazon === 1, transactionsUpdated: result.changes };
   });
 
   return transaction();

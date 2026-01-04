@@ -753,6 +753,14 @@
                     </div>
                 </div>
 
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="editCategoryUseForAmazon" checked onchange="handleUseForAmazonChange()" style="width: 1.2rem; height: 1.2rem; cursor: pointer;">
+                        <span>Use for Amazon purchase categorization</span>
+                    </label>
+                    <small style="color: #666; font-size: 0.875rem; margin-left: 1.7rem; display: block; margin-top: 0.25rem;">When enabled, this category will be available when categorizing Amazon items. Disable to exclude from Amazon categorization options. Note: Disabling a parent category will also disable all sub-categories.</small>
+                </div>
+
                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
                     <button onclick="closeEditCategoryModal()" class="btn btn-secondary">Cancel</button>
                     <button onclick="saveEditCategory()" class="btn btn-primary">Save Changes</button>

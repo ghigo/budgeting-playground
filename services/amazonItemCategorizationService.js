@@ -52,7 +52,19 @@ class AmazonItemCategorization {
      * @returns {Object} { category, confidence, reasoning, method, ruleId }
      */
     async categorizeItem(item) {
-        const categories = database.getCategories();
+        const allCategories = database.getCategories();
+        // Filter to only categories enabled for Amazon categorization
+        const categories = allCategories.filter(cat => cat.use_for_amazon);
+
+        if (categories.length === 0) {
+            console.warn('[Amazon Item] No categories enabled for Amazon categorization');
+            return {
+                category: 'Uncategorized',
+                confidence: 0,
+                reasoning: 'No categories available for Amazon categorization',
+                method: 'no-categories'
+            };
+        }
 
         // Method 1: Check ASIN-based rules (highest priority, exact match)
         if (item.asin) {
