@@ -211,7 +211,7 @@ class AmazonItemCategorization {
 IMPORTANT: You MUST choose from EXACTLY these category names (DO NOT modify or combine them):
 ${categoryNames}
 
-Category Details (for understanding what belongs in each category):
+Category Details (THE AUTHORITATIVE SOURCE - READ THESE CAREFULLY):
 ${categoryDetails}
 
 Amazon Item Details:
@@ -222,14 +222,35 @@ ${item.quantity > 1 ? `- Quantity: ${item.quantity}` : ''}
 ${item.seller ? `- Seller: ${item.seller}` : ''}
 ${item.asin ? `- ASIN: ${item.asin}` : ''}
 
-CRITICAL INSTRUCTIONS:
-1. You MUST use the EXACT category name from the list above - DO NOT create new category names
-2. DO NOT combine category name with description (e.g., "House - House ordinary expenses" is WRONG, use just "House")
-3. DO NOT make up categories like "Electronics & Gadgets" - use only the exact names provided
-4. Read each category's DESCRIPTION and KEYWORDS to understand what belongs in each category
-5. Use the category descriptions as primary guidance for matching items
-6. Consider the Amazon category as a hint but use your judgment based on the user's category descriptions
-7. Choose the MOST SPECIFIC category that matches the item
+CRITICAL CATEGORIZATION RULES (MUST FOLLOW):
+
+1. CATEGORY DESCRIPTIONS ARE THE SINGLE SOURCE OF TRUTH
+   - The user's category descriptions above define EXACTLY what belongs in each category
+   - If an item type is explicitly mentioned in a description, it MUST go in that category
+   - DO NOT use your general knowledge about where items are typically sold or found
+   - DO NOT categorize based on store departments or retail conventions
+
+2. EXACT MATCHING OF ITEM TYPES
+   - If the category description explicitly lists "shampoo" and the item is shampoo → use that category
+   - If the description lists "detergent" and the item is detergent → use that category
+   - Search for the item type in the category descriptions and keywords first
+
+3. CATEGORY NAME RULES
+   - You MUST use the EXACT category name from the list - DO NOT create new category names
+   - DO NOT combine name with description (e.g., "House - House ordinary expenses" is WRONG)
+   - DO NOT make up categories like "Electronics & Gadgets"
+
+4. PRIORITIZATION ORDER
+   a) First: Check if item type is explicitly mentioned in any category description/keywords
+   b) Second: Match based on the description's general theme
+   c) Last: Amazon category as a weak hint only
+
+5. EXAMPLE OF CORRECT REASONING
+   - Item: "Shampoo"
+   - User has category "Supplies - House supplies like shampoo, toiletry, detergents"
+   - User has category "Groceries - Food and consumable items"
+   - CORRECT: "Supplies" (shampoo is explicitly listed in the description)
+   - WRONG: "Groceries" (just because shampoo is sold in grocery stores)
 
 Valid category names to choose from:
 ${categoryNames}
@@ -238,12 +259,12 @@ Respond in this EXACT format (no additional text):
 
 CATEGORY: [exact category name from the list above]
 CONFIDENCE: [number from 0-100]
-REASONING: [brief explanation]
+REASONING: [brief explanation mentioning which description/keyword matched]
 
-Example (assuming "Groceries" is in the category list):
-CATEGORY: Groceries
+Example:
+CATEGORY: Supplies
 CONFIDENCE: 95
-REASONING: Food item matches Groceries category description for consumable food products`;
+REASONING: Shampoo is explicitly mentioned in the Supplies category description as "House supplies like shampoo, toiletry"`;
     }
 
     /**
