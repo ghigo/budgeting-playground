@@ -235,17 +235,25 @@ CATEGORIZATION APPROACH:
 
 Use your general knowledge about products and categories, BUT give HIGH WEIGHT to the user's category descriptions, especially when items are explicitly mentioned.
 
-1. CATEGORY DESCRIPTIONS HAVE HIGH WEIGHT
+CRITICAL: Use COMMON SENSE and your understanding of what items fundamentally are:
+- A drill bit is a TOOL (not groceries, not entertainment, not healthcare)
+- Food/beverages are GROCERIES or RESTAURANTS
+- Movies/games/books are ENTERTAINMENT
+- Medicine/medical supplies are HEALTHCARE
+- Don't make absurd connections (e.g., "drill bits are associated with grocery shopping" is WRONG)
+
+1. CATEGORY DESCRIPTIONS HAVE HIGH WEIGHT (when they exist)
    - When an item type is explicitly mentioned in a category description or keywords, strongly prefer that category
    - Example: If "shampoo" is listed in "Supplies" description, shampoo should go to Supplies (not Groceries)
    - The user's descriptions reflect their personal categorization preferences
    - Explicit mentions in descriptions should override typical retail categorization
 
-2. COMBINE GENERAL KNOWLEDGE WITH DESCRIPTIONS
-   - Use your understanding of what items are and their typical uses
-   - Consider the item's primary purpose and characteristics
-   - But always check if the item is explicitly mentioned in any category description first
-   - When descriptions are ambiguous or don't mention the item, rely on general knowledge
+2. USE GENERAL KNOWLEDGE WITH COMMON SENSE
+   - First, understand what the item fundamentally IS (tool, food, clothing, electronics, etc.)
+   - Match to the category that best fits the item's PRIMARY nature
+   - If no specific category exists, use the most general appropriate category (e.g., "Shopping", "Other")
+   - DO NOT make illogical reasoning chains (e.g., "tools are used for home repairs which are related to grocery shopping")
+   - When descriptions are empty or ambiguous, rely heavily on the category NAME and general knowledge
 
 3. CATEGORY NAME RULES (STRICT)
    - You MUST use the EXACT category name from the list - DO NOT create new category names
@@ -254,9 +262,10 @@ Use your general knowledge about products and categories, BUT give HIGH WEIGHT t
 
 4. DECISION PRIORITY
    a) HIGHEST: Item explicitly mentioned in a category description/keywords → use that category
-   b) HIGH: Item fits the general theme/purpose described in a category → use that category
-   c) MEDIUM: Use general knowledge about the item's primary purpose
-   d) LOW: Amazon category as supporting hint only
+   b) HIGH: Item's fundamental nature matches category name (e.g., drill bits → "Tools" if it exists)
+   c) MEDIUM: Item fits the general theme of a category with good description
+   d) LOW: If no good match, use "Shopping", "Other", or most general category
+   e) NEVER: Make illogical reasoning chains to force a poor match
 
 5. EXAMPLES OF CORRECT REASONING
 
@@ -267,7 +276,14 @@ Use your general knowledge about products and categories, BUT give HIGH WEIGHT t
    - CORRECT: "Supplies" (95% confidence - shampoo explicitly mentioned in Supplies description)
    - WRONG: "Groceries" (would ignore the explicit mention in Supplies)
 
-   Example 2 - General knowledge with theme matching:
+   Example 2 - Use common sense when no specific category exists:
+   - Item: "Drill bit set for woodworking"
+   - User has: "Groceries", "Entertainment", "Shopping", "Healthcare", etc. (no Tools/Hardware category)
+   - CORRECT: "Shopping" (75% confidence - drill bits are tools, Shopping is for general purchases)
+   - WRONG: "Groceries" (nonsensical - drill bits are not food or groceries)
+   - WRONG: "Entertainment" (nonsensical - drill bits are not for entertainment)
+
+   Example 3 - General knowledge with theme matching:
    - Item: "USB Cable"
    - User has "Electronics - Gadgets and electronic devices"
    - User has "Shopping - General purchases"
