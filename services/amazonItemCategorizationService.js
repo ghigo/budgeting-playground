@@ -214,95 +214,34 @@ class AmazonItemCategorization {
             })
             .join('\n');
 
-        return `You are a financial transaction categorization assistant. Categorize this Amazon purchase item into ONE of the available categories.
+        return `Categorize this item: ${item.title}
 
-IMPORTANT: You MUST choose from EXACTLY these category names (DO NOT modify or combine them):
-${categoryNames}
-
-User's Category Definitions:
+Available categories:
 ${categoryDetails}
 
-Amazon Item Details:
-- Title: ${item.title}
-${item.category ? `- Amazon Category: ${item.category}` : ''}
-${item.price ? `- Price: $${item.price}` : ''}
-${item.quantity > 1 ? `- Quantity: ${item.quantity}` : ''}
-${item.seller ? `- Seller: ${item.seller}` : ''}
-${item.asin ? `- ASIN: ${item.asin}` : ''}
-${item.account_name ? `- Account: ${item.account_name}` : ''}
+INSTRUCTIONS:
+1. First, check if the item type is explicitly mentioned in any category description
+   - If "shampoo" is in the item and a description says "shampoo" → use that category
+   - If "drill" is in the item and a description says "tools" → use that category
 
-CATEGORIZATION APPROACH:
+2. If NOT explicitly mentioned, match based on what the item fundamentally IS:
+   - Food items → Groceries or Food
+   - Medicine, medical supplies → Healthcare
+   - Tools, hardware, electronics, appliances → Appliances & Tools
+   - Cleaning supplies, toiletries, paper products → Supplies
+   - Games, toys, entertainment → Fun
+   - Furniture items → Furniture
+   - If truly unsure → Other
 
-Step 1: UNDERSTAND THE ITEM
-- Identify what the item fundamentally IS (food, tool, clothing, medicine, entertainment, electronic, etc.)
-- Consider its primary purpose and use
-- DO NOT categorize based on where it's sold
+3. NEVER use reasoning like "found in grocery stores" or "typically purchased at"
+   Focus ONLY on what the item IS, not where it's sold
 
-Step 2: CHECK FOR EXPLICIT MENTIONS
-- If the item type is explicitly mentioned in a category description/keywords, that category has HIGHEST priority
-- User descriptions reflect their personal categorization preferences
-- Explicit mentions override general knowledge and typical categorization
+Choose from these names EXACTLY: ${categoryNames}
 
-Step 3: MATCH BY NATURE OR THEME
-- Match the item's fundamental nature to category names or themes
-- If a category name directly describes what the item is, use that category
-- If a category description's theme clearly encompasses the item type, use that category
-- Categories with empty descriptions: rely on the category NAME meaning
-
-Step 4: USE GENERAL CATEGORIES WHEN NEEDED
-- If no specific category fits the item well, use general categories like "Shopping" or "Other"
-- DO NOT force items into unrelated categories
-- It's better to use a general category than to make nonsensical associations
-
-FORBIDDEN REASONING PATTERNS (DO NOT USE THESE):
-
-❌ "Item X is found in [store type], so it belongs in [category]"
-   Example: "Power adapter found in supermarkets → Groceries" is WRONG
-
-❌ "Item X is purchased along with [category items]"
-   Example: "Cables purchased with household items → Groceries" is WRONG
-
-❌ "Item X is used in [context] which relates to [category]"
-   Example: "Wine glass used during meals → Groceries" is WRONG
-
-CORRECT REASONING PATTERNS:
-
-✓ "Item X is [category name]" (direct match)
-   Example: "Food item → Groceries" is CORRECT
-
-✓ "Item X is explicitly mentioned in [category] description"
-   Example: If description lists the item → use that category
-
-✓ "Item X doesn't fit specific categories, using general category"
-   Example: "Power adapter is electronics, no Electronics category → Shopping" is CORRECT
-
-STRICT RULES:
-
-1. CATEGORY NAMES
-   - Use EXACT category names only - DO NOT create new names
-   - DO NOT combine name with description
-   - DO NOT modify category names
-
-2. REASONING QUALITY
-   - Keep reasoning direct and logical
-   - Never justify using a category because the item is "found in" or "sold at" places associated with that category
-   - Never justify using a category because the item is "purchased along with" items in that category
-   - Base categorization ONLY on what the item fundamentally IS
-
-3. CONFIDENCE LEVELS
-   - Explicit mention in description: 90-95%
-   - Direct match by item nature (food→Groceries, medicine→Healthcare): 75-85%
-   - General category fallback (Shopping, Other): 60-75%
-   - If reasoning uses forbidden patterns: REJECT and use general category instead
-
-Valid category names to choose from:
-${categoryNames}
-
-Respond in this EXACT format (no additional text):
-
-CATEGORY: [exact category name from the list above]
-CONFIDENCE: [number from 0-100]
-REASONING: [brief, direct explanation - mention if explicitly listed in description, or explain why category name/theme matches item nature]`;
+Respond in this format:
+CATEGORY: [exact name from list]
+CONFIDENCE: [0-100]
+REASONING: [why this category - mention if explicitly in description or what the item type is]`;
     }
 
     /**
