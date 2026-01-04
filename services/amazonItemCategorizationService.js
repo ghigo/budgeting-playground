@@ -221,6 +221,7 @@ ${item.price ? `- Price: $${item.price}` : ''}
 ${item.quantity > 1 ? `- Quantity: ${item.quantity}` : ''}
 ${item.seller ? `- Seller: ${item.seller}` : ''}
 ${item.asin ? `- ASIN: ${item.asin}` : ''}
+${item.account_name ? `- Account: ${item.account_name}` : ''}
 
 CRITICAL CATEGORIZATION RULES (MUST FOLLOW):
 
