@@ -2760,6 +2760,12 @@ const DEFAULT_SETTINGS = {
     description: 'Enable Amazon CSV parsing logs',
     category: 'Logging'
   },
+  enable_amazon_item_ai_logs: {
+    value: false,
+    type: 'boolean',
+    description: 'Enable Amazon item AI categorization logs (shows prompts and responses)',
+    category: 'Logging'
+  },
 
   // General
   default_transaction_limit: {

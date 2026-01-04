@@ -164,6 +164,22 @@ class AmazonItemCategorization {
             }
 
             const data = await response.json();
+
+            // Log AI response if setting is enabled
+            const db = await import('../src/database.js');
+            const logSetting = db.getSetting('enable_amazon_item_ai_logs');
+            if (logSetting && logSetting.value === true) {
+                console.log('\n' + '='.repeat(80));
+                console.log('[Amazon Item AI] Response for item:', item.title?.substring(0, 60) + '...');
+                console.log('-'.repeat(80));
+                console.log('Prompt sent to AI:');
+                console.log(prompt);
+                console.log('-'.repeat(80));
+                console.log('AI Response:');
+                console.log(data.response);
+                console.log('='.repeat(80) + '\n');
+            }
+
             return this.parseAIResponse(data.response, categories);
         } catch (error) {
             console.error('[Amazon Item AI] Error:', error.message);
@@ -200,10 +216,12 @@ ${item.seller ? `- Seller: ${item.seller}` : ''}
 ${item.asin ? `- ASIN: ${item.asin}` : ''}
 
 Instructions:
-1. Analyze the item title and details to determine the most appropriate category
-2. Consider the Amazon category as a hint but use your judgment
-3. Choose the MOST SPECIFIC category that matches
-4. Respond ONLY in this exact format (no additional text):
+1. Carefully read each category's DESCRIPTION and KEYWORDS above as primary guidance
+2. Use the category descriptions to understand what types of items belong in each category
+3. Analyze the item title and details to determine the most appropriate category
+4. Consider the Amazon category as a hint but use your judgment based on the user's category descriptions
+5. Choose the MOST SPECIFIC category that matches the item based on the category descriptions
+6. Respond ONLY in this exact format (no additional text):
 
 CATEGORY: [exact category name]
 CONFIDENCE: [number from 0-100]
