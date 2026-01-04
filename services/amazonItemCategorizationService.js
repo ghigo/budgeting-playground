@@ -233,62 +233,45 @@ ${item.account_name ? `- Account: ${item.account_name}` : ''}
 
 CATEGORIZATION APPROACH:
 
-Use your general knowledge about products and categories, BUT give HIGH WEIGHT to the user's category descriptions, especially when items are explicitly mentioned.
+Step 1: UNDERSTAND THE ITEM
+- Identify what the item fundamentally IS (food, tool, clothing, medicine, entertainment, electronic, etc.)
+- Consider its primary purpose and use
+- Do NOT categorize based on where it's sold or secondary associations
 
-CRITICAL: Use COMMON SENSE and your understanding of what items fundamentally are:
-- A drill bit is a TOOL (not groceries, not entertainment, not healthcare)
-- Food/beverages are GROCERIES or RESTAURANTS
-- Movies/games/books are ENTERTAINMENT
-- Medicine/medical supplies are HEALTHCARE
-- Don't make absurd connections (e.g., "drill bits are associated with grocery shopping" is WRONG)
+Step 2: CHECK FOR EXPLICIT MENTIONS
+- If the item type is explicitly mentioned in a category description/keywords, that category has HIGHEST priority
+- User descriptions reflect their personal categorization preferences
+- Explicit mentions override general knowledge and typical categorization
 
-1. CATEGORY DESCRIPTIONS HAVE HIGH WEIGHT (when they exist)
-   - When an item type is explicitly mentioned in a category description or keywords, strongly prefer that category
-   - Example: If "shampoo" is listed in "Supplies" description, shampoo should go to Supplies (not Groceries)
-   - The user's descriptions reflect their personal categorization preferences
-   - Explicit mentions in descriptions should override typical retail categorization
+Step 3: MATCH BY NATURE OR THEME
+- Match the item's fundamental nature to category names or themes
+- If a category name directly describes what the item is, use that category
+- If a category description's theme clearly encompasses the item type, use that category
+- Categories with empty descriptions: rely on the category NAME meaning
 
-2. USE GENERAL KNOWLEDGE WITH COMMON SENSE
-   - First, understand what the item fundamentally IS (tool, food, clothing, electronics, etc.)
-   - Match to the category that best fits the item's PRIMARY nature
-   - If no specific category exists, use the most general appropriate category (e.g., "Shopping", "Other")
-   - DO NOT make illogical reasoning chains (e.g., "tools are used for home repairs which are related to grocery shopping")
-   - When descriptions are empty or ambiguous, rely heavily on the category NAME and general knowledge
+Step 4: USE GENERAL CATEGORIES WHEN NEEDED
+- If no specific category fits the item well, use general categories like "Shopping" or "Other"
+- DO NOT force items into unrelated categories through illogical reasoning
+- It's better to use a general category than to make nonsensical associations
 
-3. CATEGORY NAME RULES (STRICT)
-   - You MUST use the EXACT category name from the list - DO NOT create new category names
-   - DO NOT combine name with description (e.g., "House - House ordinary expenses" is WRONG)
-   - DO NOT make up categories like "Electronics & Gadgets" or "Tools & Home Improvement"
+STRICT RULES:
 
-4. DECISION PRIORITY
-   a) HIGHEST: Item explicitly mentioned in a category description/keywords → use that category
-   b) HIGH: Item's fundamental nature matches category name (e.g., drill bits → "Tools" if it exists)
-   c) MEDIUM: Item fits the general theme of a category with good description
-   d) LOW: If no good match, use "Shopping", "Other", or most general category
-   e) NEVER: Make illogical reasoning chains to force a poor match
+1. CATEGORY NAMES
+   - Use EXACT category names only - DO NOT create new names
+   - DO NOT combine name with description
+   - DO NOT modify category names
 
-5. EXAMPLES OF CORRECT REASONING
+2. REASONING QUALITY
+   - Keep reasoning direct and logical
+   - DO NOT make multi-step associative reasoning chains
+   - If you find yourself thinking "X is used for Y which is related to Z", STOP - you're forcing a bad match
+   - Base categorization on what the item IS, not on unrelated contexts
 
-   Example 1 - Explicit mention wins:
-   - Item: "Shampoo"
-   - User has "Supplies - House supplies like shampoo, toiletry, detergents"
-   - User has "Groceries - Food and consumable items"
-   - CORRECT: "Supplies" (95% confidence - shampoo explicitly mentioned in Supplies description)
-   - WRONG: "Groceries" (would ignore the explicit mention in Supplies)
-
-   Example 2 - Use common sense when no specific category exists:
-   - Item: "Drill bit set for woodworking"
-   - User has: "Groceries", "Entertainment", "Shopping", "Healthcare", etc. (no Tools/Hardware category)
-   - CORRECT: "Shopping" (75% confidence - drill bits are tools, Shopping is for general purchases)
-   - WRONG: "Groceries" (nonsensical - drill bits are not food or groceries)
-   - WRONG: "Entertainment" (nonsensical - drill bits are not for entertainment)
-
-   Example 3 - General knowledge with theme matching:
-   - Item: "USB Cable"
-   - User has "Electronics - Gadgets and electronic devices"
-   - User has "Shopping - General purchases"
-   - CORRECT: "Electronics" (85% confidence - cables are electronic accessories, fits theme)
-   - ACCEPTABLE: "Shopping" (70% confidence - if Electronics description doesn't fit well)
+3. CONFIDENCE LEVELS
+   - Explicit mention in description: 90-95%
+   - Clear match by item nature/category theme: 75-85%
+   - General category fallback: 60-75%
+   - Uncertain/forced match: Lower confidence or use general category
 
 Valid category names to choose from:
 ${categoryNames}
@@ -297,12 +280,7 @@ Respond in this EXACT format (no additional text):
 
 CATEGORY: [exact category name from the list above]
 CONFIDENCE: [number from 0-100]
-REASONING: [brief explanation of why this category, mentioning if explicitly listed or theme match]
-
-Example:
-CATEGORY: Supplies
-CONFIDENCE: 95
-REASONING: Shampoo is explicitly mentioned in the Supplies category description as "House supplies like shampoo, toiletry"`;
+REASONING: [brief, direct explanation - mention if explicitly listed in description, or explain why category name/theme matches item nature]`;
     }
 
     /**
