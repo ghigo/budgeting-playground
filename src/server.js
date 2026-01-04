@@ -10,6 +10,7 @@ import { plaidEnvironment } from './plaid.js';
 import * as sync from './sync.js';
 import * as sheets from './sheets.js';
 import * as amazon from './amazon.js';
+import * as copilot from './copilot.js';
 import aiCategorization from '../services/aiCategorizationService.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -235,7 +236,18 @@ app.post('/api/categories', async (req, res) => {
       return res.status(400).json({ error: 'Category name is required' });
     }
 
-    const result = database.addCategory(name, parent_category, icon, color, description);
+    // Use AI to suggest emoji if no icon provided
+    let categoryIcon = icon;
+    if (!categoryIcon) {
+      try {
+        categoryIcon = await aiCategorization.suggestEmojiForCategory(name, description);
+      } catch (error) {
+        console.error('Error generating emoji with AI:', error.message);
+        // Will fall back to suggestIconForCategory in database.addCategory
+      }
+    }
+
+    const result = database.addCategory(name, parent_category, categoryIcon, color, description);
     res.json(result);
   } catch (error) {
     console.error('Error adding category:', error);
@@ -269,6 +281,23 @@ app.delete('/api/categories/:categoryName', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error deleting category:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate emoji suggestions for a category
+app.post('/api/categories/suggest-emojis', async (req, res) => {
+  try {
+    const { name, description, count = 3 } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Category name is required' });
+    }
+
+    const emojis = await aiCategorization.suggestMultipleEmojis(name, description, count);
+    res.json({ emojis });
+  } catch (error) {
+    console.error('Error generating emoji suggestions:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -760,6 +789,74 @@ app.get('/api/category-mappings/rules', async (req, res) => {
   }
 });
 
+// Create a new category rule
+app.post('/api/category-mappings/rules', async (req, res) => {
+  try {
+    const { name, pattern, category, matchType } = req.body;
+
+    if (!name || !pattern || !category || !matchType) {
+      return res.status(400).json({ error: 'Missing required fields: name, pattern, category, matchType' });
+    }
+
+    const result = database.createCategoryRule(name, pattern, category, matchType, 'Yes');
+    res.json({
+      id: result.id,
+      name: result.name,
+      message: 'Rule created successfully'
+    });
+  } catch (error) {
+    console.error('Error creating category rule:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update an existing category rule
+app.put('/api/category-mappings/rules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, pattern, category, matchType, enabled } = req.body;
+
+    if (!name || !pattern || !category || !matchType) {
+      return res.status(400).json({ error: 'Missing required fields: name, pattern, category, matchType' });
+    }
+
+    database.updateCategoryRule(parseInt(id), name, pattern, category, matchType, enabled || 'Yes');
+    res.json({ message: 'Rule updated successfully' });
+  } catch (error) {
+    console.error('Error updating category rule:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a category rule
+app.delete('/api/category-mappings/rules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    database.deleteCategoryRule(parseInt(id));
+    res.json({ message: 'Rule deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting category rule:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Preview transactions that match a rule
+app.post('/api/category-mappings/rules/preview', async (req, res) => {
+  try {
+    const { pattern, matchType } = req.body;
+
+    if (!pattern || !matchType) {
+      return res.status(400).json({ error: 'Missing required fields: pattern, matchType' });
+    }
+
+    const matches = database.previewRuleMatches(pattern, matchType);
+    res.json({ transactions: matches, count: matches.length });
+  } catch (error) {
+    console.error('Error previewing rule matches:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get all institutions (Plaid items)
 app.get('/api/institutions', async (req, res) => {
   try {
@@ -907,7 +1004,7 @@ app.post('/api/sync/:itemId', async (req, res) => {
   }
 });
 
-// Backfill historical transactions (up to 2 years)
+// Backfill all available historical transactions
 app.post('/api/backfill', async (req, res) => {
   try {
     console.log('🔄 Starting historical backfill...');
@@ -1222,6 +1319,56 @@ app.get('/api/transactions/with-splits', (req, res) => {
 });
 
 // ============================================================================
+// COPILOT IMPORT ENDPOINTS
+// ============================================================================
+
+// Analyze Copilot CSV and detect unmapped categories
+app.post('/api/copilot/analyze', express.text({ limit: '10mb' }), async (req, res) => {
+  try {
+    const csvContent = req.body;
+
+    if (!csvContent || csvContent.trim().length === 0) {
+      return res.status(400).json({ error: 'No CSV content provided' });
+    }
+
+    // Analyze CSV for unmapped categories
+    const analysis = copilot.analyzeCopilotCSV(csvContent);
+
+    res.json({
+      success: true,
+      ...analysis
+    });
+  } catch (error) {
+    console.error('Error analyzing Copilot CSV:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Import transactions from Copilot Money CSV export with category mappings
+app.post('/api/copilot/import', express.json({ limit: '10mb' }), async (req, res) => {
+  try {
+    const { csvContent, categoryMappings } = req.body;
+
+    if (!csvContent || csvContent.trim().length === 0) {
+      return res.status(400).json({ error: 'No CSV content provided' });
+    }
+
+    // Import transactions with category mappings
+    const importResult = copilot.importCopilotTransactionsWithMappings(csvContent, categoryMappings || {});
+
+    res.json({
+      success: true,
+      imported: importResult.imported,
+      skipped: importResult.skipped,
+      total: importResult.total
+    });
+  } catch (error) {
+    console.error('Error importing Copilot transactions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
 // SETTINGS ENDPOINTS
 // ============================================================================
 
@@ -1268,6 +1415,144 @@ app.delete('/api/settings/:key', (req, res) => {
 
 // Reset all settings to defaults
 app.post('/api/settings/reset-all', (req, res) => {
+  try {
+    const result = database.resetAllSettings();
+    res.json(result);
+  } catch (error) {
+    console.error('Error resetting all settings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// EXTERNAL CATEGORY MAPPINGS
+// ============================================================================
+
+// Get unmapped external categories
+app.get('/api/external-categories/unmapped', (req, res) => {
+  try {
+    const unmapped = database.getUnmappedExternalCategories();
+    res.json({ categories: unmapped });
+  } catch (error) {
+    console.error('Error getting unmapped categories:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all external category mappings
+app.get('/api/external-categories/mappings', (req, res) => {
+  try {
+    const mappings = database.getAllExternalMappings();
+    res.json({ mappings });
+  } catch (error) {
+    console.error('Error getting external mappings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get pending external category mappings
+app.get('/api/external-categories/pending', (req, res) => {
+  try {
+    const { source } = req.query;
+    const pending = database.getPendingExternalMappings(source || null);
+    res.json({ mappings: pending });
+  } catch (error) {
+    console.error('Error getting pending mappings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create or update external category mapping
+app.post('/api/external-categories/mappings', (req, res) => {
+  try {
+    const { external_category, source, user_category, status, confidence } = req.body;
+
+    if (!external_category || !source) {
+      return res.status(400).json({ error: 'external_category and source are required' });
+    }
+
+    // Get or create mapping
+    const mapping = database.getOrCreateExternalMapping(external_category, source);
+
+    // Update it with user's choice
+    database.updateExternalMapping(
+      mapping.id,
+      user_category || null,
+      status || 'approved',
+      confidence || 90
+    );
+
+    res.json({ success: true, mapping });
+  } catch (error) {
+    console.error('Error creating/updating external mapping:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update external category mapping
+app.put('/api/external-categories/mappings/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_category, status, confidence } = req.body;
+
+    database.updateExternalMapping(
+      parseInt(id),
+      user_category || null,
+      status || 'approved',
+      confidence || 90
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating external mapping:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete external category mapping
+app.delete('/api/external-categories/mappings/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    database.deleteExternalMapping(parseInt(id));
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting external mapping:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get LLM suggestions for external category mappings
+app.post('/api/external-categories/suggest-mapping', async (req, res) => {
+  try {
+    const { external_category, source } = req.body;
+
+    if (!external_category) {
+      return res.status(400).json({ error: 'external_category is required' });
+    }
+
+    // Get all user categories
+    const userCategories = database.getCategories();
+
+    // Use LLM to suggest best mapping
+    const aiService = await import('./services/aiCategorizationService.js');
+    const suggestion = await aiService.suggestCategoryMapping(
+      external_category,
+      source,
+      userCategories
+    );
+
+    res.json(suggestion);
+  } catch (error) {
+    console.error('Error getting LLM suggestion:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// SERVER START
+// ============================================================================
+
+app.post('/api/settings/reset-all-OLD', (req, res) => {
   try {
     const result = database.resetAllSettings();
     res.json(result);

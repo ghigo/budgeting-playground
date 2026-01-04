@@ -810,6 +810,477 @@ RESPONSE FORMAT (JSON only):
     }
 
     /**
+     * Generate the best emoji for a category using AI
+     * @param {string} categoryName - The name of the category
+     * @param {string} description - Optional description of the category
+     * @returns {Promise<string>} - A single emoji character
+     */
+    async suggestEmojiForCategory(categoryName, description = '') {
+        const debug = process.env.DEBUG_EMOJI_GENERATION || process.env.DEBUG_CATEGORIZATION;
+
+        console.log(`[Emoji Service] Generating single emoji for category: "${categoryName}"`);
+        if (debug) {
+            console.log('\n--- EMOJI GENERATION (Single) ---');
+            console.log(`Category: "${categoryName}"`);
+            if (description) console.log(`Description: "${description}"`);
+        }
+
+        console.log(`[Emoji Service] Ollama available: ${this.isOllamaAvailable}`);
+        if (!this.isOllamaAvailable) {
+            console.log('[Emoji Service] Using fallback emoji generation');
+            if (debug) console.log('⚠️  AI not available, using fallback');
+            const fallbackEmoji = this.fallbackEmojiForCategory(categoryName);
+            console.log(`[Emoji Service] Fallback result: ${fallbackEmoji}`);
+            if (debug) {
+                console.log(`Fallback emoji: ${fallbackEmoji}`);
+                console.log('--- END EMOJI GENERATION ---\n');
+            }
+            return fallbackEmoji;
+        }
+
+        try {
+            const prompt = `You are an emoji suggestion assistant. Your PRIMARY focus is the category name. The description is only secondary context.
+
+**Category Name (MOST IMPORTANT):** ${categoryName}
+${description ? `Additional context: ${description}` : ''}
+
+Base your emoji suggestion primarily on the category name "${categoryName}".
+
+CRITICAL: Respond with ONLY ONE single simple emoji character. No text, no explanation, no multiple emojis, just ONE emoji.
+
+Examples:
+- "Groceries" → 🛒
+- "Restaurants" → 🍽️
+- "Gas" → ⛽
+- "Coffee" → ☕
+- "Shopping" → 🛍️
+- "Entertainment" → 🎬
+- "Healthcare" → 🏥
+- "Travel" → ✈️
+
+ONE single emoji for "${categoryName}":`;
+
+            if (debug) {
+                console.log('\n--- PROMPT ---');
+                console.log(prompt);
+                console.log('--- END PROMPT ---\n');
+            }
+
+            console.log(`[Emoji Service] Calling Ollama API at ${this.ollamaUrl}...`);
+            const startTime = Date.now();
+            const response = await fetch(`${this.ollamaUrl}/api/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: this.modelName,
+                    prompt: prompt,
+                    stream: false,
+                    keep_alive: "2m",
+                    options: {
+                        temperature: 0.3,  // Slightly higher for creativity
+                        num_predict: 10    // Very short response
+                    }
+                }),
+                signal: AbortSignal.timeout(10000),  // 10 second timeout
+                agent: this.httpAgent
+            });
+
+            if (!response.ok) {
+                console.error(`[Emoji Service] Ollama API error: ${response.status}`);
+                throw new Error(`Ollama API error: ${response.status}`);
+            }
+
+            const result = await response.json();
+            const duration = Date.now() - startTime;
+            const emojiResponse = result.response?.trim() || '';
+
+            console.log(`[Emoji Service] AI responded in ${duration}ms: "${emojiResponse}"`);
+            if (debug) {
+                console.log(`AI response (${duration}ms): "${emojiResponse}"`);
+            }
+
+            // Extract just the emoji (first character that's an emoji)
+            const emojiMatch = emojiResponse.match(/[\p{Emoji}\u200D]+/u);
+            if (emojiMatch) {
+                console.log(`[Emoji Service] Successfully extracted emoji: ${emojiMatch[0]}`);
+                if (debug) {
+                    console.log(`✨ Extracted emoji: ${emojiMatch[0]}`);
+                    console.log('--- END EMOJI GENERATION ---\n');
+                }
+                return emojiMatch[0];
+            }
+
+            console.warn('[Emoji Service] No valid emoji in AI response, using fallback');
+            if (debug) console.log('⚠️  No valid emoji in response, using fallback');
+            const fallbackEmoji = this.fallbackEmojiForCategory(categoryName);
+            console.log(`[Emoji Service] Fallback result: ${fallbackEmoji}`);
+            if (debug) {
+                console.log(`Fallback emoji: ${fallbackEmoji}`);
+                console.log('--- END EMOJI GENERATION ---\n');
+            }
+            return fallbackEmoji;
+        } catch (error) {
+            console.error(`[Emoji Service] Error generating emoji: ${error.message}`);
+            if (debug) console.error('Error:', error.message);
+            const fallbackEmoji = this.fallbackEmojiForCategory(categoryName);
+            console.log(`[Emoji Service] Fallback result: ${fallbackEmoji}`);
+            if (debug) {
+                console.log(`Fallback emoji: ${fallbackEmoji}`);
+                console.log('--- END EMOJI GENERATION ---\n');
+            }
+            return fallbackEmoji;
+        }
+    }
+
+    /**
+     * Generate multiple emoji suggestions for a category using AI
+     * @param {string} categoryName - The name of the category
+     * @param {string} description - Optional description of the category
+     * @param {number} count - Number of suggestions to generate (default: 3)
+     * @returns {Promise<string[]>} - Array of emoji characters
+     */
+    async suggestMultipleEmojis(categoryName, description = '', count = 3) {
+        const debug = process.env.DEBUG_EMOJI_GENERATION || process.env.DEBUG_CATEGORIZATION;
+
+        console.log(`[Emoji Service] Generating ${count} emojis for category: "${categoryName}"`);
+        if (debug) {
+            console.log('\n--- EMOJI GENERATION (Multiple) ---');
+            console.log(`Category: "${categoryName}"`);
+            if (description) console.log(`Description: "${description}"`);
+            console.log(`Count: ${count}`);
+        }
+
+        console.log(`[Emoji Service] Ollama available: ${this.isOllamaAvailable}`);
+        if (!this.isOllamaAvailable) {
+            console.log('[Emoji Service] Using fallback emoji generation');
+            if (debug) console.log('⚠️  AI not available, using fallback');
+            const fallbackEmojis = this.fallbackMultipleEmojis(categoryName, count);
+            console.log(`[Emoji Service] Fallback result: ${fallbackEmojis.join(' ')}`);
+            if (debug) {
+                console.log(`Fallback emojis: ${fallbackEmojis.join(' ')}`);
+                console.log('--- END EMOJI GENERATION ---\n');
+            }
+            return fallbackEmojis;
+        }
+
+        try {
+            const prompt = `You are an emoji suggestion assistant. Your PRIMARY focus is the category name. The description is only secondary context.
+
+**Category Name (MOST IMPORTANT):** ${categoryName}
+${description ? `Additional context: ${description}` : ''}
+
+Base your emoji suggestions primarily on the category name "${categoryName}".
+
+CRITICAL INSTRUCTIONS:
+- Respond with EXACTLY ${count} different emoji characters separated by spaces
+- Use ONLY SIMPLE SINGLE emojis (like 🍎 🚗 ⭐ 🏠 🎨)
+- NEVER use family emojis, people combinations, or multi-person emojis
+- NEVER use skin tones or gender variants (NO 👨‍👩‍👧, NO 👶🏻, NO 👩‍🦰)
+- NEVER use compound emojis with zero-width joiners
+- NO text, NO explanation, NO punctuation, NO bullet points, NO dashes, NO newlines
+- JUST ${count} simple emojis separated by spaces
+
+Good examples (SIMPLE objects, animals, symbols):
+🛒 🍎 🥦
+🍽️ 🍕 🍔
+☕ 🍵 🥤
+🏠 🔑 🚗
+🎨 ✏️ 📐
+
+Bad examples (DO NOT USE THESE):
+👨‍👩‍👧‍👦 (family - too complex)
+👶🏻 (skin tone - not allowed)
+👩‍🦰 (person variant - not allowed)
+- 🛒 🍎 (formatting - not allowed)
+
+${count} SIMPLE emojis for "${categoryName}":`;
+
+            if (debug) {
+                console.log('\n--- PROMPT ---');
+                console.log(prompt);
+                console.log('--- END PROMPT ---\n');
+            }
+
+            console.log(`[Emoji Service] Calling Ollama API at ${this.ollamaUrl}...`);
+            const startTime = Date.now();
+            const response = await fetch(`${this.ollamaUrl}/api/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: this.modelName,
+                    prompt: prompt,
+                    stream: false,
+                    keep_alive: "2m",
+                    options: {
+                        temperature: 0.3,  // Lower for more consistent simple emojis
+                        num_predict: 30    // Enough for multiple emojis
+                    }
+                }),
+                signal: AbortSignal.timeout(15000),  // 15 second timeout
+                agent: this.httpAgent
+            });
+
+            if (!response.ok) {
+                console.error(`[Emoji Service] Ollama API error: ${response.status}`);
+                throw new Error(`Ollama API error: ${response.status}`);
+            }
+
+            const result = await response.json();
+            const duration = Date.now() - startTime;
+            const emojiResponse = result.response?.trim() || '';
+
+            console.log(`[Emoji Service] AI responded in ${duration}ms: "${emojiResponse}"`);
+            if (debug) {
+                console.log(`AI response (${duration}ms): "${emojiResponse}"`);
+            }
+
+            // Extract all emojis from response, handling various formatting
+            // First, remove common formatting characters
+            const cleanedResponse = emojiResponse
+                .replace(/[-*•\n\r]/g, ' ')  // Remove dashes, bullets, newlines
+                .replace(/\d+\./g, ' ')       // Remove numbered lists
+                .trim();
+
+            // Split by spaces and extract emojis from each part
+            const parts = cleanedResponse.split(/\s+/);
+            const emojis = [];
+
+            for (const part of parts) {
+                // Match individual emoji characters (not compound sequences)
+                // This regex matches base emojis without skin tones/ZWJ sequences
+                const emojiMatch = part.match(/\p{Emoji_Presentation}|\p{Emoji}\uFE0F/u);
+                if (emojiMatch && emojis.length < count) {
+                    // Get just the base emoji (first character)
+                    const baseEmoji = emojiMatch[0];
+                    // Avoid duplicates
+                    if (!emojis.includes(baseEmoji)) {
+                        emojis.push(baseEmoji);
+                    }
+                }
+            }
+
+            console.log(`[Emoji Service] Extracted ${emojis.length} emojis from response: ${emojis.join(' ')}`);
+
+            if (emojis.length >= count) {
+                const selectedEmojis = emojis.slice(0, count);
+                console.log(`[Emoji Service] Successfully selected ${count} emojis: ${selectedEmojis.join(' ')}`);
+                if (debug) {
+                    console.log(`✨ Selected ${count} emojis: ${selectedEmojis.join(' ')}`);
+                    console.log('--- END EMOJI GENERATION ---\n');
+                }
+                return selectedEmojis;
+            }
+
+            console.warn(`[Emoji Service] Only found ${emojis.length} emojis, needed ${count}. Using fallback`);
+            if (debug) console.log('⚠️  Not enough valid emojis in response, using fallback');
+            const fallbackEmojis = this.fallbackMultipleEmojis(categoryName, count);
+            console.log(`[Emoji Service] Fallback result: ${fallbackEmojis.join(' ')}`);
+            if (debug) {
+                console.log(`Fallback emojis: ${fallbackEmojis.join(' ')}`);
+                console.log('--- END EMOJI GENERATION ---\n');
+            }
+            return fallbackEmojis;
+        } catch (error) {
+            console.error(`[Emoji Service] Error generating emojis: ${error.message}`);
+            if (debug) console.error('Error:', error.message);
+            const fallbackEmojis = this.fallbackMultipleEmojis(categoryName, count);
+            console.log(`[Emoji Service] Fallback result: ${fallbackEmojis.join(' ')}`);
+            if (debug) {
+                console.log(`Fallback emojis: ${fallbackEmojis.join(' ')}`);
+                console.log('--- END EMOJI GENERATION ---\n');
+            }
+            return fallbackEmojis;
+        }
+    }
+
+    /**
+     * Fallback method to generate multiple emoji suggestions
+     */
+    fallbackMultipleEmojis(categoryName, count = 3) {
+        const primaryEmoji = this.fallbackEmojiForCategory(categoryName);
+        const relatedEmojis = this.getRelatedEmojis(categoryName, primaryEmoji);
+
+        // Combine primary with related, ensure we have enough
+        const suggestions = [primaryEmoji, ...relatedEmojis].slice(0, count);
+
+        // Fill with colored circle defaults if not enough (grey first, then colors)
+        while (suggestions.length < count) {
+            // Grey first, then color circles
+            const defaults = ['⚪', '🔵', '🟢', '🟡', '🔴', '🟣', '🟠', '⚫'];
+            const index = suggestions.length % defaults.length;
+            // Make sure we don't add duplicates
+            if (!suggestions.includes(defaults[index])) {
+                suggestions.push(defaults[index]);
+            } else {
+                // If duplicate, try next one
+                const nextIndex = (index + 1) % defaults.length;
+                suggestions.push(defaults[nextIndex]);
+            }
+        }
+
+        return suggestions;
+    }
+
+    /**
+     * Get related emojis based on category
+     */
+    getRelatedEmojis(categoryName, primaryEmoji) {
+        const name = categoryName.toLowerCase();
+        const relatedMap = {
+            'grocer': ['🍎', '🥦', '🛒'],
+            'food': ['🍕', '🍔', '🥗'],
+            'restaurant': ['🍽️', '🍕', '🍔'],
+            'dining': ['🍽️', '🍕', '🍔'],
+            'coffee': ['🍵', '🥤', '☕'],
+            'cafe': ['🍵', '☕', '🥐'],
+            'gas': ['🚗', '⛽', '🚙'],
+            'fuel': ['🚗', '⛽', '🚙'],
+            'shop': ['🛒', '💳', '🛍️'],
+            'entertain': ['🎮', '🎭', '🎬'],
+            'health': ['💊', '🩺', '🏥'],
+            'medical': ['💊', '🩺', '🏥'],
+            'travel': ['🏖️', '🗺️', '✈️'],
+            'vacation': ['🏖️', '🗺️', '✈️'],
+            'bill': ['💡', '💸', '📄'],
+            'utilit': ['💡', '💸', '📄'],
+            'fitness': ['🏋️', '🏃', '💪'],
+            'gym': ['🏋️', '🏃', '💪'],
+            'workout': ['🏋️', '🏃', '💪'],
+            'pet': ['🐶', '🐱', '🐾'],
+            'education': ['🎓', '📖', '📚'],
+            'school': ['🎓', '📖', '📚'],
+            'child': ['🎈', '🎨', '🎪'],
+            'kid': ['🎈', '🎨', '🎪'],
+            'baby': ['🍼', '👶', '🎈'],
+            'toy': ['🎮', '🎨', '🎪'],
+            'book': ['📖', '📚', '📰'],
+            'music': ['🎵', '🎸', '🎤'],
+            'sports': ['⚽', '🏀', '⚾'],
+            'outdoor': ['🏕️', '🌲', '⛰️'],
+            'garden': ['🌱', '🌻', '🌳'],
+            'home': ['🏠', '🛋️', '🔧'],
+            'repair': ['🔧', '🔨', '🛠️'],
+            'electronics': ['💻', '📱', '⌚'],
+            'tech': ['💻', '📱', '⚡'],
+            'internet': ['🌐', '📡', '💻'],
+            'phone': ['📱', '☎️', '📞'],
+            'streaming': ['📺', '🎬', '🎵'],
+            'gaming': ['🎮', '🕹️', '👾'],
+            'art': ['🎨', '🖼️', '🖌️'],
+            'craft': ['🎨', '✂️', '🖌️'],
+            'beauty': ['💄', '💅', '💇'],
+            'hair': ['💇', '💈', '💅'],
+            'spa': ['💆', '🧖', '💅'],
+            'drink': ['🍺', '🍷', '🥤'],
+            'alcohol': ['🍺', '🍷', '🍸'],
+            'bar': ['🍺', '🍷', '🍸'],
+            'fast': ['🍔', '🍕', '🌭'],
+            'pizza': ['🍕', '🧀', '🍴'],
+            'breakfast': ['🍳', '🥐', '🥓'],
+            'lunch': ['🍱', '🥗', '🍴'],
+            'dinner': ['🍽️', '🍖', '🍴'],
+            'snack': ['🍿', '🍪', '🥨'],
+            'dessert': ['🍰', '🍨', '🍪'],
+            'sweet': ['🍰', '🍭', '🍫']
+        };
+
+        for (const [keyword, emojis] of Object.entries(relatedMap)) {
+            if (name.includes(keyword)) {
+                return emojis.filter(e => e !== primaryEmoji);
+            }
+        }
+
+        // Grey and color circles as defaults
+        return ['🔵', '🟢'];
+    }
+
+    /**
+     * Fallback emoji suggestion based on category name
+     */
+    fallbackEmojiForCategory(categoryName) {
+        const name = categoryName.toLowerCase();
+        const emojiMap = {
+            'grocer': '🛒',
+            'food': '🍔',
+            'restaurant': '🍽️',
+            'dining': '🍽️',
+            'coffee': '☕',
+            'cafe': '☕',
+            'gas': '⛽',
+            'fuel': '⛽',
+            'shop': '🛍️',
+            'entertain': '🎬',
+            'movie': '🎬',
+            'health': '🏥',
+            'medical': '🏥',
+            'travel': '✈️',
+            'vacation': '🏖️',
+            'bill': '💡',
+            'utilit': '💡',
+            'rent': '🏠',
+            'housing': '🏠',
+            'transport': '🚗',
+            'car': '🚗',
+            'insurance': '🛡️',
+            'fitness': '💪',
+            'gym': '🏋️',
+            'workout': '💪',
+            'education': '📚',
+            'school': '🎓',
+            'pet': '🐾',
+            'subscription': '📺',
+            'clothing': '👕',
+            'fashion': '👕',
+            'gift': '🎁',
+            'charity': '❤️',
+            'transfer': '🔄',
+            'income': '💰',
+            'salary': '💵',
+            'child': '👶',
+            'kid': '🎈',
+            'baby': '🍼',
+            'toy': '🧸',
+            'book': '📚',
+            'music': '🎵',
+            'sports': '⚽',
+            'outdoor': '🏕️',
+            'garden': '🌱',
+            'home': '🏠',
+            'repair': '🔧',
+            'electronics': '💻',
+            'tech': '💻',
+            'internet': '🌐',
+            'phone': '📱',
+            'streaming': '📺',
+            'gaming': '🎮',
+            'art': '🎨',
+            'craft': '✂️',
+            'beauty': '💄',
+            'hair': '💇',
+            'spa': '💆',
+            'drink': '🍷',
+            'alcohol': '🍺',
+            'bar': '🍸',
+            'fast': '🍔',
+            'pizza': '🍕',
+            'breakfast': '🍳',
+            'lunch': '🍱',
+            'dinner': '🍽️',
+            'snack': '🍿',
+            'dessert': '🍰',
+            'sweet': '🍭'
+        };
+
+        for (const [keyword, emoji] of Object.entries(emojiMap)) {
+            if (name.includes(keyword)) {
+                return emoji;
+            }
+        }
+
+        return '⚪';  // Grey circle as default
+    }
+
+    /**
      * Cleanup resources - called on server shutdown
      */
     async cleanup() {

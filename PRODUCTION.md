@@ -99,6 +99,50 @@ Once approved:
 
 ---
 
+## 🔄 Step 2.5: Enable Transactions Refresh Product (Required for Full History)
+
+**IMPORTANT:** To fetch full transaction history (7+ years for Amex, 2+ years for other banks), you need the **Transactions Refresh** product enabled.
+
+### What is Transactions Refresh?
+
+- The standard `Transactions` product only returns data **Plaid has already cached** (typically 90 days from when you first link an account)
+- The `Transactions Refresh` product allows you to **trigger Plaid to fetch fresh historical data** from the institution
+- Without it, you'll be limited to ~3 months of transactions, even when requesting older dates
+
+### How to Enable Transactions Refresh
+
+1. Go to https://dashboard.plaid.com/settings/team/products
+2. Look for the **"Transactions"** product
+3. Ensure **"Transactions Refresh"** is enabled
+4. If you don't see this option or it's disabled:
+   - Click **"Request Access"** or **"Enable"**
+   - Contact Plaid Support if you can't enable it yourself
+   - Some Plaid tiers may require an upgrade to access this feature
+
+### What Happens Without Transactions Refresh?
+
+If you don't have this product enabled:
+- ❌ You'll see `INVALID_PRODUCT` errors when trying to backfill history
+- ❌ The "Backfill All History" button will only return ~90 days of transactions
+- ❌ You won't be able to fetch years of historical data from institutions
+- ✅ You can still use the app, but with limited transaction history
+- ✅ You can use the **Copilot CSV Import** feature as a workaround
+
+### Verification
+
+After enabling, you should be able to:
+- Click "Backfill All History" without errors
+- Fetch 7+ years of American Express transactions
+- Fetch 2+ years of transactions from most other banks
+
+**Important Timing Note:**
+- The refresh process is **asynchronous** - Plaid fetches historical data in the background
+- It can take **24-48 hours** (or longer) for full historical data to become available
+- You may need to click "Backfill All History" multiple times over several days
+- Each time you run backfill, check if more historical transactions have appeared
+
+---
+
 ## ⚙️ Step 3: Update Your Configuration
 
 ### Option A: Update config.json (Recommended)
@@ -251,6 +295,43 @@ npm start
 
 ## 🆘 Troubleshooting Production Issues
 
+### "INVALID_PRODUCT: client is not authorized to access transactions_refresh" error
+
+**Cause:** Your Plaid account doesn't have the Transactions Refresh product enabled
+
+**Fix:**
+1. Go to https://dashboard.plaid.com/settings/team/products
+2. Enable **"Transactions Refresh"** under the Transactions product
+3. If you can't enable it, click "Request Access" or contact Plaid Support
+4. Wait for approval (usually instant if your account tier supports it)
+5. The "Backfill All History" button will then work to fetch full historical data
+
+**Workaround if unavailable:**
+- Use the **Copilot CSV Import** feature to import historical transactions
+- Export data from your bank/credit card website and import via the app
+
+### Backfill returns same limited transactions even after running refresh
+
+**Cause:** Plaid's refresh process is asynchronous and can take 24-48 hours to complete
+
+**Why this happens:**
+- When you run "Backfill All History", it triggers `/transactions/refresh` which tells Plaid to start fetching historical data
+- This is a **background job** that doesn't complete immediately
+- Plaid gradually pulls historical data from the institution over hours or days
+- The `/transactions/get` endpoint only returns data Plaid has already fetched
+
+**Fix:**
+1. Run "Backfill All History" to trigger the refresh (you've already done this)
+2. **Wait 24-48 hours** for Plaid to fetch historical data in the background
+3. Run "Backfill All History" again tomorrow to check for new transactions
+4. Repeat every 24 hours until you see all historical data
+5. For 7+ years of Amex history, this may take 2-3 days of progressive backfills
+
+**How to monitor progress:**
+- Check the console logs for "Transaction date range" each time you run backfill
+- If the oldest date gets progressively older, Plaid is working in the background
+- If it stays the same for 3+ days, you may have hit the institution's limit
+
 ### "Invalid credentials" error
 
 **Cause:** Using sandbox secret in production mode
@@ -320,11 +401,13 @@ Before going to production:
 - [ ] Request production access from Plaid
 - [ ] Wait for approval email
 - [ ] Copy production credentials from dashboard
+- [ ] **Enable Transactions Refresh product** (https://dashboard.plaid.com/settings/team/products)
 - [ ] Update `config.json` with production secret and env
 - [ ] Restart the server
 - [ ] Verify green "PRODUCTION" badge in UI
 - [ ] Test linking a real bank account
 - [ ] Sync and verify real transactions appear
+- [ ] Test "Backfill All History" to verify full historical data access
 - [ ] Set up HTTPS if deploying to internet
 - [ ] Monitor API usage in Plaid Dashboard
 

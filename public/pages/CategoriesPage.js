@@ -29,6 +29,18 @@ export function initializeCategoriesPage(deps) {
     window.deleteCategory = deleteCategory;
     window.addCategory = addCategory;
     window.viewCategoryTransactions = viewCategoryTransactions;
+    window.generateEmojiSuggestions = generateEmojiSuggestions;
+    window.selectSuggestedEmoji = selectSuggestedEmoji;
+
+    // Close edit category modal on ESC key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('editCategoryModal');
+            if (modal && modal.style.display === 'flex') {
+                closeEditCategoryModal();
+            }
+        }
+    });
 }
 
 export async function loadCategories() {
@@ -276,6 +288,15 @@ function editCategory(categoryName, parentCategory, icon = '📁', color = '#6B7
     document.getElementById('editCategoryColor').value = color || '#6B7280';
     document.getElementById('editCategoryDescription').value = categoryDescription;
 
+    // Hide emoji suggestions from previous session
+    const emojiSuggestionsDiv = document.getElementById('emojiSuggestions');
+    if (emojiSuggestionsDiv) {
+        emojiSuggestionsDiv.style.display = 'none';
+    }
+
+    // Reset suggested emojis
+    suggestedEmojis = [];
+
     // Populate parent category dropdown
     const parentSelect = document.getElementById('editCategoryParent');
     parentSelect.innerHTML = '<option value="">No parent (top-level category)</option>';
@@ -298,6 +319,15 @@ function editCategory(categoryName, parentCategory, icon = '📁', color = '#6B7
 function closeEditCategoryModal() {
     document.getElementById('editCategoryModal').style.display = 'none';
     currentEditingCategory = null;
+
+    // Hide emoji suggestions
+    const emojiSuggestionsDiv = document.getElementById('emojiSuggestions');
+    if (emojiSuggestionsDiv) {
+        emojiSuggestionsDiv.style.display = 'none';
+    }
+
+    // Reset suggested emojis
+    suggestedEmojis = [];
 }
 
 async function saveEditCategory() {
@@ -336,6 +366,71 @@ async function saveEditCategory() {
         console.error(error);
     } finally {
         hideLoading();
+    }
+}
+
+let suggestedEmojis = [];
+
+async function generateEmojiSuggestions() {
+    const categoryName = document.getElementById('editCategoryName').value.trim();
+    const categoryDescription = document.getElementById('editCategoryDescription').value.trim();
+
+    if (!categoryName) {
+        showToast('Please enter a category name first', 'info');
+        return;
+    }
+
+    const emojiSuggestionsDiv = document.getElementById('emojiSuggestions');
+    const buttons = emojiSuggestionsDiv.querySelectorAll('.emoji-suggestion-btn');
+
+    // Show loading state
+    buttons.forEach(btn => {
+        btn.textContent = '⏳';
+        btn.disabled = true;
+    });
+    emojiSuggestionsDiv.style.display = 'block';
+
+    try {
+        const result = await fetchAPI('/api/categories/suggest-emojis', {
+            method: 'POST',
+            body: JSON.stringify({
+                name: categoryName,
+                description: categoryDescription,
+                count: 3
+            })
+        });
+
+        suggestedEmojis = result.emojis || [];
+
+        // Update buttons with suggestions
+        suggestedEmojis.forEach((emoji, index) => {
+            if (buttons[index]) {
+                buttons[index].textContent = emoji;
+                buttons[index].disabled = false;
+            }
+        });
+    } catch (error) {
+        console.error('Error generating emoji suggestions:', error);
+        showToast('Failed to generate emoji suggestions', 'error');
+        emojiSuggestionsDiv.style.display = 'none';
+    }
+}
+
+function selectSuggestedEmoji(index) {
+    if (suggestedEmojis[index]) {
+        document.getElementById('editCategoryIcon').value = suggestedEmojis[index];
+
+        // Highlight selected button
+        const buttons = document.querySelectorAll('.emoji-suggestion-btn');
+        buttons.forEach((btn, i) => {
+            if (i === index) {
+                btn.style.borderColor = '#3B82F6';
+                btn.style.background = '#EFF6FF';
+            } else {
+                btn.style.borderColor = '#e5e7eb';
+                btn.style.background = 'white';
+            }
+        });
     }
 }
 

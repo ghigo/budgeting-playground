@@ -305,6 +305,40 @@ function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_transaction_splits_parent ON transaction_splits(parent_transaction_id);
   `);
 
+  // Add external category tracking fields to transactions table
+  const hasExternalCategory = transactionsInfo.some(col => col.name === 'external_category');
+  const hasCategorySource = transactionsInfo.some(col => col.name === 'category_source');
+
+  if (!hasExternalCategory) {
+    console.log('Adding external category tracking fields to transactions table...');
+    db.exec("ALTER TABLE transactions ADD COLUMN external_category TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasCategorySource) {
+    db.exec("ALTER TABLE transactions ADD COLUMN category_source TEXT");
+    columnsAdded = true;
+  }
+
+  // Create external_category_mappings table for all external category sources
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS external_category_mappings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      external_category TEXT NOT NULL,
+      source TEXT NOT NULL,
+      user_category TEXT,
+      confidence INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'pending',
+      reviewed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(external_category, source)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_external_mappings_source ON external_category_mappings(source);
+    CREATE INDEX IF NOT EXISTS idx_external_mappings_status ON external_category_mappings(status);
+  `);
+
   // Check if account_name column exists in amazon_orders table
   const amazonOrdersInfo = db.prepare("PRAGMA table_info(amazon_orders)").all();
   const hasAccountName = amazonOrdersInfo.some(col => col.name === 'account_name');
@@ -449,6 +483,23 @@ function runMigrations() {
       db.exec("ALTER TABLE amazon_items ADD COLUMN item_serial_number TEXT");
     }
 
+    columnsAdded = true;
+  }
+
+  // Check if match_type and user_created columns exist in category_rules table
+  const categoryRulesInfo = db.prepare("PRAGMA table_info(category_rules)").all();
+  const hasMatchType = categoryRulesInfo.some(col => col.name === 'match_type');
+  const hasUserCreated = categoryRulesInfo.some(col => col.name === 'user_created');
+
+  if (!hasMatchType) {
+    console.log('Adding match_type column to category_rules table...');
+    db.exec("ALTER TABLE category_rules ADD COLUMN match_type TEXT DEFAULT 'regex'");
+    columnsAdded = true;
+  }
+
+  if (!hasUserCreated) {
+    console.log('Adding user_created column to category_rules table...');
+    db.exec("ALTER TABLE category_rules ADD COLUMN user_created TEXT DEFAULT 'No'");
     columnsAdded = true;
   }
 
@@ -775,7 +826,7 @@ export function renameAccount(accountId, newName) {
 // ============================================================================
 
 export function getTransactions(limit = 50, filters = {}) {
-  // Join with amazon_orders to include matching information
+  // Join with amazon_orders to include matching information and accounts for institution name
   let sql = `
     SELECT
       t.*,
@@ -783,9 +834,11 @@ export function getTransactions(limit = 50, filters = {}) {
       ao.total_amount as amazon_total,
       ao.order_date as amazon_order_date,
       ao.match_confidence as amazon_match_confidence,
-      ao.order_status as amazon_order_status
+      ao.order_status as amazon_order_status,
+      acc.institution_name
     FROM transactions t
     LEFT JOIN amazon_orders ao ON t.transaction_id = ao.matched_transaction_id
+    LEFT JOIN accounts acc ON t.account_name = acc.name
     WHERE 1=1
   `;
   const params = [];
@@ -820,20 +873,58 @@ export function getTransactions(limit = 50, filters = {}) {
   params.push(limit);
 
   const transactions = db.prepare(sql).all(...params);
-  return transactions.map(tx => ({
-    ...tx,
-    amount: parseFloat(tx.amount),
-    confidence: parseInt(tx.confidence) || 0,
-    verified: tx.verified === 'Yes',
-    // Amazon order information (if matched)
-    amazon_order: tx.amazon_order_id ? {
-      order_id: tx.amazon_order_id,
-      total_amount: parseFloat(tx.amazon_total),
-      order_date: tx.amazon_order_date,
-      match_confidence: parseInt(tx.amazon_match_confidence) || 0,
-      order_status: tx.amazon_order_status
-    } : null
-  }));
+
+  // Process transactions: replace split parents with their children
+  const processedTransactions = [];
+
+  for (const tx of transactions) {
+    // Check if this transaction has splits
+    const splits = db.prepare('SELECT * FROM transaction_splits WHERE parent_transaction_id = ? ORDER BY split_index').all(tx.transaction_id);
+
+    if (splits.length > 0) {
+      // Add split children as "virtual transactions"
+      for (const split of splits) {
+        processedTransactions.push({
+          ...tx,
+          transaction_id: split.id, // Use split ID
+          amount: parseFloat(split.amount),
+          category: split.category,
+          confidence: 95, // High confidence for manual splits
+          verified: 'Yes', // Manual splits are verified
+          description: split.description || tx.description,
+          is_split: true,
+          split_parent_id: tx.transaction_id,
+          // Amazon order information (if matched)
+          amazon_order: tx.amazon_order_id ? {
+            order_id: tx.amazon_order_id,
+            total_amount: parseFloat(tx.amazon_total),
+            order_date: tx.amazon_order_date,
+            match_confidence: parseInt(tx.amazon_match_confidence) || 0,
+            order_status: tx.amazon_order_status
+          } : null
+        });
+      }
+    } else {
+      // Regular transaction (no splits)
+      processedTransactions.push({
+        ...tx,
+        amount: parseFloat(tx.amount),
+        confidence: parseInt(tx.confidence) || 0,
+        verified: tx.verified === 'Yes',
+        is_split: false,
+        // Amazon order information (if matched)
+        amazon_order: tx.amazon_order_id ? {
+          order_id: tx.amazon_order_id,
+          total_amount: parseFloat(tx.amazon_total),
+          order_date: tx.amazon_order_date,
+          match_confidence: parseInt(tx.amazon_match_confidence) || 0,
+          order_status: tx.amazon_order_status
+        } : null
+      });
+    }
+  }
+
+  return processedTransactions;
 }
 
 export function saveTransactions(transactions, categorizationData) {
@@ -873,14 +964,39 @@ export function saveTransactions(transactions, categorizationData) {
       amount, category, confidence, verified, pending, payment_channel, notes, created_at,
       plaid_primary_category, plaid_detailed_category, plaid_confidence_level,
       location_city, location_region, location_address,
-      transaction_type, authorized_datetime, merchant_entity_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      transaction_type, authorized_datetime, merchant_entity_id,
+      external_category, category_source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let inserted = 0;
   let duplicates = 0;
   const insertMany = db.transaction((txns) => {
     for (const tx of txns) {
+      // Extract Plaid personal_finance_category
+      const pfc = tx.personal_finance_category || {};
+      const plaidPrimary = pfc.primary || null;
+      const plaidDetailed = pfc.detailed || null;
+      const plaidConfidence = pfc.confidence_level || null;
+
+      // Track external category source
+      let externalCategory = null;
+      let categorySource = null;
+
+      // If transaction has a Plaid category, track it as external
+      if (plaidDetailed || plaidPrimary) {
+        externalCategory = plaidDetailed || plaidPrimary;
+        categorySource = 'plaid';
+
+        // Check if there's an approved mapping for this external category
+        const mappedCategory = getExternalCategoryMapping(externalCategory, categorySource);
+        if (mappedCategory) {
+          // Use the mapped category (will be null if user chose "unmapped")
+          tx.category = mappedCategory;
+          tx.confidence = 90; // High confidence for approved mappings
+        }
+      }
+
       // Auto-categorize if not already categorized
       let category = tx.category || '';
       let confidence = tx.confidence || 0;
@@ -890,12 +1006,6 @@ export function saveTransactions(transactions, categorizationData) {
         category = result.category;
         confidence = result.confidence;
       }
-
-      // Extract Plaid personal_finance_category
-      const pfc = tx.personal_finance_category || {};
-      const plaidPrimary = pfc.primary || null;
-      const plaidDetailed = pfc.detailed || null;
-      const plaidConfidence = pfc.confidence_level || null;
 
       // Extract location data
       const location = tx.location || {};
@@ -929,7 +1039,9 @@ export function saveTransactions(transactions, categorizationData) {
         locationAddress,
         transactionType,
         authorizedDatetime,
-        merchantEntityId
+        merchantEntityId,
+        externalCategory,
+        categorySource
       );
 
       if (info.changes > 0) {
@@ -1131,21 +1243,47 @@ function autoCategorizeTransaction(transaction, categorizationData, skipSavingMa
       }
     }
 
-    // STEP 2: Pattern matching (regex rules) - 85% confidence
+    // STEP 2: Pattern matching (rules with different match types) - 85% confidence
     for (const rule of categoryRules) {
       try {
-        const regex = new RegExp(rule.pattern, 'i');
-        if (regex.test(merchantName) || regex.test(description)) {
+        let isMatch = false;
+        const matchType = rule.match_type || 'regex'; // Default to regex for backward compatibility
+
+        switch (matchType) {
+          case 'exact':
+            // Exact match (case-insensitive)
+            isMatch =
+              merchantName?.toLowerCase() === rule.pattern.toLowerCase() ||
+              description?.toLowerCase() === rule.pattern.toLowerCase();
+            break;
+
+          case 'partial':
+            // Partial match (case-insensitive)
+            const patternLower = rule.pattern.toLowerCase();
+            isMatch =
+              merchantName?.toLowerCase().includes(patternLower) ||
+              description?.toLowerCase().includes(patternLower);
+            break;
+
+          case 'regex':
+          default:
+            // Regex match
+            const regex = new RegExp(rule.pattern, 'i');
+            isMatch = regex.test(merchantName) || regex.test(description);
+            break;
+        }
+
+        if (isMatch) {
           if (merchantName && !skipSavingMappings) {
             saveMerchantMapping(merchantName, rule.category);
           }
           if (process.env.DEBUG_CATEGORIZATION) {
-            console.log(`     ✓ Pattern match: "${rule.category}" (85%)`);
+            console.log(`     ✓ Pattern match (${matchType}): "${rule.category}" (85%)`);
           }
           return { category: rule.category, confidence: 85 };
         }
       } catch (e) {
-        console.warn(`Invalid regex pattern in rule "${rule.name}": ${rule.pattern}`);
+        console.warn(`Invalid pattern in rule "${rule.name}": ${rule.pattern}`, e);
       }
     }
 
@@ -1825,6 +1963,90 @@ export function savePlaidCategoryMapping(plaidCategory, userCategory) {
   stmt.run(plaidCategory, userCategory);
 }
 
+export function createCategoryRule(name, pattern, category, matchType = 'regex', userCreated = 'Yes') {
+  // Generate a unique name if the provided name already exists
+  let uniqueName = name;
+  let counter = 2;
+
+  while (true) {
+    const existingRule = db.prepare('SELECT id FROM category_rules WHERE name = ?').get(uniqueName);
+    if (!existingRule) {
+      break; // Name is unique
+    }
+    uniqueName = `${name} (${counter})`;
+    counter++;
+  }
+
+  const stmt = db.prepare(`
+    INSERT INTO category_rules (name, pattern, category, match_type, user_created, enabled)
+    VALUES (?, ?, ?, ?, ?, 'Yes')
+  `);
+  const result = stmt.run(uniqueName, pattern, category, matchType, userCreated);
+  return {
+    id: result.lastInsertRowid,
+    name: uniqueName
+  };
+}
+
+export function updateCategoryRule(id, name, pattern, category, matchType, enabled = 'Yes') {
+  const stmt = db.prepare(`
+    UPDATE category_rules
+    SET name = ?, pattern = ?, category = ?, match_type = ?, enabled = ?
+    WHERE id = ?
+  `);
+  stmt.run(name, pattern, category, matchType, enabled, id);
+}
+
+export function deleteCategoryRule(id) {
+  const stmt = db.prepare('DELETE FROM category_rules WHERE id = ?');
+  stmt.run(id);
+}
+
+export function previewRuleMatches(pattern, matchType) {
+  let query;
+
+  switch (matchType) {
+    case 'exact':
+      // Exact match on merchant_name or description (case-insensitive)
+      query = db.prepare(`
+        SELECT * FROM transactions
+        WHERE merchant_name = ? COLLATE NOCASE OR description = ? COLLATE NOCASE
+        ORDER BY date DESC
+        LIMIT 100
+      `);
+      return query.all(pattern, pattern);
+
+    case 'partial':
+      // Case-insensitive partial match
+      const likePattern = `%${pattern}%`;
+      query = db.prepare(`
+        SELECT * FROM transactions
+        WHERE merchant_name LIKE ? OR description LIKE ?
+        ORDER BY date DESC
+        LIMIT 100
+      `);
+      return query.all(likePattern, likePattern);
+
+    case 'regex':
+    default:
+      // Regex match - fetch all transactions and filter in JavaScript
+      const allTransactions = db.prepare(`
+        SELECT * FROM transactions
+        ORDER BY date DESC
+      `).all();
+
+      try {
+        const regex = new RegExp(pattern, 'i');
+        return allTransactions.filter(t =>
+          regex.test(t.merchant_name || '') || regex.test(t.description || '')
+        ).slice(0, 100);
+      } catch (error) {
+        console.error('Invalid regex pattern:', error);
+        return [];
+      }
+  }
+}
+
 // ============================================================================
 // CONFIG
 // ============================================================================
@@ -2497,6 +2719,12 @@ const DEFAULT_SETTINGS = {
     min: 50,
     max: 5000,
     step: 50
+  },
+  use_relative_dates: {
+    value: false,
+    type: 'boolean',
+    description: 'Display dates in relative format (e.g., "2 days ago") instead of absolute format',
+    category: 'General'
   }
 };
 
@@ -2636,5 +2864,127 @@ export function resetSetting(key) {
  */
 export function resetAllSettings() {
   db.prepare('DELETE FROM config').run();
+  return { success: true };
+}
+
+// ============================================================================
+// EXTERNAL CATEGORY MAPPINGS
+// ============================================================================
+
+/**
+ * Get pending external category mappings (need user review)
+ * @param {string} source - Optional source filter (plaid, amazon, copilot, etc.)
+ * @returns {Array} Pending mappings
+ */
+export function getPendingExternalMappings(source = null) {
+  let sql = 'SELECT * FROM external_category_mappings WHERE status = ?';
+  const params = ['pending'];
+
+  if (source) {
+    sql += ' AND source = ?';
+    params.push(source);
+  }
+
+  sql += ' ORDER BY created_at DESC';
+
+  return db.prepare(sql).all(...params);
+}
+
+/**
+ * Get all external category mappings
+ * @returns {Array} All mappings
+ */
+export function getAllExternalMappings() {
+  return db.prepare('SELECT * FROM external_category_mappings ORDER BY source, external_category').all();
+}
+
+/**
+ * Get or create external category mapping
+ * @param {string} externalCategory - External category name
+ * @param {string} source - Source (plaid, amazon, copilot, etc.)
+ * @returns {Object} Mapping record
+ */
+export function getOrCreateExternalMapping(externalCategory, source) {
+  let mapping = db.prepare(
+    'SELECT * FROM external_category_mappings WHERE external_category = ? AND source = ?'
+  ).get(externalCategory, source);
+
+  if (!mapping) {
+    const result = db.prepare(`
+      INSERT INTO external_category_mappings (
+        external_category, source, status, created_at, updated_at
+      ) VALUES (?, ?, 'pending', datetime('now'), datetime('now'))
+    `).run(externalCategory, source);
+
+    mapping = db.prepare('SELECT * FROM external_category_mappings WHERE id = ?').get(result.lastInsertRowid);
+  }
+
+  return mapping;
+}
+
+/**
+ * Update external category mapping
+ * @param {number} id - Mapping ID
+ * @param {string} userCategory - User category to map to (or null for unmapped)
+ * @param {string} status - Status: pending, approved, rejected, unmapped
+ * @param {number} confidence - Confidence score 0-100
+ */
+export function updateExternalMapping(id, userCategory, status = 'approved', confidence = 100) {
+  db.prepare(`
+    UPDATE external_category_mappings
+    SET user_category = ?, status = ?, confidence = ?,
+        reviewed_at = datetime('now'), updated_at = datetime('now')
+    WHERE id = ?
+  `).run(userCategory, status, confidence, id);
+
+  return { success: true };
+}
+
+/**
+ * Apply external category mapping to a transaction
+ * @param {string} externalCategory - External category
+ * @param {string} source - Source
+ * @returns {string|null} Mapped user category or null
+ */
+export function getExternalCategoryMapping(externalCategory, source) {
+  const mapping = db.prepare(`
+    SELECT user_category FROM external_category_mappings
+    WHERE external_category = ? AND source = ?
+      AND status IN ('approved', 'unmapped')
+  `).get(externalCategory, source);
+
+  return mapping?.user_category || null;
+}
+
+/**
+ * Get unmapped external categories from transactions
+ * @returns {Array} Categories that need mapping
+ */
+export function getUnmappedExternalCategories() {
+  return db.prepare(`
+    SELECT DISTINCT
+      t.external_category,
+      t.category_source as source,
+      COUNT(*) as transaction_count,
+      MIN(t.date) as first_seen,
+      MAX(t.date) as last_seen
+    FROM transactions t
+    LEFT JOIN external_category_mappings ecm
+      ON t.external_category = ecm.external_category
+      AND t.category_source = ecm.source
+    WHERE t.external_category IS NOT NULL
+      AND t.category_source IS NOT NULL
+      AND (ecm.id IS NULL OR ecm.status = 'pending')
+    GROUP BY t.external_category, t.category_source
+    ORDER BY transaction_count DESC
+  `).all();
+}
+
+/**
+ * Delete external category mapping
+ * @param {number} id - Mapping ID
+ */
+export function deleteExternalMapping(id) {
+  db.prepare('DELETE FROM external_category_mappings WHERE id = ?').run(id);
   return { success: true };
 }

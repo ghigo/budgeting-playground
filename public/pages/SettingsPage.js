@@ -5,6 +5,7 @@
 
 import { showLoading, hideLoading, escapeHtml } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
+import { eventBus } from '../services/eventBus.js';
 
 // Dependencies (injected)
 let fetchAPI = null;
@@ -193,6 +194,7 @@ async function updateSetting(key, value) {
 
         showToast('Setting updated successfully', 'success');
         await loadSettingsPage(); // Reload to show updated state
+        eventBus.emit('settingsUpdated'); // Notify other pages
     } catch (error) {
         showToast(`Failed to update setting: ${error.message}`, 'error');
         console.error('Error updating setting:', error);
@@ -207,6 +209,7 @@ async function resetSetting(key) {
 
         showToast('Setting reset to default', 'success');
         await loadSettingsPage(); // Reload to show default value
+        eventBus.emit('settingsUpdated'); // Notify other pages
     } catch (error) {
         showToast(`Failed to reset setting: ${error.message}`, 'error');
         console.error('Error resetting setting:', error);
@@ -225,6 +228,7 @@ async function resetAllSettings() {
 
         showToast('All settings reset to defaults', 'success');
         await loadSettingsPage();
+        eventBus.emit('settingsUpdated'); // Notify other pages
     } catch (error) {
         showToast(`Failed to reset settings: ${error.message}`, 'error');
         console.error('Error resetting all settings:', error);

@@ -21,7 +21,8 @@ export async function syncAllAccounts() {
     try {
       console.log(`\n📊 Syncing ${item.institution_name}...`);
 
-      // Get transactions from the last 90 days (3 months) for regular syncs
+      // Get transactions from the last 90 days for regular syncs (incremental updates)
+      // For full history, use the backfill endpoint
       const endDate = new Date().toISOString().split('T')[0];
       const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
@@ -216,11 +217,14 @@ export async function linkAccount(publicToken) {
     }
     console.log(`  ✓ Added ${accounts.length} account(s)`);
 
-    // Initial transaction sync (last 2 years - Plaid's maximum for most institutions)
+    // Initial transaction sync - fetch ALL available history from Plaid
+    // Plaid automatically limits this to what the institution provides (typically 2-10 years)
     const endDate = new Date().toISOString().split('T')[0];
-    const startDate = new Date(Date.now() - 730 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // Use a date far in the past to get maximum available history
+    // Plaid will automatically limit to institution's available history
+    const startDate = '2000-01-01';
 
-    console.log(`  📥 Fetching historical transactions (up to 2 years)...`);
+    console.log(`  📥 Fetching all available historical transactions...`);
 
     // Retry logic for PRODUCT_NOT_READY errors (common with newly linked accounts)
     const maxRetries = 4;
@@ -238,6 +242,30 @@ export async function linkAccount(publicToken) {
         const result = await plaid.getTransactions(accessToken, startDate, endDate);
 
         console.log(`  📥 Received ${result.transactions.length} transaction(s) from Plaid`);
+
+        // Debug: Show transaction date range returned by Plaid
+        if (result.transactions.length > 0) {
+          const dates = result.transactions.map(t => t.date).sort();
+          const oldestDate = dates[0];
+          const newestDate = dates[dates.length - 1];
+          console.log(`  📅 Transaction date range: ${oldestDate} to ${newestDate}`);
+          console.log(`  🔍 Requested range: ${startDate} to ${endDate}`);
+
+          // Calculate how much history we got
+          const oldestTransactionDate = new Date(oldestDate);
+          const requestedStartDate = new Date(startDate);
+          const daysDifference = Math.floor((oldestTransactionDate - requestedStartDate) / (1000 * 60 * 60 * 24));
+
+          if (daysDifference > 365) {
+            console.warn(`  ⚠️  Gap detected: Oldest transaction is ${Math.floor(daysDifference / 365)} years newer than requested start date`);
+            console.warn(`  ⚠️  Institution may be limiting available history to ${Math.floor(daysDifference / 365)} years`);
+          }
+        }
+
+        // Debug: Log Plaid response metadata if available
+        if (result.total_transactions !== undefined) {
+          console.log(`  📊 Plaid metadata - Total available: ${result.total_transactions}`);
+        }
 
         // Add account_name to transactions
         for (const transaction of result.transactions) {
@@ -258,7 +286,7 @@ export async function linkAccount(publicToken) {
         } else {
           // Non-retryable error or max retries reached
           console.warn(`  ⚠️  Could not fetch historical transactions: ${errorMessage}`);
-          console.log(`  ℹ️  You can use "Backfill History (2yrs)" button later to fetch them`);
+          console.log(`  ℹ️  You can use "Backfill All History" button later to fetch them`);
           break;
         }
       }
@@ -283,8 +311,8 @@ export async function linkAccount(publicToken) {
 }
 
 /**
- * Backfill historical transactions (up to 2 years)
- * Useful for accounts that were linked before this feature
+ * Backfill all available historical transactions
+ * Fetches maximum available history from Plaid (institution-dependent, typically 2-10 years)
  */
 export async function backfillHistoricalTransactions() {
   const items = database.getPlaidItems();
@@ -294,20 +322,44 @@ export async function backfillHistoricalTransactions() {
     return { success: false, error: 'No linked accounts' };
   }
 
-  console.log(`\n📜 Backfilling historical transactions (up to 2 years)...`);
-  console.log('⚠️  This may take a while for accounts with lots of transactions.\n');
+  console.log(`\n📜 Backfilling all available historical transactions...`);
+  console.log('⚠️  This may take a while for accounts with lots of transactions.');
+  console.log('ℹ️  Note: Plaid fetches historical data asynchronously. If you only see recent');
+  console.log('   transactions now, wait 24-48 hours and run backfill again to get older data.\n');
 
   let totalTransactions = 0;
   const errors = [];
 
-  // Fetch last 2 years (730 days)
+  // Fetch all available history - Plaid will limit to institution's maximum
   const endDate = new Date().toISOString().split('T')[0];
-  const startDate = new Date(Date.now() - 730 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const startDate = '2000-01-01'; // Far in the past to get maximum available history
 
   for (const item of items) {
     let backfillSuccessful = false;
     const maxRetries = 4;
     const retryDelays = [5000, 10000, 15000, 20000]; // 5s, 10s, 15s, 20s
+
+    console.log(`📊 Backfilling ${item.institution_name}...`);
+    console.log(`   Date range: ${startDate} to ${endDate}`);
+
+    // First, tell Plaid to refresh data from the institution
+    // Note: Requires "transactions_refresh" Plaid product to be enabled
+    // Enable at: https://dashboard.plaid.com/settings/team/products
+    try {
+      await plaid.refreshTransactions(item.access_token);
+      console.log('  ✓ Refresh request sent to Plaid (this is an asynchronous background process)');
+      console.log('  ℹ️  Full historical data may take 24-48 hours to become available');
+      console.log('  ⏳ Waiting 10 seconds before fetching currently available data...');
+      await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+    } catch (refreshError) {
+      const refreshErrorCode = refreshError.response?.data?.error_code;
+      if (refreshErrorCode === 'INVALID_PRODUCT') {
+        console.warn(`  ⚠️  Transactions Refresh not enabled - fetching cached data only`);
+        console.warn(`  ℹ️  Enable at: https://dashboard.plaid.com/settings/team/products`);
+      } else {
+        console.warn(`  ⚠️  Refresh request failed (continuing anyway): ${refreshError.message}`);
+      }
+    }
 
     for (let attempt = 0; attempt < maxRetries && !backfillSuccessful; attempt++) {
       try {
@@ -316,13 +368,34 @@ export async function backfillHistoricalTransactions() {
           await new Promise(resolve => setTimeout(resolve, retryDelays[attempt - 1]));
         }
 
-        console.log(`📊 Backfilling ${item.institution_name}...`);
-        console.log(`   Date range: ${startDate} to ${endDate}`);
-
         const result = await plaid.getTransactions(item.access_token, startDate, endDate);
 
         console.log(`  📥 Received ${result.transactions.length} transaction(s) from Plaid`);
         console.log(`  📥 Received ${result.accounts.length} account(s) from Plaid`);
+
+        // Debug: Show transaction date range returned by Plaid
+        if (result.transactions.length > 0) {
+          const dates = result.transactions.map(t => t.date).sort();
+          const oldestDate = dates[0];
+          const newestDate = dates[dates.length - 1];
+          console.log(`  📅 Transaction date range: ${oldestDate} to ${newestDate}`);
+          console.log(`  🔍 Requested range: ${startDate} to ${endDate}`);
+
+          // Calculate how much history we got
+          const oldestTransactionDate = new Date(oldestDate);
+          const requestedStartDate = new Date(startDate);
+          const daysDifference = Math.floor((oldestTransactionDate - requestedStartDate) / (1000 * 60 * 60 * 24));
+
+          if (daysDifference > 365) {
+            console.warn(`  ⚠️  Gap detected: Oldest transaction is ${Math.floor(daysDifference / 365)} years newer than requested start date`);
+            console.warn(`  ⚠️  This suggests Plaid/institution is limiting available history`);
+          }
+        }
+
+        // Debug: Log Plaid response metadata if available
+        if (result.total_transactions !== undefined) {
+          console.log(`  📊 Plaid metadata - Total available: ${result.total_transactions}`);
+        }
 
         // Update accounts
         for (const account of result.accounts) {
@@ -348,6 +421,26 @@ export async function backfillHistoricalTransactions() {
         // Check if this is a PRODUCT_NOT_READY error
         const errorCode = error.response?.data?.error_code;
         const errorMessage = error.response?.data?.error_message || error.message;
+        const errorType = error.response?.data?.error_type;
+
+        // Log detailed error information for debugging
+        if (errorCode) {
+          console.error(`  ❌ Plaid Error Details:`);
+          console.error(`     - Error Code: ${errorCode}`);
+          console.error(`     - Error Type: ${errorType}`);
+          console.error(`     - Message: ${errorMessage}`);
+
+          // Provide helpful guidance for common errors
+          if (errorCode === 'INSTITUTION_NOT_AVAILABLE' || errorCode === 'INSTITUTION_NOT_SUPPORTED') {
+            console.error(`     ⚠️  This institution may not be enabled in your Plaid account`);
+            console.error(`     ℹ️  Check: https://dashboard.plaid.com → Account → Institutions`);
+          } else if (errorCode === 'INVALID_CREDENTIALS' || errorCode === 'ITEM_LOGIN_REQUIRED') {
+            console.error(`     ⚠️  Account authentication issue - user may need to re-link`);
+          } else if (errorCode === 'INSTITUTION_REGISTRATION_REQUIRED') {
+            console.error(`     ⚠️  This institution requires additional Plaid approval`);
+            console.error(`     ℹ️  Request access in Plaid Dashboard → Institutions`);
+          }
+        }
 
         if (errorCode === 'PRODUCT_NOT_READY' && attempt < maxRetries - 1) {
           // Retry for PRODUCT_NOT_READY

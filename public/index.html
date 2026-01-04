@@ -56,7 +56,7 @@
                 </button>
                 <button id="backfillBtn" class="btn btn-secondary" style="margin-top: 0.5rem;">
                     <span class="icon">📜</span>
-                    Backfill History (2yrs)
+                    Backfill All History
                 </button>
                 <div class="env-indicator">
                     <span class="env-label">Environment:</span>
@@ -297,6 +297,7 @@
                                     <th>Category</th>
                                     <th>Account</th>
                                     <th>Amount</th>
+                                    <th style="width: 80px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="transactionsTableBody"></tbody>
@@ -394,8 +395,10 @@
             <div class="page" id="link-page">
                 <div class="page-header">
                     <h2>Link Bank Account</h2>
-                    <p>Connect your bank account via Plaid</p>
+                    <p>Connect your bank account or import transactions</p>
                 </div>
+
+                <!-- Plaid Integration -->
                 <div class="card centered">
                     <div class="link-account-content">
                         <div class="icon-large">🏦</div>
@@ -407,6 +410,30 @@
                         </button>
                         <div id="linkStatus" class="status-message"></div>
                     </div>
+                </div>
+
+                <!-- Copilot Import -->
+                <div class="card" style="margin-top: 2rem;">
+                    <h3 style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-size: 1.5rem;">📊</span>
+                        Import from Copilot
+                    </h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+                        Import your transaction history from Copilot Money app by uploading a CSV export file.
+                    </p>
+                    <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 200px;">
+                            <label for="copilotFileInput" style="display: block; margin-bottom: 0.5rem; font-weight: 500;">
+                                Select Copilot CSV File
+                            </label>
+                            <input type="file"
+                                   id="copilotFileInput"
+                                   accept=".csv"
+                                   onchange="handleCopilotFileUpload(event)"
+                                   style="display: block; width: 100%; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 4px; background: white;">
+                        </div>
+                    </div>
+                    <div id="copilotImportStatus" style="margin-top: 1rem;"></div>
                 </div>
             </div>
 
@@ -680,7 +707,26 @@
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
                     <div class="form-group">
                         <label for="editCategoryIcon">Icon (Emoji):</label>
-                        <input type="text" id="editCategoryIcon" class="form-input" style="width: 100%; padding: 0.75rem; font-size: 1.5rem; text-align: center;" placeholder="📁" maxlength="2">
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <input type="text" id="editCategoryIcon" class="form-input" style="width: 4rem; padding: 0.5rem; font-size: 2rem; text-align: center; height: 3.5rem; line-height: 1;" placeholder="📁" maxlength="1">
+                            <button onclick="generateEmojiSuggestions()" class="btn btn-secondary" style="padding: 0.5rem; font-size: 1.25rem; min-width: 2.5rem; height: 2.5rem; display: flex; align-items: center; justify-content: center;" title="Generate AI emoji suggestions">
+                                ✨
+                            </button>
+                        </div>
+                        <div id="emojiSuggestions" style="display: none; margin-top: 0.5rem; padding: 0.75rem; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.5rem;">
+                            <div style="font-size: 0.875rem; color: #666; margin-bottom: 0.5rem;">AI Suggestions:</div>
+                            <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                                <button type="button" class="emoji-suggestion-btn" data-emoji-index="0" onclick="selectSuggestedEmoji(0)" style="font-size: 2rem; padding: 0.5rem 1rem; border: 2px solid #e5e7eb; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s;">
+                                    ?
+                                </button>
+                                <button type="button" class="emoji-suggestion-btn" data-emoji-index="1" onclick="selectSuggestedEmoji(1)" style="font-size: 2rem; padding: 0.5rem 1rem; border: 2px solid #e5e7eb; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s;">
+                                    ?
+                                </button>
+                                <button type="button" class="emoji-suggestion-btn" data-emoji-index="2" onclick="selectSuggestedEmoji(2)" style="font-size: 2rem; padding: 0.5rem 1rem; border: 2px solid #e5e7eb; border-radius: 0.5rem; background: white; cursor: pointer; transition: all 0.2s;">
+                                    ?
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="form-group">
@@ -693,6 +739,27 @@
                     <button onclick="closeEditCategoryModal()" class="btn btn-secondary">Cancel</button>
                     <button onclick="saveEditCategory()" class="btn btn-primary">Save Changes</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Copilot Category Mapping Modal -->
+    <div id="copilotMappingModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 700px;">
+            <div class="modal-header">
+                <h3>📊 Map Copilot Categories</h3>
+                <button class="modal-close" onclick="closeCopilotMappingModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 1.5rem; color: #666;">
+                    The following categories from your Copilot export don't exist in your app.
+                    Please map them to existing categories or leave blank to import without a category.
+                </p>
+                <div id="categoryMappingList"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCopilotMappingModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="completeCopilotImport()">Import Transactions</button>
             </div>
         </div>
     </div>
@@ -727,6 +794,120 @@
                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem;">
                     <button onclick="closeSheetsConfigModal()" class="btn btn-secondary">Cancel</button>
                     <button onclick="saveSheetConfig()" class="btn btn-primary">Save Configuration</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Rule Modal -->
+    <div id="createRuleModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h3>🎯 Create Categorization Rule</h3>
+                <button class="modal-close" onclick="closeCreateRuleModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 1rem; color: var(--text-secondary);">
+                    Create a rule to automatically categorize transactions based on merchant name or description.
+                </p>
+
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label for="ruleNameInput">Rule Name:</label>
+                    <input type="text" id="ruleNameInput" class="form-input"
+                           style="width: 100%; padding: 0.75rem;"
+                           placeholder="e.g., Amazon Purchases">
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label for="rulePatternInput">Pattern:</label>
+                    <input type="text" id="rulePatternInput" class="form-input"
+                           style="width: 100%; padding: 0.75rem;"
+                           placeholder="e.g., Amazon"
+                           oninput="updateRulePreview()">
+                    <small style="color: #666; font-size: 0.875rem;">The text to match in merchant name or description</small>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label for="ruleMatchTypeSelect">Match Type:</label>
+                    <select id="ruleMatchTypeSelect" class="form-select"
+                            style="width: 100%; padding: 0.75rem;"
+                            onchange="updateRulePreview()">
+                        <option value="exact" selected>Exact Match - Must match exactly (case-insensitive)</option>
+                        <option value="partial">Partial Match - Contains the pattern (recommended)</option>
+                        <option value="regex">Regular Expression - Advanced pattern matching</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label for="ruleCategorySelect">Category:</label>
+                    <select id="ruleCategorySelect" class="form-select" style="width: 100%; padding: 0.75rem;">
+                        <option value="">Select category...</option>
+                    </select>
+                </div>
+
+                <!-- Live Preview Section -->
+                <div id="rulePreviewSection" style="margin-bottom: 1.5rem; padding: 1rem; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0.5rem;">
+                    <h4 style="margin-bottom: 0.75rem; font-size: 0.95rem;">📊 Matching Transactions Preview</h4>
+                    <div id="rulePreviewLoading" style="display: none; text-align: center; padding: 1rem; color: #666;">
+                        Loading preview...
+                    </div>
+                    <div id="rulePreviewCount" style="margin-bottom: 0.75rem; font-size: 0.9rem; color: #666;">
+                        Enter a pattern to preview matching transactions
+                    </div>
+                    <div id="rulePreviewList" style="max-height: 300px; overflow-y: auto;">
+                        <!-- Transaction previews will appear here -->
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button onclick="closeCreateRuleModal()" class="btn btn-secondary">Cancel</button>
+                    <button onclick="saveNewRule()" class="btn btn-primary">Create Rule</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Split Transaction Modal -->
+    <div id="splitTransactionModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 700px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3>Split Transaction</h3>
+                <button class="modal-close" onclick="closeSplitModal()">&times;</button>
+            </div>
+
+            <div id="splitModalContent">
+                <!-- Transaction details -->
+                <div style="background: #f9fafb; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1.5rem;">
+                    <div style="font-weight: 600; margin-bottom: 0.5rem;" id="splitOriginalDescription"></div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #666; font-size: 0.875rem;" id="splitOriginalDate"></span>
+                        <span style="font-weight: 700; font-size: 1.125rem;" id="splitOriginalAmount"></span>
+                    </div>
+                </div>
+
+                <!-- Split items container -->
+                <div id="splitItemsContainer" style="margin-bottom: 1.5rem;">
+                    <!-- Split items will be added here dynamically -->
+                </div>
+
+                <!-- Add split button -->
+                <button onclick="addSplitRow()" class="btn btn-secondary" style="margin-bottom: 1.5rem;">
+                    + Add Split
+                </button>
+
+                <!-- Total validation -->
+                <div style="background: #fef3c7; border: 1px solid #fbbf24; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1.5rem;" id="splitTotalWarning">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: 600;">Total:</span>
+                        <span style="font-weight: 700;" id="splitTotalAmount"></span>
+                    </div>
+                    <div id="splitDifferenceText" style="color: #dc2626; font-size: 0.875rem; margin-top: 0.5rem;"></div>
+                </div>
+
+                <!-- Action buttons -->
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button onclick="closeSplitModal()" class="btn btn-secondary">Cancel</button>
+                    <button onclick="saveSplits()" class="btn btn-primary" id="saveSplitsBtn">Split Transaction</button>
                 </div>
             </div>
         </div>

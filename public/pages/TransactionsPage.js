@@ -199,7 +199,10 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
             <td>${formatDate(tx.date)}</td>
             <td>
                 <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-                    <span>${escapeHtml(tx.description || tx.name)}</span>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span>${escapeHtml(tx.description || tx.name)}</span>
+                        ${tx.is_split ? `<span style="background: #fbbf24; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">SPLIT</span>` : ''}
+                    </div>
                     ${tx.amazon_order ? `
                         <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem;">
                             <span style="background: #FF9900; color: white; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 0.75rem;">
@@ -261,9 +264,29 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
                     }
                 </div>
             </td>
-            <td>${escapeHtml(tx.account_name || 'Unknown')}</td>
+            <td>
+                <div>${escapeHtml(tx.account_name || 'Unknown')}</div>
+                ${tx.institution_name ? `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.125rem;">${escapeHtml(tx.institution_name)}</div>` : ''}
+            </td>
             <td class="amount-cell ${parseFloat(tx.amount) > 0 ? 'positive' : 'negative'}">
                 ${formatCurrency(tx.amount)}
+            </td>
+            <td>
+                ${tx.is_split ? `
+                    <button
+                        onclick="unsplitTransaction('${tx.split_parent_id}')"
+                        style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 0.25rem; cursor: pointer; color: #92400e;"
+                        title="Unsplit transaction">
+                        Unsplit
+                    </button>
+                ` : `
+                    <button
+                        onclick="showSplitModal('${tx.transaction_id}')"
+                        style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 0.25rem; cursor: pointer;"
+                        title="Split transaction">
+                        Split
+                    </button>
+                `}
             </td>
         </tr>
         `;
@@ -621,8 +644,27 @@ async function selectCategory(categoryName) {
     const transactionId = currentDropdownInput.getAttribute('data-transaction-id');
     if (!transactionId) return;
 
+    // Get the transaction details for rule creation prompt
+    const transaction = allTransactions.find(t => t.transaction_id === transactionId);
+
     closeAllDropdowns();
 
+    // Check if there are multiple transactions selected
+    const hasSelectedTransactions = selectedTransactions.size > 0;
+    const isCurrentSelected = selectedTransactions.has(transactionId);
+
+    if (hasSelectedTransactions && !isCurrentSelected) {
+        // If other transactions are selected but not this one, ask user
+        const confirmed = confirm(`Apply category "${categoryName}" to all ${selectedTransactions.size} selected transaction(s)?`);
+        if (confirmed) {
+            return await bulkUpdateCategory(categoryName);
+        }
+    } else if (hasSelectedTransactions && isCurrentSelected) {
+        // If this transaction is part of the selection, automatically apply to all
+        return await bulkUpdateCategory(categoryName);
+    }
+
+    // Single transaction update
     try {
         const result = await fetchAPI(`/api/transactions/${transactionId}/category`, {
             method: 'PATCH',
@@ -632,17 +674,50 @@ async function selectCategory(categoryName) {
         if (result.success) {
             showToast(`Category set to "${categoryName}"`, 'success');
 
-            if (result.similarTransactions && result.similarTransactions.length > 0) {
-                setTimeout(() => {
-                    showSimilarTransactionsModal(result.similarTransactions, categoryName);
-                }, 300);
-            }
+            // Store the transaction and category for potential rule creation
+            const merchantName = transaction?.merchant_name || transaction?.description;
+            window.lastCategorizedTransaction = {
+                merchantName: merchantName,
+                category: categoryName
+            };
+
+            // Always prompt to create a rule (after a short delay)
+            setTimeout(() => {
+                promptCreateRule(merchantName, categoryName);
+            }, 500);
 
             eventBus.emit('transactionsUpdated');
         }
     } catch (error) {
         showToast(`Failed to set category: ${error.message}`, 'error');
         console.error(error);
+    }
+}
+
+async function bulkUpdateCategory(categoryName) {
+    showLoading();
+
+    try {
+        const result = await fetchAPI('/api/transactions/bulk/category', {
+            method: 'PATCH',
+            body: JSON.stringify({
+                transactionIds: Array.from(selectedTransactions),
+                category: categoryName
+            })
+        });
+
+        if (result.success) {
+            showToast(`Updated ${result.updated} transaction(s) to "${categoryName}"`, 'success');
+            selectedTransactions.clear();
+            updateBulkActionsBar();
+            updateSelectAllCheckbox();
+            eventBus.emit('transactionsUpdated');
+        }
+    } catch (error) {
+        showToast(`Failed to update categories: ${error.message}`, 'error');
+        console.error(error);
+    } finally {
+        hideLoading();
     }
 }
 
@@ -741,6 +816,13 @@ async function applyCategoryToSimilar() {
         if (result.success) {
             showToast(`Updated ${result.updated} similar transaction(s)`, 'success');
             closeSimilarTransactionsModal();
+
+            // Prompt to create a rule after applying to similar transactions
+            if (window.lastCategorizedTransaction) {
+                setTimeout(() => {
+                    promptCreateRule(window.lastCategorizedTransaction.merchantName, category);
+                }, 500);
+            }
 
             setTimeout(() => {
                 eventBus.emit('transactionsUpdated');
@@ -1904,11 +1986,577 @@ async function resetAllAmazonMatchings() {
     }
 }
 
+// ============================================================================
+// Rule Creation Functions
+// ============================================================================
+
+let rulePreviewTimeout = null;
+
+function promptCreateRule(merchantName, category) {
+    if (!merchantName || merchantName === 'Unknown') return;
+
+    // Use a toast notification with action buttons
+    const toastContainer = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-info';
+    toast.style.cssText = 'max-width: 500px; padding: 1rem;';
+
+    toast.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <div>
+                <strong>Create a rule for ${escapeHtml(merchantName)}</strong>
+                <div style="font-size: 0.9rem; margin-top: 0.25rem;">
+                    Automatically categorize future transactions from this merchant as "${category}"
+                </div>
+            </div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button class="btn btn-secondary" style="padding: 0.4rem 0.75rem; font-size: 0.875rem;" onclick="this.closest('.toast').remove()">
+                    Dismiss
+                </button>
+                <button class="btn btn-primary" style="padding: 0.4rem 0.75rem; font-size: 0.875rem;" onclick="this.closest('.toast').remove(); showCreateRuleModal('${escapeHtml(merchantName)}', '${escapeHtml(category)}')">
+                    Create Rule
+                </button>
+            </div>
+        </div>
+    `;
+
+    toastContainer.appendChild(toast);
+
+    // Auto-remove after 10 seconds
+    setTimeout(() => {
+        toast.remove();
+    }, 10000);
+}
+
+function showCreateRuleModal(merchantName, category) {
+    const modal = document.getElementById('createRuleModal');
+    const nameInput = document.getElementById('ruleNameInput');
+    const patternInput = document.getElementById('rulePatternInput');
+    const matchTypeSelect = document.getElementById('ruleMatchTypeSelect');
+    const categorySelect = document.getElementById('ruleCategorySelect');
+
+    // Prefill the form
+    nameInput.value = `Auto-categorize ${merchantName}`;
+    patternInput.value = merchantName;
+    matchTypeSelect.value = 'exact';
+
+    // Populate category dropdown
+    categorySelect.innerHTML = '<option value="">Select category...</option>' +
+        allCategories.map(cat => `<option value="${escapeHtml(cat.name)}" ${cat.name === category ? 'selected' : ''}>${escapeHtml(cat.name)}</option>`).join('');
+
+    modal.style.display = 'flex';
+
+    // Trigger initial preview
+    updateRulePreview();
+}
+
+function closeCreateRuleModal() {
+    const modal = document.getElementById('createRuleModal');
+    modal.style.display = 'none';
+
+    // Clear form
+    document.getElementById('ruleNameInput').value = '';
+    document.getElementById('rulePatternInput').value = '';
+    document.getElementById('ruleMatchTypeSelect').value = 'exact';
+    document.getElementById('ruleCategorySelect').value = '';
+    document.getElementById('rulePreviewList').innerHTML = '';
+    document.getElementById('rulePreviewCount').textContent = 'Enter a pattern to preview matching transactions';
+}
+
+async function updateRulePreview() {
+    const patternInput = document.getElementById('rulePatternInput');
+    const matchTypeSelect = document.getElementById('ruleMatchTypeSelect');
+    const previewLoading = document.getElementById('rulePreviewLoading');
+    const previewCount = document.getElementById('rulePreviewCount');
+    const previewList = document.getElementById('rulePreviewList');
+
+    const pattern = patternInput.value.trim();
+    const matchType = matchTypeSelect.value;
+
+    // Clear previous timeout
+    if (rulePreviewTimeout) {
+        clearTimeout(rulePreviewTimeout);
+    }
+
+    if (!pattern) {
+        previewCount.textContent = 'Enter a pattern to preview matching transactions';
+        previewList.innerHTML = '';
+        return;
+    }
+
+    // Debounce the preview update
+    rulePreviewTimeout = setTimeout(async () => {
+        try {
+            previewLoading.style.display = 'block';
+            previewCount.textContent = 'Loading...';
+            previewList.innerHTML = '';
+
+            const result = await fetchAPI('/api/category-mappings/rules/preview', {
+                method: 'POST',
+                body: JSON.stringify({ pattern, matchType })
+            });
+
+            previewLoading.style.display = 'none';
+
+            if (result.transactions && result.transactions.length > 0) {
+                previewCount.innerHTML = `<strong>${result.count}</strong> transaction(s) will match this rule`;
+                previewList.innerHTML = result.transactions.slice(0, 10).map(tx => `
+                    <div style="padding: 0.5rem; margin-bottom: 0.25rem; background: white; border: 1px solid #e5e7eb; border-radius: 0.25rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.875rem;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 500;">${escapeHtml(tx.merchant_name || tx.description)}</div>
+                            <div style="color: #666; font-size: 0.8rem;">${formatDate(tx.date)}</div>
+                        </div>
+                        <div style="font-weight: 500;">${formatCurrency(tx.amount)}</div>
+                    </div>
+                `).join('');
+
+                if (result.count > 10) {
+                    previewList.innerHTML += `<div style="padding: 0.5rem; text-align: center; color: #666; font-size: 0.875rem;">... and ${result.count - 10} more</div>`;
+                }
+            } else {
+                previewCount.textContent = 'No transactions match this pattern';
+                previewList.innerHTML = '<div style="padding: 1rem; text-align: center; color: #666;">Try adjusting the pattern or match type</div>';
+            }
+        } catch (error) {
+            previewLoading.style.display = 'none';
+            previewCount.textContent = 'Error loading preview';
+            previewList.innerHTML = `<div style="padding: 1rem; text-align: center; color: #ef4444;">${escapeHtml(error.message)}</div>`;
+        }
+    }, 500);
+}
+
+async function saveNewRule() {
+    const nameInput = document.getElementById('ruleNameInput');
+    const patternInput = document.getElementById('rulePatternInput');
+    const matchTypeSelect = document.getElementById('ruleMatchTypeSelect');
+    const categorySelect = document.getElementById('ruleCategorySelect');
+
+    const name = nameInput.value.trim();
+    const pattern = patternInput.value.trim();
+    const matchType = matchTypeSelect.value;
+    const category = categorySelect.value;
+
+    if (!name || !pattern || !category) {
+        showToast('Please fill in all required fields', 'error');
+        return;
+    }
+
+    try {
+        // First, get all existing rules to check for collisions
+        const allRulesResponse = await fetchAPI('/api/category-mappings/rules');
+        const allRules = allRulesResponse || [];
+
+        // Find colliding rules (same pattern and match type)
+        const collidingRules = allRules.filter(rule =>
+            rule.pattern.toLowerCase() === pattern.toLowerCase() &&
+            rule.match_type === matchType
+        );
+
+        // Get preview of matching transactions before creating the rule
+        const previewResult = await fetchAPI('/api/category-mappings/rules/preview', {
+            method: 'POST',
+            body: JSON.stringify({ pattern, matchType })
+        });
+
+        const matchingTransactions = previewResult.transactions || [];
+
+        // Store original categories for undo
+        const originalCategories = matchingTransactions.map(tx => ({
+            transaction_id: tx.transaction_id,
+            category: tx.category,
+            confidence: tx.confidence
+        }));
+
+        // Delete colliding rules
+        const deletedRules = [];
+        for (const rule of collidingRules) {
+            await fetchAPI(`/api/category-mappings/rules/${rule.id}`, {
+                method: 'DELETE'
+            });
+            deletedRules.push(rule);
+        }
+
+        // Create the new rule
+        const result = await fetchAPI('/api/category-mappings/rules', {
+            method: 'POST',
+            body: JSON.stringify({ name, pattern, category, matchType })
+        });
+
+        closeCreateRuleModal();
+
+        // Apply the rule to existing matching transactions
+        if (matchingTransactions.length > 0) {
+            // Update all matching transactions with the new category
+            const transactionIds = matchingTransactions.map(tx => tx.transaction_id);
+            const bulkUpdateResult = await fetchAPI('/api/transactions/bulk/category', {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    transactionIds,
+                    category
+                })
+            });
+
+            // Reload transactions to reflect changes
+            eventBus.emit('transactionsUpdated');
+
+            // Show success toast with undo option
+            const message = deletedRules.length > 0
+                ? `Rule created (replaced ${deletedRules.length} existing rule(s)) and applied to ${matchingTransactions.length} transaction(s)`
+                : `Rule created and applied to ${matchingTransactions.length} transaction(s)`;
+
+            showUndoableToast(
+                message,
+                async () => {
+                    // Undo function: restore original categories and deleted rules
+                    await undoRuleApplication(result.id, originalCategories, deletedRules);
+                }
+            );
+        } else {
+            const message = deletedRules.length > 0
+                ? `Rule created (replaced ${deletedRules.length} existing rule(s))`
+                : 'Rule created successfully!';
+            showToast(message, 'success');
+        }
+    } catch (error) {
+        showToast(`Failed to create rule: ${error.message}`, 'error');
+    }
+}
+
+async function undoRuleApplication(ruleId, originalCategories, deletedRules = []) {
+    try {
+        // Delete the newly created rule
+        await fetchAPI(`/api/category-mappings/rules/${ruleId}`, {
+            method: 'DELETE'
+        });
+
+        // Restore deleted rules (rules that were replaced)
+        for (const rule of deletedRules) {
+            await fetchAPI('/api/category-mappings/rules', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: rule.name,
+                    pattern: rule.pattern,
+                    category: rule.category,
+                    matchType: rule.match_type
+                })
+            });
+        }
+
+        // Restore original categories for all affected transactions
+        for (const tx of originalCategories) {
+            await fetchAPI(`/api/transactions/${tx.transaction_id}/category`, {
+                method: 'PATCH',
+                body: JSON.stringify({ category: tx.category })
+            });
+        }
+
+        // Reload transactions
+        eventBus.emit('transactionsUpdated');
+        showToast('Rule creation undone', 'success');
+    } catch (error) {
+        showToast(`Failed to undo: ${error.message}`, 'error');
+    }
+}
+
+function showUndoableToast(message, undoCallback) {
+    const toastContainer = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-success';
+    toast.style.cssText = 'max-width: 500px; padding: 1rem;';
+
+    toast.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
+            <div style="flex: 1;">${escapeHtml(message)}</div>
+            <button class="btn btn-secondary" style="padding: 0.4rem 0.75rem; font-size: 0.875rem; white-space: nowrap;" onclick="this.closest('.toast').remove()">
+                Undo
+            </button>
+        </div>
+    `;
+
+    // Add undo handler
+    const undoButton = toast.querySelector('button');
+    undoButton.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        toast.remove();
+        await undoCallback();
+    });
+
+    toastContainer.appendChild(toast);
+
+    // Auto-remove after 10 seconds
+    setTimeout(() => {
+        toast.remove();
+    }, 10000);
+}
+
+// ============================================================================
+// Transaction Splitting
+// ============================================================================
+
+let currentSplitTransaction = null;
+let splitRows = [];
+
+function showSplitModal(transactionId) {
+    const transaction = allTransactions.find(tx => tx.transaction_id === transactionId);
+    if (!transaction) {
+        showToast('Transaction not found', 'error');
+        return;
+    }
+
+    currentSplitTransaction = transaction;
+    splitRows = [];
+
+    // Populate modal with transaction details
+    document.getElementById('splitOriginalDescription').textContent = transaction.description || transaction.name;
+    document.getElementById('splitOriginalDate').textContent = formatDate(transaction.date);
+    document.getElementById('splitOriginalAmount').textContent = formatCurrency(transaction.amount);
+
+    // Initialize with 2 splits at 50% each
+    const splitAmount = Math.abs(parseFloat(transaction.amount)) / 2;
+    addSplitRow(splitAmount);
+    addSplitRow(splitAmount);
+
+    // Show modal
+    document.getElementById('splitTransactionModal').style.display = 'flex';
+
+    updateSplitTotals();
+}
+
+function closeSplitModal() {
+    document.getElementById('splitTransactionModal').style.display = 'none';
+    currentSplitTransaction = null;
+    splitRows = [];
+    document.getElementById('splitItemsContainer').innerHTML = '';
+}
+
+function addSplitRow(defaultAmount = null) {
+    const index = splitRows.length;
+    const amount = defaultAmount !== null ? defaultAmount : 0;
+    const percentage = currentSplitTransaction ? (amount / Math.abs(parseFloat(currentSplitTransaction.amount)) * 100).toFixed(2) : 0;
+
+    const splitRow = {
+        index,
+        amount,
+        percentage,
+        category: currentSplitTransaction?.category || '',
+        description: ''
+    };
+
+    splitRows.push(splitRow);
+    renderSplitRows();
+}
+
+function removeSplitRow(index) {
+    if (splitRows.length <= 2) {
+        showToast('You must have at least 2 splits', 'error');
+        return;
+    }
+    splitRows.splice(index, 1);
+    // Re-index
+    splitRows.forEach((row, idx) => {
+        row.index = idx;
+    });
+    renderSplitRows();
+}
+
+function renderSplitRows() {
+    const container = document.getElementById('splitItemsContainer');
+    const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
+
+    container.innerHTML = splitRows.map((split, index) => `
+        <div class="split-row" data-index="${index}" style="background: #fff; border: 1px solid #e5e7eb; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                <span style="font-weight: 600; color: #666;">Split #${index + 1}</span>
+                ${splitRows.length > 2 ? `<button onclick="removeSplitRow(${index})" style="color: #dc2626; background: none; border: none; cursor: pointer; font-size: 1.25rem;">&times;</button>` : ''}
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+                <div>
+                    <label style="display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem;">Amount</label>
+                    <input type="number"
+                           step="0.01"
+                           value="${split.amount.toFixed(2)}"
+                           onchange="updateSplitAmount(${index}, this.value)"
+                           style="width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem;">
+                </div>
+                <div>
+                    <label style="display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem;">Percentage</label>
+                    <input type="number"
+                           step="0.01"
+                           value="${split.percentage}"
+                           onchange="updateSplitPercentage(${index}, this.value)"
+                           style="width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem;">
+                </div>
+            </div>
+
+            <div style="margin-bottom: 0.75rem;">
+                <label style="display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem;">Category</label>
+                <select onchange="updateSplitCategory(${index}, this.value)"
+                        style="width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem;">
+                    <option value="">Select category...</option>
+                    ${allCategories.map(cat =>
+                        `<option value="${escapeHtml(cat.name)}" ${cat.name === split.category ? 'selected' : ''}>${escapeHtml(cat.name)}</option>`
+                    ).join('')}
+                </select>
+            </div>
+
+            <div>
+                <label style="display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem;">Description (optional)</label>
+                <input type="text"
+                       value="${escapeHtml(split.description)}"
+                       onchange="updateSplitDescription(${index}, this.value)"
+                       placeholder="e.g., Groceries portion"
+                       style="width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.375rem;">
+            </div>
+        </div>
+    `).join('');
+
+    updateSplitTotals();
+}
+
+function updateSplitAmount(index, value) {
+    const amount = parseFloat(value) || 0;
+    const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
+    const percentage = (amount / originalAmount * 100).toFixed(2);
+
+    splitRows[index].amount = amount;
+    splitRows[index].percentage = percentage;
+
+    updateSplitTotals();
+}
+
+function updateSplitPercentage(index, value) {
+    const percentage = parseFloat(value) || 0;
+    const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
+    const amount = (originalAmount * percentage / 100).toFixed(2);
+
+    splitRows[index].percentage = percentage;
+    splitRows[index].amount = parseFloat(amount);
+
+    renderSplitRows();
+}
+
+function updateSplitCategory(index, category) {
+    splitRows[index].category = category;
+}
+
+function updateSplitDescription(index, description) {
+    splitRows[index].description = description;
+}
+
+function updateSplitTotals() {
+    const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
+    const total = splitRows.reduce((sum, split) => sum + parseFloat(split.amount || 0), 0);
+    const difference = Math.abs(total - originalAmount);
+
+    document.getElementById('splitTotalAmount').textContent = formatCurrency(total);
+
+    const warningDiv = document.getElementById('splitTotalWarning');
+    const differenceText = document.getElementById('splitDifferenceText');
+    const saveBtn = document.getElementById('saveSplitsBtn');
+
+    if (difference < 0.01) {
+        warningDiv.style.background = '#d1fae5';
+        warningDiv.style.borderColor = '#10b981';
+        differenceText.textContent = '✓ Total matches original amount';
+        differenceText.style.color = '#059669';
+        saveBtn.disabled = false;
+    } else {
+        warningDiv.style.background = '#fef3c7';
+        warningDiv.style.borderColor = '#fbbf24';
+        differenceText.textContent = `⚠ Difference: ${formatCurrency(difference)}`;
+        differenceText.style.color = '#dc2626';
+        saveBtn.disabled = true;
+    }
+}
+
+async function saveSplits() {
+    if (!currentSplitTransaction) {
+        showToast('No transaction selected', 'error');
+        return;
+    }
+
+    // Validate splits
+    const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
+    const total = splitRows.reduce((sum, split) => sum + parseFloat(split.amount || 0), 0);
+    const difference = Math.abs(total - originalAmount);
+
+    if (difference >= 0.01) {
+        showToast('Split amounts must equal the original amount', 'error');
+        return;
+    }
+
+    // Check all splits have categories
+    const missingCategory = splitRows.some(split => !split.category);
+    if (missingCategory) {
+        showToast('All splits must have a category', 'error');
+        return;
+    }
+
+    try {
+        // Prepare splits data
+        const isNegative = parseFloat(currentSplitTransaction.amount) < 0;
+        const splits = splitRows.map(split => ({
+            amount: isNegative ? -Math.abs(parseFloat(split.amount)) : Math.abs(parseFloat(split.amount)),
+            category: split.category,
+            description: split.description || null,
+            source: 'manual'
+        }));
+
+        // Save via API
+        const result = await fetchAPI(`/api/transactions/${currentSplitTransaction.transaction_id}/splits`, {
+            method: 'POST',
+            body: JSON.stringify({ splits })
+        });
+
+        showToast(`Transaction split into ${splits.length} parts`, 'success');
+        closeSplitModal();
+
+        // Reload transactions to reflect changes
+        await loadTransactions();
+        eventBus.emit('transactionsUpdated');
+    } catch (error) {
+        showToast(`Failed to split transaction: ${error.message}`, 'error');
+    }
+}
+
+async function unsplitTransaction(transactionId) {
+    if (!confirm('Remove all splits and restore the original transaction?')) {
+        return;
+    }
+
+    try {
+        await fetchAPI(`/api/transactions/${transactionId}/splits`, {
+            method: 'DELETE'
+        });
+
+        showToast('Transaction splits removed', 'success');
+        await loadTransactions();
+        eventBus.emit('transactionsUpdated');
+    } catch (error) {
+        showToast(`Failed to unsplit transaction: ${error.message}`, 'error');
+    }
+}
+
 // Expose functions globally for onclick handlers
 window.aiAutoCategorizeUncategorized = aiAutoCategorizeUncategorized;
 window.aiSuggestCategory = aiSuggestCategory;
 window.showAmazonOrderDetails = showAmazonOrderDetails;
 window.resetAllAmazonMatchings = resetAllAmazonMatchings;
+window.showCreateRuleModal = showCreateRuleModal;
+window.closeCreateRuleModal = closeCreateRuleModal;
+window.updateRulePreview = updateRulePreview;
+window.saveNewRule = saveNewRule;
+window.showSplitModal = showSplitModal;
+window.closeSplitModal = closeSplitModal;
+window.addSplitRow = addSplitRow;
+window.removeSplitRow = removeSplitRow;
+window.updateSplitAmount = updateSplitAmount;
+window.updateSplitPercentage = updateSplitPercentage;
+window.updateSplitCategory = updateSplitCategory;
+window.updateSplitDescription = updateSplitDescription;
+window.saveSplits = saveSplits;
+window.unsplitTransaction = unsplitTransaction;
 
 // Export module
 export default {

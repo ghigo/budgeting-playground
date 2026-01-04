@@ -18,6 +18,24 @@ import { initializeSettingsPage, loadSettingsPage } from './pages/SettingsPage.j
 let plaidHandler = null;
 let currentPage = 'dashboard';
 
+// Initialize app settings cache
+window.appSettings = {
+    use_relative_dates: false
+};
+
+// Fetch and cache app settings
+async function loadAppSettings() {
+    try {
+        const settings = await fetchAPI('/api/settings');
+        window.appSettings = {
+            use_relative_dates: settings.use_relative_dates?.value || false
+        };
+        console.log('App settings loaded:', window.appSettings);
+    } catch (error) {
+        console.error('Failed to load app settings:', error);
+    }
+}
+
 // Setup automatic view updates
 function setupReactiveUpdates() {
     // When accounts change, refresh accounts page and transaction filters
@@ -59,6 +77,34 @@ function setupReactiveUpdates() {
             loadMappings();
         }
     });
+
+    // When settings change, reload app settings and refresh current page
+    eventBus.on('settingsUpdated', async () => {
+        console.log('📡 Settings updated, reloading app settings and refreshing views...');
+        await loadAppSettings();
+
+        // Refresh current page to apply new settings
+        switch (currentPage) {
+            case 'dashboard':
+                loadDashboard();
+                break;
+            case 'accounts':
+                loadAccounts();
+                break;
+            case 'transactions':
+                loadTransactions();
+                break;
+            case 'categories':
+                loadCategories();
+                break;
+            case 'mappings':
+                loadMappings();
+                break;
+            case 'amazon':
+                loadAmazonPage();
+                break;
+        }
+    });
 }
 
 // Initialize app
@@ -94,6 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     setupReactiveUpdates();
     checkEnvironment();
+    loadAppSettings(); // Load app settings cache
 });
 
 // Navigation
@@ -232,7 +279,7 @@ async function initiatePlaidLink() {
                     // Show results
                     const transactionCount = result.transactions || 0;
                     if (transactionCount > 0) {
-                        showToast(`Account linked! Fetched ${transactionCount} transaction(s) from the last 2 years`, 'success');
+                        showToast(`Account linked! Fetched ${transactionCount} available historical transaction(s)`, 'success');
                         statusEl.textContent = `✓ Account linked! Fetched ${transactionCount} transaction(s). Redirecting...`;
                     } else {
                         showToast('Account linked! Historical transactions may take a moment to sync. Check back shortly.', 'info');
@@ -319,7 +366,7 @@ async function backfillHistoricalTransactions() {
     btn.disabled = true;
     btn.innerHTML = '<span class="icon">⏳</span> Backfilling...';
 
-    showToast('Fetching up to 2 years of historical transactions... This may take a few minutes.', 'info');
+    showToast('Fetching all available historical transactions... This may take a few minutes.', 'info');
 
     try {
         const result = await fetchAPI('/api/backfill', { method: 'POST' });
@@ -333,6 +380,202 @@ async function backfillHistoricalTransactions() {
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalHTML;
+    }
+}
+
+// ============================================================================
+// COPILOT CSV IMPORT
+// ============================================================================
+
+let copilotImportData = null; // Store CSV content and analysis
+
+async function handleCopilotFileUpload(event) {
+    const file = event.target.files[0];
+
+    if (!file) {
+        return;
+    }
+
+    if (!file.name.endsWith('.csv')) {
+        showToast('Please upload a CSV file', 'error');
+        return;
+    }
+
+    showLoading();
+    showToast('Analyzing Copilot CSV...', 'info');
+
+    try {
+        const csvContent = await file.text();
+
+        // First, analyze the CSV to detect unmapped categories
+        const analysis = await fetchAPI('/api/copilot/analyze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/plain'
+            },
+            body: csvContent
+        });
+
+        if (analysis.success) {
+            // Store the CSV content and analysis for later import
+            copilotImportData = {
+                csvContent,
+                totalTransactions: analysis.totalTransactions,
+                unmappedCategories: analysis.unmappedCategories
+            };
+
+            // If there are unmapped categories, show the mapping modal
+            if (analysis.needsMapping) {
+                hideLoading();
+                showCopilotMappingModal(analysis.unmappedCategories);
+            } else {
+                // No unmapped categories, proceed with direct import
+                await completeCopilotImport({});
+            }
+
+            // Clear the file input
+            event.target.value = '';
+        } else {
+            throw new Error(analysis.error || 'Analysis failed');
+        }
+    } catch (error) {
+        console.error('Error analyzing Copilot CSV:', error);
+        const statusEl = document.getElementById('copilotImportStatus');
+        statusEl.innerHTML = `
+            <div style="padding: 1rem; background: #fee2e2; border: 1px solid #dc2626; border-radius: 6px; color: #991b1b;">
+                <strong>✗ Analysis Failed</strong><br>
+                <span style="font-size: 0.9rem;">${error.message}</span>
+            </div>
+        `;
+        showToast('Analysis failed: ' + error.message, 'error');
+        hideLoading();
+    }
+}
+
+async function showCopilotMappingModal(unmappedCategories) {
+    const modal = document.getElementById('copilotMappingModal');
+    const listContainer = document.getElementById('categoryMappingList');
+
+    // Get existing categories for the dropdowns
+    const categories = await fetchAPI('/api/categories');
+
+    // Build the mapping UI
+    let html = '';
+    for (const unmapped of unmappedCategories) {
+        html += `
+            <div style="padding: 1rem; margin-bottom: 1rem; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.75rem;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 1rem; margin-bottom: 0.25rem;">${escapeHtml(unmapped.copilotCategory)}</div>
+                        <div style="font-size: 0.85rem; color: #666;">${unmapped.count} transaction${unmapped.count > 1 ? 's' : ''}</div>
+                    </div>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <label style="display: block; font-size: 0.85rem; color: #666; margin-bottom: 0.25rem;">Map to existing category:</label>
+                    <select class="category-mapping" data-copilot-category="${escapeHtml(unmapped.copilotCategory)}" style="width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 4px;">
+                        <option value="">-- No category (import uncategorized) --</option>
+                        ${categories.map(cat => `<option value="${escapeHtml(cat.name)}">${escapeHtml(cat.name)}</option>`).join('')}
+                    </select>
+                </div>
+                ${unmapped.sampleTransactions.length > 0 ? `
+                    <details style="margin-top: 0.5rem;">
+                        <summary style="cursor: pointer; font-size: 0.85rem; color: #666;">Show sample transactions</summary>
+                        <div style="margin-top: 0.5rem; padding: 0.5rem; background: white; border-radius: 4px; font-size: 0.85rem;">
+                            ${unmapped.sampleTransactions.map(tx => `
+                                <div style="display: flex; justify-content: space-between; padding: 0.25rem 0; border-bottom: 1px solid #f3f4f6;">
+                                    <span>${escapeHtml(tx.description)}</span>
+                                    <span style="font-weight: 500;">${formatCurrency(tx.amount)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </details>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    listContainer.innerHTML = html;
+    modal.style.display = 'flex';
+}
+
+function closeCopilotMappingModal() {
+    const modal = document.getElementById('copilotMappingModal');
+    modal.style.display = 'none';
+    copilotImportData = null;
+}
+
+async function completeCopilotImport(manualMappings) {
+    if (!copilotImportData) {
+        showToast('No import data available', 'error');
+        return;
+    }
+
+    // If manualMappings is not provided, collect from the UI
+    let categoryMappings = manualMappings || {};
+    if (Object.keys(categoryMappings).length === 0) {
+        const mappingSelects = document.querySelectorAll('.category-mapping');
+        mappingSelects.forEach(select => {
+            const copilotCategory = select.dataset.copilotCategory;
+            const appCategory = select.value;
+            if (appCategory) {
+                categoryMappings[copilotCategory] = appCategory;
+            }
+        });
+    }
+
+    // Close the modal if it's open
+    closeCopilotMappingModal();
+
+    showLoading();
+    showToast('Importing transactions...', 'info');
+
+    try {
+        const result = await fetchAPI('/api/copilot/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                csvContent: copilotImportData.csvContent,
+                categoryMappings
+            })
+        });
+
+        if (result.success) {
+            const statusEl = document.getElementById('copilotImportStatus');
+            statusEl.innerHTML = `
+                <div style="padding: 1rem; background: #d1fae5; border: 1px solid #10b981; border-radius: 6px; color: #065f46;">
+                    <strong style="display: block; margin-bottom: 0.5rem;">✓ Import Successful!</strong>
+                    <div style="font-size: 0.9rem;">
+                        • ${result.imported} transactions imported<br>
+                        • ${result.skipped || 0} transactions skipped (duplicates)
+                    </div>
+                </div>
+            `;
+
+            showToast(`Successfully imported ${result.imported} transactions from Copilot!`, 'success');
+
+            // Emit events to update all views
+            eventBus.emit('transactionsUpdated');
+            eventBus.emit('categoriesUpdated');
+
+            // Clear import data
+            copilotImportData = null;
+        } else {
+            throw new Error(result.error || 'Import failed');
+        }
+    } catch (error) {
+        console.error('Error importing Copilot transactions:', error);
+        const statusEl = document.getElementById('copilotImportStatus');
+        statusEl.innerHTML = `
+            <div style="padding: 1rem; background: #fee2e2; border: 1px solid #dc2626; border-radius: 6px; color: #991b1b;">
+                <strong>✗ Import Failed</strong><br>
+                <span style="font-size: 0.9rem;">${error.message}</span>
+            </div>
+        `;
+        showToast('Import failed: ' + error.message, 'error');
+    } finally {
+        hideLoading();
     }
 }
 
@@ -559,6 +802,11 @@ async function saveSheetConfig() {
 
 // Navigation
 window.navigateTo = navigateTo;
+
+// Copilot import functions
+window.handleCopilotFileUpload = handleCopilotFileUpload;
+window.closeCopilotMappingModal = closeCopilotMappingModal;
+window.completeCopilotImport = completeCopilotImport;
 
 // Note: Transaction functions now exposed in pages/TransactionsPage.js
 // Note: Amazon functions now exposed in pages/AmazonPage.js
