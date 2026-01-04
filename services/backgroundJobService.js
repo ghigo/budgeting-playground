@@ -28,6 +28,7 @@ class BackgroundJobService {
             completedAt: null,
             error: null,
             result: null,
+            updates: [],  // Incremental updates for reactive UI
             metadata
         };
 
@@ -87,6 +88,32 @@ class BackgroundJobService {
         this.updateJob(jobId, {
             processed: job.processed + increment
         });
+    }
+
+    /**
+     * Add an incremental update to the job (for reactive UI)
+     * @param {string} jobId - Job ID
+     * @param {Object} update - Update data (e.g., categorized item)
+     */
+    addUpdate(jobId, update) {
+        const job = this.jobs.get(jobId);
+        if (!job) return;
+
+        job.updates.push(update);
+    }
+
+    /**
+     * Get and clear updates since last poll (for reactive UI)
+     * @param {string} jobId - Job ID
+     * @returns {Array} Updates since last poll
+     */
+    getAndClearUpdates(jobId) {
+        const job = this.jobs.get(jobId);
+        if (!job) return [];
+
+        const updates = [...job.updates];
+        job.updates = [];
+        return updates;
     }
 
     /**

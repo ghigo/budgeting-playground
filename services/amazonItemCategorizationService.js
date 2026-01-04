@@ -236,7 +236,7 @@ CATEGORIZATION APPROACH:
 Step 1: UNDERSTAND THE ITEM
 - Identify what the item fundamentally IS (food, tool, clothing, medicine, entertainment, electronic, etc.)
 - Consider its primary purpose and use
-- Do NOT categorize based on where it's sold or secondary associations
+- DO NOT categorize based on where it's sold
 
 Step 2: CHECK FOR EXPLICIT MENTIONS
 - If the item type is explicitly mentioned in a category description/keywords, that category has HIGHEST priority
@@ -251,8 +251,30 @@ Step 3: MATCH BY NATURE OR THEME
 
 Step 4: USE GENERAL CATEGORIES WHEN NEEDED
 - If no specific category fits the item well, use general categories like "Shopping" or "Other"
-- DO NOT force items into unrelated categories through illogical reasoning
+- DO NOT force items into unrelated categories
 - It's better to use a general category than to make nonsensical associations
+
+FORBIDDEN REASONING PATTERNS (DO NOT USE THESE):
+
+❌ "Item X is found in [store type], so it belongs in [category]"
+   Example: "Power adapter found in supermarkets → Groceries" is WRONG
+
+❌ "Item X is purchased along with [category items]"
+   Example: "Cables purchased with household items → Groceries" is WRONG
+
+❌ "Item X is used in [context] which relates to [category]"
+   Example: "Wine glass used during meals → Groceries" is WRONG
+
+CORRECT REASONING PATTERNS:
+
+✓ "Item X is [category name]" (direct match)
+   Example: "Food item → Groceries" is CORRECT
+
+✓ "Item X is explicitly mentioned in [category] description"
+   Example: If description lists the item → use that category
+
+✓ "Item X doesn't fit specific categories, using general category"
+   Example: "Power adapter is electronics, no Electronics category → Shopping" is CORRECT
 
 STRICT RULES:
 
@@ -263,15 +285,15 @@ STRICT RULES:
 
 2. REASONING QUALITY
    - Keep reasoning direct and logical
-   - DO NOT make multi-step associative reasoning chains
-   - If you find yourself thinking "X is used for Y which is related to Z", STOP - you're forcing a bad match
-   - Base categorization on what the item IS, not on unrelated contexts
+   - Never justify using a category because the item is "found in" or "sold at" places associated with that category
+   - Never justify using a category because the item is "purchased along with" items in that category
+   - Base categorization ONLY on what the item fundamentally IS
 
 3. CONFIDENCE LEVELS
    - Explicit mention in description: 90-95%
-   - Clear match by item nature/category theme: 75-85%
-   - General category fallback: 60-75%
-   - Uncertain/forced match: Lower confidence or use general category
+   - Direct match by item nature (food→Groceries, medicine→Healthcare): 75-85%
+   - General category fallback (Shopping, Other): 60-75%
+   - If reasoning uses forbidden patterns: REJECT and use general category instead
 
 Valid category names to choose from:
 ${categoryNames}
