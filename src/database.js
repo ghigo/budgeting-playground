@@ -162,12 +162,17 @@ function createTables() {
     CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
     CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category);
     CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_name);
+    CREATE INDEX IF NOT EXISTS idx_transactions_id ON transactions(transaction_id);
+    -- Composite indexes for common query patterns (date range + filters)
+    CREATE INDEX IF NOT EXISTS idx_transactions_date_category ON transactions(date, category);
+    CREATE INDEX IF NOT EXISTS idx_transactions_date_account ON transactions(date, account_name);
     CREATE INDEX IF NOT EXISTS idx_accounts_item_id ON accounts(item_id);
     CREATE INDEX IF NOT EXISTS idx_accounts_name ON accounts(name);
     CREATE INDEX IF NOT EXISTS idx_amazon_orders_date ON amazon_orders(order_date);
     CREATE INDEX IF NOT EXISTS idx_amazon_orders_matched ON amazon_orders(matched_transaction_id);
     CREATE INDEX IF NOT EXISTS idx_amazon_items_order ON amazon_items(order_id);
     CREATE INDEX IF NOT EXISTS idx_amazon_items_category ON amazon_items(category);
+    CREATE INDEX IF NOT EXISTS idx_amazon_items_user_category ON amazon_items(user_category);
   `);
 
   // Run migrations to add new columns to existing tables

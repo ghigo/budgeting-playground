@@ -408,32 +408,45 @@ REASONING: [explain what the item IS and why it matches this category]`;
     }
 
     /**
-     * Categorize multiple items in batch
+     * Categorize multiple items in batch (with parallel processing)
      * @param {Array} items - Array of Amazon items
      * @param {number} limit - Optional limit (for debugging)
      * @returns {Array} Results with categorization for each item
      */
     async categorizeItemsBatch(items, limit = null) {
         const itemsToProcess = limit ? items.slice(0, limit) : items;
+
+        // Process items in parallel with concurrency limit to avoid overwhelming AI service
+        // Concurrency of 5 is a good balance between speed and resource usage
+        const CONCURRENCY = 5;
         const results = [];
 
-        for (const item of itemsToProcess) {
-            try {
-                const result = await this.categorizeItem(item);
-                results.push({
-                    itemId: item.id,
-                    ...result
-                });
-            } catch (error) {
-                console.error(`[Amazon Item] Failed to categorize item ${item.id}:`, error.message);
-                results.push({
-                    itemId: item.id,
-                    category: 'Uncategorized',
-                    confidence: 10,
-                    reasoning: `Error: ${error.message}`,
-                    method: 'error'
-                });
-            }
+        for (let i = 0; i < itemsToProcess.length; i += CONCURRENCY) {
+            const batch = itemsToProcess.slice(i, i + CONCURRENCY);
+
+            // Process this batch of items in parallel
+            const batchPromises = batch.map(async (item) => {
+                try {
+                    const result = await this.categorizeItem(item);
+                    return {
+                        itemId: item.id,
+                        ...result
+                    };
+                } catch (error) {
+                    console.error(`[Amazon Item] Failed to categorize item ${item.id}:`, error.message);
+                    return {
+                        itemId: item.id,
+                        category: 'Uncategorized',
+                        confidence: 10,
+                        reasoning: `Error: ${error.message}`,
+                        method: 'error'
+                    };
+                }
+            });
+
+            // Wait for this batch to complete before moving to next batch
+            const batchResults = await Promise.all(batchPromises);
+            results.push(...batchResults);
         }
 
         return results;
