@@ -324,11 +324,15 @@ export async function backfillHistoricalTransactions() {
 
   console.log(`\n📜 Backfilling all available historical transactions...`);
   console.log('⚠️  This may take a while for accounts with lots of transactions.');
-  console.log('ℹ️  Note: Plaid fetches historical data asynchronously. If you only see recent');
-  console.log('   transactions now, wait 24-48 hours and run backfill again to get older data.\n');
+  console.log('ℹ️  Note: Each institution limits how much history they provide through Plaid:');
+  console.log('   - Some banks: 30-90 days only');
+  console.log('   - Most banks: 90 days to 2 years');
+  console.log('   - Few banks: 2+ years of history');
+  console.log('   Plaid cannot provide more history than the institution allows.\n');
 
   let totalTransactions = 0;
   const errors = [];
+  const institutionSummary = []; // Track what we got from each institution
 
   // Fetch all available history - Plaid will limit to institution's maximum
   const endDate = new Date().toISOString().split('T')[0];
@@ -374,10 +378,11 @@ export async function backfillHistoricalTransactions() {
         console.log(`  📥 Received ${result.accounts.length} account(s) from Plaid`);
 
         // Debug: Show transaction date range returned by Plaid
+        let oldestDate, newestDate, monthsOfHistory;
         if (result.transactions.length > 0) {
           const dates = result.transactions.map(t => t.date).sort();
-          const oldestDate = dates[0];
-          const newestDate = dates[dates.length - 1];
+          oldestDate = dates[0];
+          newestDate = dates[dates.length - 1];
           console.log(`  📅 Transaction date range: ${oldestDate} to ${newestDate}`);
           console.log(`  🔍 Requested range: ${startDate} to ${endDate}`);
 
@@ -385,6 +390,7 @@ export async function backfillHistoricalTransactions() {
           const oldestTransactionDate = new Date(oldestDate);
           const requestedStartDate = new Date(startDate);
           const daysDifference = Math.floor((oldestTransactionDate - requestedStartDate) / (1000 * 60 * 60 * 24));
+          monthsOfHistory = Math.round((new Date(newestDate) - oldestTransactionDate) / (1000 * 60 * 60 * 24 * 30));
 
           if (daysDifference > 365) {
             console.warn(`  ⚠️  Gap detected: Oldest transaction is ${Math.floor(daysDifference / 365)} years newer than requested start date`);
@@ -413,6 +419,16 @@ export async function backfillHistoricalTransactions() {
         const count = database.saveTransactions(result.transactions, null);
         totalTransactions += count;
         console.log(`  ✅ Result: ${count} new transaction(s) added\n`);
+
+        // Track summary for this institution
+        institutionSummary.push({
+          name: item.institution_name,
+          transactions: result.transactions.length,
+          newTransactions: count,
+          oldestDate: oldestDate || 'N/A',
+          newestDate: newestDate || 'N/A',
+          monthsOfHistory: monthsOfHistory || 0
+        });
 
         database.updatePlaidItemLastSynced(item.item_id);
         backfillSuccessful = true;
@@ -459,6 +475,34 @@ export async function backfillHistoricalTransactions() {
 
   console.log(`✅ Backfill complete: ${totalTransactions} new transactions added`);
 
+  // Display summary of historical data received
+  if (institutionSummary.length > 0) {
+    console.log('\n📊 Historical Data Summary:');
+    console.log('─'.repeat(80));
+    institutionSummary.forEach(inst => {
+      console.log(`\n${inst.name}:`);
+      console.log(`  Date Range: ${inst.oldestDate} to ${inst.newestDate}`);
+      console.log(`  History Available: ~${inst.monthsOfHistory} months`);
+      console.log(`  Transactions: ${inst.transactions} total (${inst.newTransactions} new)`);
+
+      if (inst.monthsOfHistory < 6) {
+        console.log(`  ⚠️  Limited history: This institution only provides ${inst.monthsOfHistory} months through Plaid`);
+      }
+    });
+    console.log('\n' + '─'.repeat(80));
+
+    // Check if all institutions have limited history
+    const allLimited = institutionSummary.every(inst => inst.monthsOfHistory < 6);
+    if (allLimited) {
+      console.log('\n⚠️  All institutions are providing limited history (< 6 months).');
+      console.log('ℹ️  This is a limitation of Plaid/your financial institutions, not this app.');
+      console.log('ℹ️  For older transactions, you may need to:');
+      console.log('   1. Export CSV from your bank\'s website and import manually');
+      console.log('   2. Contact your bank to see if they offer more history through Plaid');
+      console.log('   3. Accept that only recent history is available through automated sync\n');
+    }
+  }
+
   if (errors.length > 0) {
     console.log('\n⚠️  Some accounts failed:');
     errors.forEach(err => console.log(`  - ${err}`));
@@ -467,7 +511,8 @@ export async function backfillHistoricalTransactions() {
   return {
     success: errors.length === 0,
     totalTransactions,
-    errors
+    errors,
+    summary: institutionSummary
   };
 }
 
