@@ -163,6 +163,7 @@ function createTables() {
     CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category);
     CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_name);
     CREATE INDEX IF NOT EXISTS idx_accounts_item_id ON accounts(item_id);
+    CREATE INDEX IF NOT EXISTS idx_accounts_name ON accounts(name);
     CREATE INDEX IF NOT EXISTS idx_amazon_orders_date ON amazon_orders(order_date);
     CREATE INDEX IF NOT EXISTS idx_amazon_orders_matched ON amazon_orders(matched_transaction_id);
     CREATE INDEX IF NOT EXISTS idx_amazon_items_order ON amazon_items(order_id);
@@ -933,12 +934,34 @@ export function getTransactions(limit = 50, filters = {}) {
 
   const transactions = db.prepare(sql).all(...params);
 
+  // Optimization: Fetch all splits for this batch of transactions in ONE query (avoids N+1 problem)
+  // Build a map of transaction_id -> splits for fast lookup
+  const splitsMap = new Map();
+
+  if (transactions.length > 0) {
+    const transactionIds = transactions.map(tx => tx.transaction_id);
+    const placeholders = transactionIds.map(() => '?').join(',');
+    const allSplits = db.prepare(`
+      SELECT * FROM transaction_splits
+      WHERE parent_transaction_id IN (${placeholders})
+      ORDER BY parent_transaction_id, split_index
+    `).all(...transactionIds);
+
+    // Group splits by parent transaction ID
+    for (const split of allSplits) {
+      if (!splitsMap.has(split.parent_transaction_id)) {
+        splitsMap.set(split.parent_transaction_id, []);
+      }
+      splitsMap.get(split.parent_transaction_id).push(split);
+    }
+  }
+
   // Process transactions: replace split parents with their children
   const processedTransactions = [];
 
   for (const tx of transactions) {
-    // Check if this transaction has splits
-    const splits = db.prepare('SELECT * FROM transaction_splits WHERE parent_transaction_id = ? ORDER BY split_index').all(tx.transaction_id);
+    // Check if this transaction has splits (using pre-fetched map)
+    const splits = splitsMap.get(tx.transaction_id) || [];
 
     if (splits.length > 0) {
       // Add split children as "virtual transactions"
