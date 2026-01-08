@@ -927,8 +927,9 @@ export function getTransactions(limit = 50, filters = {}) {
     sql += ' AND ao.order_id IS NULL';
   }
 
-  sql += ' ORDER BY t.date DESC LIMIT ?';
+  sql += ' ORDER BY t.date DESC LIMIT ? OFFSET ?';
   params.push(limit);
+  params.push(filters.offset || 0);
 
   const transactions = db.prepare(sql).all(...params);
 

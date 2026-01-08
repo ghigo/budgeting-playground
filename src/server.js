@@ -154,12 +154,14 @@ app.put('/api/accounts/:accountId/rename', async (req, res) => {
 app.get('/api/transactions', async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 100;
+    const offset = req.query.offset ? parseInt(req.query.offset) : 0;
     const filters = {
       category: req.query.category,
       account: req.query.account,
       startDate: req.query.startDate,
       endDate: req.query.endDate,
-      amazonMatch: req.query.amazonMatch
+      amazonMatch: req.query.amazonMatch,
+      offset: offset
     };
 
     const transactions = database.getTransactions(limit, filters);

@@ -58,16 +58,60 @@ export function initializeTransactionsPage(deps) {
 
     // Initialize AI status badge
     updateAIStatusBadge();
+
+    // Setup infinite scroll
+    setupInfiniteScroll();
+}
+
+// Setup infinite scroll listener
+function setupInfiniteScroll() {
+    let scrollTimeout;
+
+    window.addEventListener('scroll', () => {
+        // Debounce scroll events
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+            // Check if user is near bottom of page (within 500px)
+            const scrollPosition = window.innerHeight + window.scrollY;
+            const pageHeight = document.documentElement.scrollHeight;
+
+            if (scrollPosition >= pageHeight - 500) {
+                // Auto-load more if we have more transactions
+                if (hasMoreTransactions && !isLoadingMore) {
+                    loadTransactions(currentFilters, false);
+                }
+            }
+        }, 100);
+    });
 }
 
 // ============================================================================
 // Core Loading and Display
 // ============================================================================
 
-export async function loadTransactions(filters = {}) {
-    showLoading();
+// Pagination state
+let currentOffset = 0;
+let isLoadingMore = false;
+let hasMoreTransactions = true;
+const TRANSACTIONS_PER_PAGE = 100;
+let currentFilters = {};
+
+export async function loadTransactions(filters = {}, reset = true) {
+    // If reset, start fresh; otherwise append
+    if (reset) {
+        currentOffset = 0;
+        hasMoreTransactions = true;
+        allTransactions = [];
+        currentFilters = filters;
+        showLoading();
+    } else if (isLoadingMore || !hasMoreTransactions) {
+        return; // Already loading or no more data
+    }
+
+    isLoadingMore = true;
+
     try {
-        let url = '/api/transactions?limit=10000';  // Increased from 500 to support larger transaction histories
+        let url = `/api/transactions?limit=${TRANSACTIONS_PER_PAGE}&offset=${currentOffset}`;
 
         // Add filters to URL if provided
         if (filters.category) url += `&category=${encodeURIComponent(filters.category)}`;
@@ -78,32 +122,103 @@ export async function loadTransactions(filters = {}) {
 
         const [transactions, categories] = await Promise.all([
             fetchAPI(url),
-            fetchAPI('/api/categories')
+            reset ? fetchAPI('/api/categories') : Promise.resolve(allCategories)
         ]);
 
-        // Deduplicate categories by name (case-insensitive)
-        const uniqueCategories = [];
-        const seenNames = new Set();
-        categories.forEach(cat => {
-            const lowerName = cat.name.toLowerCase();
-            if (!seenNames.has(lowerName)) {
-                seenNames.add(lowerName);
-                uniqueCategories.push(cat);
-            }
-        });
+        // Deduplicate categories by name (case-insensitive) - only on first load
+        if (reset) {
+            const uniqueCategories = [];
+            const seenNames = new Set();
+            categories.forEach(cat => {
+                const lowerName = cat.name.toLowerCase();
+                if (!seenNames.has(lowerName)) {
+                    seenNames.add(lowerName);
+                    uniqueCategories.push(cat);
+                }
+            });
+            allCategories = uniqueCategories;
+        }
 
-        allCategories = uniqueCategories;
-        allTransactions = transactions;
-        displayTransactionsTable(transactions);
-        await loadTransactionFilters();
+        // Check if we got fewer transactions than requested (end of data)
+        if (transactions.length < TRANSACTIONS_PER_PAGE) {
+            hasMoreTransactions = false;
+        }
+
+        // Append new transactions to existing ones
+        allTransactions = [...allTransactions, ...transactions];
+        currentOffset += transactions.length;
+
+        displayTransactionsTable(allTransactions);
+
+        if (reset) {
+            await loadTransactionFilters();
+        }
+
         updateBulkActionsBar();
+
+        // Add "Load More" button or message if applicable
+        updateLoadMoreIndicator();
     } catch (error) {
         showToast('Failed to load transactions', 'error');
         console.error(error);
     } finally {
         hideLoading();
+        isLoadingMore = false;
     }
 }
+
+function updateLoadMoreIndicator() {
+    const tbody = document.getElementById('transactionsTableBody');
+    if (!tbody) return;
+
+    // Remove existing load more indicator
+    const existingIndicator = document.getElementById('loadMoreIndicator');
+    if (existingIndicator) {
+        existingIndicator.remove();
+    }
+
+    // Add load more indicator if there are more transactions
+    if (hasMoreTransactions && allTransactions.length > 0) {
+        const loadMoreRow = document.createElement('tr');
+        loadMoreRow.id = 'loadMoreIndicator';
+
+        if (isLoadingMore) {
+            loadMoreRow.innerHTML = `
+                <td colspan="6" style="text-align: center; padding: 1.5rem; background: var(--bg-secondary);">
+                    <span style="color: var(--text-secondary);">Loading more transactions...</span>
+                </td>
+            `;
+        } else {
+            loadMoreRow.innerHTML = `
+                <td colspan="6" style="text-align: center; padding: 1.5rem; background: var(--bg-secondary);">
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem;">
+                        <button onclick="window.loadMoreTransactions()" style="padding: 0.5rem 1rem; background: var(--primary); color: white; border: none; border-radius: 0.375rem; cursor: pointer; font-weight: 500;">
+                            Load More (${TRANSACTIONS_PER_PAGE} at a time)
+                        </button>
+                        <span style="color: var(--text-secondary); font-size: 0.875rem;">
+                            Or scroll down to auto-load
+                        </span>
+                    </div>
+                </td>
+            `;
+        }
+        tbody.appendChild(loadMoreRow);
+    } else if (!hasMoreTransactions && allTransactions.length > 0) {
+        const endRow = document.createElement('tr');
+        endRow.id = 'loadMoreIndicator';
+        endRow.innerHTML = `
+            <td colspan="6" style="text-align: center; padding: 1rem; color: var(--text-secondary); font-size: 0.875rem;">
+                All ${allTransactions.length} transactions loaded
+            </td>
+        `;
+        tbody.appendChild(endRow);
+    }
+}
+
+// Expose loadMoreTransactions globally for the button
+window.loadMoreTransactions = function() {
+    loadTransactions(currentFilters, false);
+};
 
 export async function loadTransactionFilters() {
     try {
