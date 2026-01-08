@@ -67,7 +67,7 @@ export function initializeTransactionsPage(deps) {
 export async function loadTransactions(filters = {}) {
     showLoading();
     try {
-        let url = '/api/transactions?limit=500';
+        let url = '/api/transactions?limit=10000';  // Increased from 500 to support larger transaction histories
 
         // Add filters to URL if provided
         if (filters.category) url += `&category=${encodeURIComponent(filters.category)}`;
