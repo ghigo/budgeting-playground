@@ -530,29 +530,78 @@ export async function backfillHistoricalTransactions() {
 async function backfillSingleAccount(itemId, institutionName, accessToken) {
   console.log(`\n📜 [Background] Starting historical backfill for ${institutionName}...`);
 
+  const endDate = new Date().toISOString().split('T')[0];
+  const startDate = '2000-01-01'; // Request maximum available history
+
   try {
     // First, tell Plaid to refresh data from the institution
-    // This is an asynchronous background process on Plaid's side that can take 24-48 hours
-    console.log(`  🔄 Requesting Plaid to refresh historical data from ${institutionName}...`);
+    console.log(`  🔄 Requesting Plaid to refresh historical data...`);
     await plaid.refreshTransactions(accessToken);
-    console.log(`  ✓ Refresh request sent successfully`);
-    console.log(`  ℹ️  Full historical data may take 24-48 hours to become available from Plaid`);
-    console.log(`  ℹ️  Use "Backfill All History" later to fetch newly available data\n`);
-
-    // Note: We don't wait or fetch transactions again here because:
-    // 1. The initial linkAccount() already fetched what was immediately available
-    // 2. Plaid's refresh is asynchronous and takes hours to complete
-    // 3. User can manually backfill later to get newly available data
-
-  } catch (error) {
-    const errorCode = error.response?.data?.error_code;
-    const errorMessage = error.response?.data?.error_message || error.message;
-
-    if (errorCode === 'INVALID_PRODUCT') {
-      console.log(`  ℹ️  Transactions Refresh not enabled in your Plaid account`);
-      console.log(`  ℹ️  Historical data already fetched during initial link\n`);
+    console.log(`  ✓ Refresh request sent to Plaid (async background process)`);
+    console.log(`  ⏳ Waiting 10 seconds before fetching currently available data...`);
+    await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+  } catch (refreshError) {
+    const refreshErrorCode = refreshError.response?.data?.error_code;
+    if (refreshErrorCode === 'INVALID_PRODUCT') {
+      console.log(`  ℹ️  Transactions Refresh not enabled - fetching cached data only`);
     } else {
-      throw new Error(`Refresh failed: ${errorMessage}`);
+      console.log(`  ⚠️  Refresh request failed (continuing anyway): ${refreshError.message}`);
+    }
+  }
+
+  // Now fetch the historical transactions
+  const maxRetries = 4;
+  const retryDelays = [5000, 10000, 15000, 20000];
+  let backfillSuccessful = false;
+
+  for (let attempt = 0; attempt < maxRetries && !backfillSuccessful; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`  ⏳ Waiting before retry... (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, retryDelays[attempt - 1]));
+      }
+
+      const result = await plaid.getTransactions(accessToken, startDate, endDate);
+
+      console.log(`  📥 Received ${result.transactions.length} transaction(s) from Plaid`);
+
+      // Show transaction date range
+      if (result.transactions.length > 0) {
+        const dates = result.transactions.map(t => t.date).sort();
+        const oldestDate = dates[0];
+        const newestDate = dates[dates.length - 1];
+        console.log(`  📅 Transaction date range: ${oldestDate} to ${newestDate}`);
+
+        const monthsOfHistory = Math.round((new Date(newestDate) - new Date(oldestDate)) / (1000 * 60 * 60 * 24 * 30));
+        console.log(`  📊 History: ~${monthsOfHistory} months`);
+      }
+
+      // Get accounts to add account_name to transactions
+      const accounts = await plaid.getAccounts(accessToken);
+
+      // Add account_name to transactions
+      for (const transaction of result.transactions) {
+        const account = accounts.find(acc => acc.account_id === transaction.account_id);
+        transaction.account_name = account ? account.name : transaction.account_id;
+      }
+
+      // Save transactions
+      const count = database.saveTransactions(result.transactions, null);
+      console.log(`  ✅ Background backfill complete: ${count} new transaction(s) added\n`);
+
+      database.updatePlaidItemLastSynced(itemId);
+      backfillSuccessful = true;
+
+    } catch (error) {
+      const errorCode = error.response?.data?.error_code;
+      const errorMessage = error.response?.data?.error_message || error.message;
+
+      if (errorCode === 'PRODUCT_NOT_READY' && attempt < maxRetries - 1) {
+        console.log(`  ⏳ Transactions not ready yet, will retry...`);
+        continue;
+      } else {
+        throw new Error(`Failed to fetch transactions: ${errorMessage}`);
+      }
     }
   }
 }
