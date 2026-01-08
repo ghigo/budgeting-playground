@@ -93,7 +93,7 @@ function setupInfiniteScroll() {
 let currentOffset = 0;
 let isLoadingMore = false;
 let hasMoreTransactions = true;
-const TRANSACTIONS_PER_PAGE = 100;
+const TRANSACTIONS_PER_PAGE = 1000;
 let currentFilters = {};
 
 export async function loadTransactions(filters = {}, reset = true) {

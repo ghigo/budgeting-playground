@@ -296,6 +296,12 @@ export async function linkAccount(publicToken) {
 
     console.log('\n✅ Account linked successfully!');
 
+    // Trigger historical backfill in the background (non-blocking)
+    console.log('  🔄 Starting automatic historical backfill in background...');
+    backfillSingleAccount(itemId, institution.name, accessToken).catch(err => {
+      console.error(`  ⚠️  Background backfill failed: ${err.message}`);
+    });
+
     return {
       success: true,
       item_id: itemId,
@@ -514,6 +520,41 @@ export async function backfillHistoricalTransactions() {
     errors,
     summary: institutionSummary
   };
+}
+
+/**
+ * Backfill historical transactions for a single newly linked account
+ * This triggers Plaid to fetch the latest historical data from the institution
+ * Runs in the background after initial account link (non-blocking)
+ */
+async function backfillSingleAccount(itemId, institutionName, accessToken) {
+  console.log(`\n📜 [Background] Starting historical backfill for ${institutionName}...`);
+
+  try {
+    // First, tell Plaid to refresh data from the institution
+    // This is an asynchronous background process on Plaid's side that can take 24-48 hours
+    console.log(`  🔄 Requesting Plaid to refresh historical data from ${institutionName}...`);
+    await plaid.refreshTransactions(accessToken);
+    console.log(`  ✓ Refresh request sent successfully`);
+    console.log(`  ℹ️  Full historical data may take 24-48 hours to become available from Plaid`);
+    console.log(`  ℹ️  Use "Backfill All History" later to fetch newly available data\n`);
+
+    // Note: We don't wait or fetch transactions again here because:
+    // 1. The initial linkAccount() already fetched what was immediately available
+    // 2. Plaid's refresh is asynchronous and takes hours to complete
+    // 3. User can manually backfill later to get newly available data
+
+  } catch (error) {
+    const errorCode = error.response?.data?.error_code;
+    const errorMessage = error.response?.data?.error_message || error.message;
+
+    if (errorCode === 'INVALID_PRODUCT') {
+      console.log(`  ℹ️  Transactions Refresh not enabled in your Plaid account`);
+      console.log(`  ℹ️  Historical data already fetched during initial link\n`);
+    } else {
+      throw new Error(`Refresh failed: ${errorMessage}`);
+    }
+  }
 }
 
 /**
