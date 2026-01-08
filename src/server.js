@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { initializeDatabase } from './database.js';
@@ -23,6 +24,11 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
+// Enable gzip compression for all responses (significantly reduces payload size)
+app.use(compression({
+  threshold: 1024, // Only compress responses larger than 1KB
+  level: 6 // Compression level (0-9, 6 is a good balance of speed vs size)
+}));
 app.use(express.json());
 app.use(express.static(join(__dirname, '../public')));
 
