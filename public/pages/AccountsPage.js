@@ -183,7 +183,7 @@ function displayAccounts(accounts) {
                                             ${escapeHtml(acc.name)}
                                         </div>
                                         <div style="font-size: 0.8rem; color: #666; margin-top: 0.125rem;">
-                                            ${timeAgo}
+                                            ${escapeHtml(acc.institution_name)} • ${timeAgo}
                                         </div>
                                     </div>
 
