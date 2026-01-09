@@ -1026,6 +1026,19 @@ app.post('/api/backfill', async (req, res) => {
   }
 });
 
+// Backfill historical transactions for a single account
+app.post('/api/backfill/:itemId', async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    console.log(`🔄 Starting historical backfill for item ${itemId}...`);
+    const result = await sync.backfillSingleAccountById(itemId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error backfilling transactions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Initialize spreadsheet structure
 app.post('/api/init-spreadsheet', async (req, res) => {
   try {

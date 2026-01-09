@@ -523,7 +523,26 @@ export async function backfillHistoricalTransactions() {
 }
 
 /**
- * Backfill historical transactions for a single newly linked account
+ * Backfill historical transactions for a single account by item ID
+ * This triggers Plaid to fetch the latest historical data from the institution
+ * @param {string} itemId - The Plaid item ID
+ * @returns {Object} Result with success status and transaction count
+ */
+export async function backfillSingleAccountById(itemId) {
+  const items = database.getPlaidItems();
+  const item = items.find(i => i.item_id === itemId);
+
+  if (!item) {
+    return { success: false, error: 'Account not found' };
+  }
+
+  console.log(`\n📜 Backfilling historical transactions for ${item.institution_name}...`);
+
+  return await backfillSingleAccount(itemId, item.institution_name, item.access_token);
+}
+
+/**
+ * Backfill historical transactions for a single newly linked account (internal function)
  * This triggers Plaid to fetch the latest historical data from the institution
  * Runs in the background after initial account link (non-blocking)
  */
@@ -553,6 +572,10 @@ async function backfillSingleAccount(itemId, institutionName, accessToken) {
   const maxRetries = 4;
   const retryDelays = [5000, 10000, 15000, 20000];
   let backfillSuccessful = false;
+  let transactionCount = 0;
+  let oldestDate = null;
+  let newestDate = null;
+  let monthsOfHistory = 0;
 
   for (let attempt = 0; attempt < maxRetries && !backfillSuccessful; attempt++) {
     try {
@@ -568,11 +591,11 @@ async function backfillSingleAccount(itemId, institutionName, accessToken) {
       // Show transaction date range
       if (result.transactions.length > 0) {
         const dates = result.transactions.map(t => t.date).sort();
-        const oldestDate = dates[0];
-        const newestDate = dates[dates.length - 1];
+        oldestDate = dates[0];
+        newestDate = dates[dates.length - 1];
         console.log(`  📅 Transaction date range: ${oldestDate} to ${newestDate}`);
 
-        const monthsOfHistory = Math.round((new Date(newestDate) - new Date(oldestDate)) / (1000 * 60 * 60 * 24 * 30));
+        monthsOfHistory = Math.round((new Date(newestDate) - new Date(oldestDate)) / (1000 * 60 * 60 * 24 * 30));
         console.log(`  📊 History: ~${monthsOfHistory} months`);
       }
 
@@ -586,8 +609,8 @@ async function backfillSingleAccount(itemId, institutionName, accessToken) {
       }
 
       // Save transactions
-      const count = database.saveTransactions(result.transactions, null);
-      console.log(`  ✅ Background backfill complete: ${count} new transaction(s) added\n`);
+      transactionCount = database.saveTransactions(result.transactions, null);
+      console.log(`  ✅ Background backfill complete: ${transactionCount} new transaction(s) added\n`);
 
       database.updatePlaidItemLastSynced(itemId);
       backfillSuccessful = true;
@@ -600,10 +623,32 @@ async function backfillSingleAccount(itemId, institutionName, accessToken) {
         console.log(`  ⏳ Transactions not ready yet, will retry...`);
         continue;
       } else {
-        throw new Error(`Failed to fetch transactions: ${errorMessage}`);
+        console.error(`  ✗ Failed to fetch transactions: ${errorMessage}`);
+        return {
+          success: false,
+          error: errorMessage,
+          institution: institutionName
+        };
       }
     }
   }
+
+  if (!backfillSuccessful) {
+    return {
+      success: false,
+      error: 'Max retries exceeded',
+      institution: institutionName
+    };
+  }
+
+  return {
+    success: true,
+    institution: institutionName,
+    transactionsAdded: transactionCount,
+    oldestDate,
+    newestDate,
+    monthsOfHistory
+  };
 }
 
 /**
