@@ -54,7 +54,7 @@ function displayInstitutions(institutions) {
         <div class="institution-item">
             <div class="institution-info">
                 <div class="institution-name">🏦 ${escapeHtml(inst.institution_name)}</div>
-                <div class="institution-meta">Last synced: ${inst.last_synced_at ? formatDate(inst.last_synced_at) : 'Never'}</div>
+                <div class="institution-meta">Last synced: ${inst.last_synced ? formatDate(inst.last_synced) : 'Never'}</div>
             </div>
             <div style="display: flex; gap: 0.5rem;">
                 <button class="btn-icon" onclick="syncInstitution('${inst.item_id}', '${escapeHtml(inst.institution_name)}')" title="Sync transactions">
