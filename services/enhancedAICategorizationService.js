@@ -33,6 +33,8 @@ class EnhancedAICategorization {
         this.embeddingModel = process.env.OLLAMA_EMBEDDING_MODEL || 'nomic-embed-text';
         this.httpAgent = httpAgent;
         this.embeddingsCache = new Map(); // In-memory cache for faster similarity search
+        this.embeddingsAvailable = null; // Cache embedding availability check
+        this.embeddingCheckWarningShown = false;
     }
 
     /**
@@ -138,6 +140,11 @@ class EnhancedAICategorization {
      * Use embeddings to find similar previously categorized items
      */
     async semanticSimilarity(item, itemType, categories) {
+        // Skip if we already know embeddings aren't available
+        if (this.embeddingsAvailable === false) {
+            return null;
+        }
+
         try {
             // Generate embedding for the current item
             const itemText = this.getItemText(item, itemType);
@@ -524,25 +531,55 @@ class EnhancedAICategorization {
      */
     async generateEmbedding(text) {
         try {
-            const response = await fetch(`${this.ollamaUrl}/api/embeddings`, {
+            // Try the newer /api/embed endpoint first (Ollama 0.1.0+)
+            let response = await fetch(`${this.ollamaUrl}/api/embed`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     model: this.embeddingModel,
-                    prompt: text
+                    input: text
                 }),
                 signal: AbortSignal.timeout(10000),
                 agent: this.httpAgent
             });
 
+            // If 404, try the older /api/embeddings endpoint
+            if (response.status === 404) {
+                response = await fetch(`${this.ollamaUrl}/api/embeddings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type: application/json' },
+                    body: JSON.stringify({
+                        model: this.embeddingModel,
+                        prompt: text
+                    }),
+                    signal: AbortSignal.timeout(10000),
+                    agent: this.httpAgent
+                });
+            }
+
             if (!response.ok) {
+                // If still failing, it's likely the model isn't installed
+                if (response.status === 404) {
+                    this.embeddingsAvailable = false;
+                    if (!this.embeddingCheckWarningShown) {
+                        console.warn(`⚠️  Embedding model '${this.embeddingModel}' not found. Semantic search disabled.`);
+                        console.warn(`   To enable: ollama pull ${this.embeddingModel}`);
+                        this.embeddingCheckWarningShown = true;
+                    }
+                    return null;
+                }
                 throw new Error(`Ollama embeddings API error: ${response.status}`);
             }
 
             const result = await response.json();
-            return result.embedding;
+            // Handle both response formats
+            return result.embedding || result.embeddings?.[0];
         } catch (error) {
-            console.error('Failed to generate embedding:', error);
+            if (error.name === 'AbortError') {
+                console.warn('Embedding generation timed out');
+            } else if (!error.message.includes('not found')) {
+                console.warn('Failed to generate embedding:', error.message);
+            }
             return null;
         }
     }
