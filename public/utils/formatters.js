@@ -165,3 +165,77 @@ export function hideLoading() {
         overlay.classList.add('hidden');
     }
 }
+
+/**
+ * Create a category dropdown (select element) HTML
+ * @param {Object} options - Configuration options
+ * @param {string} options.id - ID for the select element
+ * @param {Array} options.categories - Array of category objects {name, ...}
+ * @param {string} options.placeholder - Placeholder text (default: "Select category...")
+ * @param {string} options.onchange - onchange handler function name
+ * @param {string} options.selectedCategory - Currently selected category name
+ * @param {string} options.size - Size variant: 'small' (default) or 'normal'
+ * @param {Object} options.extraStyles - Additional inline styles
+ * @returns {string} HTML string for select element
+ */
+export function createCategoryDropdown(options = {}) {
+    const {
+        id = '',
+        categories = [],
+        placeholder = 'Select category...',
+        onchange = '',
+        selectedCategory = '',
+        size = 'small',
+        extraStyles = {}
+    } = options;
+
+    // Base styles for consistent appearance
+    const baseStyles = {
+        padding: size === 'small' ? '0.2rem 0.4rem' : '0.5rem',
+        borderRadius: '4px',
+        fontSize: size === 'small' ? '0.75rem' : '1rem',
+        border: '1px solid var(--border-color)',
+        background: 'var(--bg-primary)',
+        color: 'var(--text-primary)',
+        cursor: 'pointer',
+        ...extraStyles
+    };
+
+    const styleString = Object.entries(baseStyles)
+        .map(([key, value]) => `${key.replace(/([A-Z])/g, '-$1').toLowerCase()}: ${value}`)
+        .join('; ');
+
+    const idAttr = id ? `id="${id}"` : '';
+    const onchangeAttr = onchange ? `onchange="${onchange}"` : '';
+
+    const optionsHtml = categories
+        .map(cat => {
+            const selected = cat.name === selectedCategory ? 'selected' : '';
+            return `<option value="${escapeHtml(cat.name)}" ${selected}>${escapeHtml(cat.name)}</option>`;
+        })
+        .join('');
+
+    return `
+        <select ${idAttr} ${onchangeAttr} style="${styleString}">
+            <option value="">${escapeHtml(placeholder)}</option>
+            ${optionsHtml}
+        </select>
+    `;
+}
+
+/**
+ * Populate an existing category dropdown with categories
+ * @param {HTMLSelectElement} selectElement - The select element to populate
+ * @param {Array} categories - Array of category objects {name, ...}
+ * @param {string} placeholder - Placeholder text (default: "Select category...")
+ * @param {string} selectedCategory - Currently selected category name
+ */
+export function populateCategoryDropdown(selectElement, categories, placeholder = 'Select category...', selectedCategory = '') {
+    if (!selectElement) return;
+
+    selectElement.innerHTML = `<option value="">${escapeHtml(placeholder)}</option>` +
+        categories.map(cat => {
+            const selected = cat.name === selectedCategory ? 'selected' : '';
+            return `<option value="${escapeHtml(cat.name)}" ${selected}>${escapeHtml(cat.name)}</option>`;
+        }).join('');
+}

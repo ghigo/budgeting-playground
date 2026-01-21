@@ -19,6 +19,7 @@ export function initializeAccountsPage(deps) {
 
     // Make functions globally available for onclick handlers
     window.syncInstitution = syncInstitution;
+    window.backfillInstitution = backfillInstitution;
     window.removeInstitution = removeInstitution;
     window.viewAccountTransactions = viewAccountTransactions;
     window.renameAccount = renameAccount;
@@ -53,11 +54,14 @@ function displayInstitutions(institutions) {
         <div class="institution-item">
             <div class="institution-info">
                 <div class="institution-name">🏦 ${escapeHtml(inst.institution_name)}</div>
-                <div class="institution-meta">Last synced: ${inst.last_synced_at ? formatDate(inst.last_synced_at) : 'Never'}</div>
+                <div class="institution-meta">Last synced: ${inst.last_synced ? formatDate(inst.last_synced) : 'Never'}</div>
             </div>
             <div style="display: flex; gap: 0.5rem;">
                 <button class="btn-icon" onclick="syncInstitution('${inst.item_id}', '${escapeHtml(inst.institution_name)}')" title="Sync transactions">
                     🔄
+                </button>
+                <button class="btn-icon" onclick="backfillInstitution('${inst.item_id}', '${escapeHtml(inst.institution_name)}')" title="Backfill all historical transactions">
+                    📜
                 </button>
                 <button class="btn-icon btn-danger" onclick="removeInstitution('${inst.item_id}', '${escapeHtml(inst.institution_name)}')" title="Remove institution">
                     🗑️
@@ -179,7 +183,7 @@ function displayAccounts(accounts) {
                                             ${escapeHtml(acc.name)}
                                         </div>
                                         <div style="font-size: 0.8rem; color: #666; margin-top: 0.125rem;">
-                                            ${timeAgo}
+                                            ${escapeHtml(acc.institution_name)} • ${timeAgo}
                                         </div>
                                     </div>
 
@@ -275,6 +279,37 @@ async function syncInstitution(itemId, institutionName) {
         }
     } catch (error) {
         showToast('Failed to sync institution: ' + error.message, 'error');
+        console.error(error);
+    } finally {
+        hideLoading();
+    }
+}
+
+async function backfillInstitution(itemId, institutionName) {
+    showLoading();
+
+    try {
+        const result = await fetchAPI(`/api/backfill/${itemId}`, {
+            method: 'POST'
+        });
+
+        if (result.success) {
+            const message = result.transactionsAdded > 0
+                ? `${result.institution} backfill complete! ${result.transactionsAdded} new transaction(s) added. History: ${result.monthsOfHistory} months (${result.oldestDate} to ${result.newestDate}).`
+                : `${result.institution} backfill complete! No new transactions found.`;
+
+            showToast(message, 'success');
+
+            // Emit events to update all views
+            eventBus.emit('accountsUpdated');
+            if (result.transactionsAdded > 0) {
+                eventBus.emit('transactionsUpdated');
+            }
+        } else {
+            showToast(`Failed to backfill ${institutionName}: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        showToast('Failed to backfill institution: ' + error.message, 'error');
         console.error(error);
     } finally {
         hideLoading();

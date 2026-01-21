@@ -20,6 +20,7 @@ export function initializeSettingsPage(deps) {
     window.updateSetting = updateSetting;
     window.resetSetting = resetSetting;
     window.resetAllSettings = resetAllSettings;
+    window.exportCategories = exportCategories;
 }
 
 export async function loadSettingsPage() {
@@ -106,6 +107,23 @@ function displaySettings(settings) {
             </div>
         `;
     });
+
+    // Add export section
+    html += `
+        <div class="card" style="background: #dbeafe; border: 1px solid #3b82f6;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong style="color: #1e40af;">Export Data</strong>
+                    <p style="margin: 0.5rem 0 0 0; color: #666; font-size: 0.9rem;">
+                        Export all categories with descriptions and keywords to JSON
+                    </p>
+                </div>
+                <button onclick="exportCategories()" class="btn" style="background: #3b82f6; color: white;">
+                    Export Categories
+                </button>
+            </div>
+        </div>
+    `;
 
     // Add reset all button
     html += `
@@ -232,6 +250,52 @@ async function resetAllSettings() {
     } catch (error) {
         showToast(`Failed to reset settings: ${error.message}`, 'error');
         console.error('Error resetting all settings:', error);
+    }
+}
+
+async function exportCategories() {
+    try {
+        showLoading();
+
+        // Fetch all categories from the API
+        const categories = await fetchAPI('/api/categories');
+
+        // Create a clean export format with only relevant fields
+        const exportData = categories.map(cat => ({
+            name: cat.name,
+            description: cat.description || '',
+            keywords: cat.keywords || '',
+            icon: cat.icon || '',
+            color: cat.color || ''
+        }));
+
+        // Convert to JSON with pretty formatting
+        const jsonString = JSON.stringify(exportData, null, 2);
+
+        // Create a blob and download link
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+
+        // Generate filename with current date
+        const date = new Date().toISOString().split('T')[0];
+        link.download = `categories-export-${date}.json`;
+
+        // Trigger download
+        document.body.appendChild(link);
+        link.click();
+
+        // Cleanup
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        showToast(`Exported ${categories.length} categories to JSON`, 'success');
+    } catch (error) {
+        showToast(`Failed to export categories: ${error.message}`, 'error');
+        console.error('Error exporting categories:', error);
+    } finally {
+        hideLoading();
     }
 }
 

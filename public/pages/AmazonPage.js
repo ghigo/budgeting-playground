@@ -3,9 +3,10 @@
  * Handles all Amazon purchases page functionality including order display, matching, and charts
  */
 
-import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
+import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading, createCategoryDropdown, populateCategoryDropdown } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { debounce } from '../utils/helpers.js';
+import { progressNotification } from '../services/progressNotification.js';
 
 // Module state
 let amazonOrders = [];
@@ -37,6 +38,14 @@ export function initializeAmazonPage(deps) {
     window.clearAmazonFilters = clearAmazonFilters;
     window.selectTimeRange = selectTimeRange;
     window.deleteAllAmazonData = deleteAllAmazonData;
+
+    // Item categorization functions
+    window.categorizeItem = categorizeItem;
+    window.updateItemCategory = updateItemCategory;
+    window.verifyItemCategory = verifyItemCategory;
+    window.unverifyItemCategory = unverifyItemCategory;
+    window.categorizeAllAmazonItems = categorizeAllAmazonItems;
+    window.categorizeFirst20Items = categorizeFirst20Items;
 }
 
 export async function loadAmazonPage() {
@@ -44,7 +53,8 @@ export async function loadAmazonPage() {
     try {
         await Promise.all([
             loadAmazonStats(),
-            loadAmazonOrders()
+            loadAmazonOrders(),
+            loadCategories()
         ]);
     } catch (error) {
         console.error('Error loading Amazon page:', error);
@@ -89,6 +99,12 @@ async function loadAmazonOrders(filters = {}) {
         const queryString = queryParams.toString();
         const url = `/api/amazon/orders${queryString ? '?' + queryString : ''}`;
         amazonOrders = await fetchAPI(url);
+
+        // Log item categorization data for debugging
+        const totalItems = amazonOrders.reduce((sum, order) => sum + (order.items?.length || 0), 0);
+        const categorizedItems = amazonOrders.reduce((sum, order) =>
+            sum + (order.items?.filter(item => item.user_category)?.length || 0), 0);
+        console.log(`[Amazon Orders] Loaded ${amazonOrders.length} orders with ${totalItems} items (${categorizedItems} categorized)`);
 
         // Populate account filter dropdown with unique account names
         populateAccountFilter();
@@ -371,8 +387,40 @@ function displayAmazonOrders(orders) {
                 // Construct product image URL using ASIN (if available)
                 const imageUrl = item.asin ? `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.jpg` : null;
 
+                // Build category badge with confidence color coding
+                const confidence = item.confidence || 0;
+                const isVerified = item.verified === 'Yes';
+                let categoryBadge = '';
+                let categoryColor = '#6B7280'; // gray for uncategorized
+
+                if (item.user_category) {
+                    if (isVerified || confidence === 100) {
+                        categoryColor = '#3B82F6'; // blue for verified
+                    } else if (confidence >= 85) {
+                        categoryColor = '#10B981'; // green for high confidence
+                    } else if (confidence >= 70) {
+                        categoryColor = '#F59E0B'; // amber for medium confidence
+                    } else if (confidence >= 50) {
+                        categoryColor = '#F97316'; // orange for low confidence
+                    } else {
+                        categoryColor = '#EF4444'; // red for very low confidence
+                    }
+
+                    categoryBadge = `
+                        <span style="background: ${categoryColor}; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;">
+                            ${escapeHtml(item.user_category)} ${isVerified ? '✓' : ''} ${confidence}%
+                        </span>
+                    `;
+                } else {
+                    categoryBadge = `
+                        <span style="background: #6B7280; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; white-space: nowrap;">
+                            Uncategorized
+                        </span>
+                    `;
+                }
+
                 itemsHtml += `
-                    <div style="display: flex; gap: 1rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                    <div id="item-${item.id}" style="display: flex; gap: 1rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
                         ${imageUrl ? `
                             <div style="flex-shrink: 0;">
                                 <img src="${imageUrl}"
@@ -386,11 +434,34 @@ function displayAmazonOrders(orders) {
                                 ${titleHtml}
                                 ${itemUrl ? ' <span style="font-size: 0.75rem;">🔗</span>' : ''}
                             </div>
-                            <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
                                 ${item.quantity > 1 ? `Qty: ${item.quantity} × ` : ''}${formatCurrency(item.price)}${item.quantity > 1 ? ` = ${formatCurrency(item.price * item.quantity)}` : ''}
-                                ${item.category ? ` • ${escapeHtml(item.category)}` : ''}
+                                ${item.category ? ` • Amazon: ${escapeHtml(item.category)}` : ''}
                                 ${item.seller ? ` • Sold by: ${escapeHtml(item.seller)}` : ''}
                             </div>
+                            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                                ${categoryBadge}
+                                ${createCategoryDropdown({
+                                    id: `item-category-${item.id}`,
+                                    categories: userCategories || [],
+                                    placeholder: 'Change category...',
+                                    onchange: `updateItemCategory(${item.id}, this.value)`,
+                                    size: 'small'
+                                })}
+                                ${item.user_category ? `
+                                    ${isVerified ?
+                                        `<button onclick="unverifyItemCategory(${item.id}, ${confidence})" style="padding: 0.2rem 0.5rem; background: #F59E0B; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Unverify</button>` :
+                                        `<button onclick="verifyItemCategory(${item.id})" style="padding: 0.2rem 0.5rem; background: #10B981; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Verify</button>`
+                                    }
+                                ` : `
+                                    <button onclick="categorizeItem(${item.id})" style="padding: 0.2rem 0.5rem; background: #3B82F6; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Categorize</button>
+                                `}
+                            </div>
+                            ${item.categorization_reasoning ? `
+                                <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem; font-style: italic;">
+                                    ${escapeHtml(item.categorization_reasoning)}
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
                 `;
@@ -468,6 +539,9 @@ function displayAmazonOrders(orders) {
 
     html += '</div>';
     container.innerHTML = html;
+
+    // Populate category dropdowns for all items
+    populateItemCategoryDropdowns();
 }
 
 export async function handleAmazonFileUpload(event) {
@@ -655,6 +729,12 @@ function clearAmazonFilters() {
     document.getElementById('amazonFilterEndDate').value = '';
     document.getElementById('amazonSearchInput').value = '';
 
+    // Clear item categorization filters
+    const itemCategorizedFilter = document.getElementById('amazonFilterItemCategorized');
+    const itemVerifiedFilter = document.getElementById('amazonFilterItemVerified');
+    if (itemCategorizedFilter) itemCategorizedFilter.value = '';
+    if (itemVerifiedFilter) itemVerifiedFilter.value = '';
+
     loadAmazonOrders();
 }
 
@@ -662,6 +742,8 @@ function searchAmazonOrders() {
     const searchTerm = document.getElementById('amazonSearchInput').value.toLowerCase();
     const minConfidence = parseInt(document.getElementById('amazonFilterConfidence').value) || 0;
     const accountFilter = document.getElementById('amazonFilterAccount').value;
+    const itemCategorizedFilter = document.getElementById('amazonFilterItemCategorized')?.value || '';
+    const itemVerifiedFilter = document.getElementById('amazonFilterItemVerified')?.value || '';
 
     // Start with all orders
     let filtered = amazonOrders;
@@ -680,6 +762,38 @@ function searchAmazonOrders() {
             }
             // Unmatched orders have 0 confidence, so they're excluded if minConfidence > 0
             return false;
+        });
+    }
+
+    // Apply item categorization filter
+    if (itemCategorizedFilter) {
+        filtered = filtered.filter(order => {
+            if (!order.items || order.items.length === 0) return false;
+
+            if (itemCategorizedFilter === 'categorized') {
+                // At least one item must be categorized
+                return order.items.some(item => item.user_category);
+            } else if (itemCategorizedFilter === 'uncategorized') {
+                // At least one item must be uncategorized
+                return order.items.some(item => !item.user_category);
+            }
+            return true;
+        });
+    }
+
+    // Apply item verified filter
+    if (itemVerifiedFilter) {
+        filtered = filtered.filter(order => {
+            if (!order.items || order.items.length === 0) return false;
+
+            if (itemVerifiedFilter === 'verified') {
+                // At least one item must be verified
+                return order.items.some(item => item.verified === 'Yes');
+            } else if (itemVerifiedFilter === 'unverified') {
+                // At least one item must be unverified
+                return order.items.some(item => item.verified !== 'Yes');
+            }
+            return true;
         });
     }
 
@@ -869,6 +983,380 @@ async function deleteAllAmazonData() {
     });
 
     modal.show();
+}
+
+// ============================================================================
+// ITEM CATEGORIZATION FUNCTIONS
+// ============================================================================
+
+let userCategories = [];
+
+// Load categories for dropdowns
+async function loadCategories() {
+    try {
+        userCategories = await fetchAPI('/api/categories');
+    } catch (error) {
+        console.error('Error loading categories:', error);
+    }
+}
+
+// Populate category dropdowns for all items
+function populateItemCategoryDropdowns() {
+    // Get all item category dropdowns
+    const dropdowns = document.querySelectorAll('[id^="item-category-"]');
+
+    dropdowns.forEach(select => {
+        // Clear and repopulate
+        select.innerHTML = '<option value="">Change category...</option>';
+
+        userCategories.forEach(cat => {
+            const option = document.createElement('option');
+            option.value = cat.name;
+            option.textContent = cat.parent_category ? `${cat.parent_category} > ${cat.name}` : cat.name;
+            select.appendChild(option);
+        });
+    });
+}
+
+// Categorize a single item
+async function categorizeItem(itemId) {
+    try {
+        showLoading();
+
+        const result = await fetchAPI(`/api/amazon/items/${itemId}/categorize`, {
+            method: 'POST'
+        });
+
+        showToast(`✓ Item categorized as: ${result.category} (${result.confidence}%)`, 'success');
+
+        // Reload orders to show updated categorization
+        await loadAmazonOrders();
+    } catch (error) {
+        console.error('Error categorizing item:', error);
+        showToast(`Failed to categorize item: ${error.message}`, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// Update item category (manual selection)
+async function updateItemCategory(itemId, category) {
+    if (!category) return;
+
+    try {
+        showLoading();
+
+        const result = await fetchAPI(`/api/amazon/items/${itemId}/category`, {
+            method: 'POST',
+            body: JSON.stringify({ category })
+        });
+
+        showToast(`✓ Item categorized as: ${category}`, 'success');
+
+        if (result.learnResult && result.learnResult.success) {
+            if (result.learnResult.action === 'created') {
+                showToast(`📚 Created new rule: ${result.learnResult.ruleName}`, 'info');
+            }
+        }
+
+        // Reload orders to show updated categorization
+        await loadAmazonOrders();
+    } catch (error) {
+        console.error('Error updating item category:', error);
+        showToast(`Failed to update category: ${error.message}`, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+// Verify item category
+async function verifyItemCategory(itemId) {
+    try {
+        await fetchAPI(`/api/amazon/items/${itemId}/verify`, {
+            method: 'POST'
+        });
+
+        showToast('✓ Category verified!', 'success');
+
+        // Reload orders to show updated verification
+        await loadAmazonOrders();
+    } catch (error) {
+        console.error('Error verifying item category:', error);
+        showToast(`Failed to verify: ${error.message}`, 'error');
+    }
+}
+
+// Unverify item category
+async function unverifyItemCategory(itemId, originalConfidence) {
+    try {
+        await fetchAPI(`/api/amazon/items/${itemId}/unverify`, {
+            method: 'POST',
+            body: JSON.stringify({ originalConfidence })
+        });
+
+        showToast('Category unverified', 'info');
+
+        // Reload orders to show updated verification
+        await loadAmazonOrders();
+    } catch (error) {
+        console.error('Error unverifying item category:', error);
+        showToast(`Failed to unverify: ${error.message}`, 'error');
+    }
+}
+
+// Categorize all Amazon items (background job)
+async function categorizeAllAmazonItems() {
+    if (!confirm('This will categorize ALL Amazon items. This may take a while. You can navigate to other pages while this runs. Continue?')) {
+        return;
+    }
+
+    try {
+        // Start background job
+        const result = await fetchAPI('/api/amazon/items/categorize-background', {
+            method: 'POST',
+            body: JSON.stringify({ categorizedOnly: false })
+        });
+
+        const { jobId, totalItems } = result;
+
+        // Show progress notification
+        progressNotification.show(
+            jobId,
+            'Categorizing Amazon Items',
+            0,
+            { status: `Processing ${totalItems} items...` }
+        );
+
+        // Poll for progress
+        pollJobProgress(jobId, totalItems);
+    } catch (error) {
+        console.error('Error starting categorization:', error);
+        showToast(`Failed to start categorization: ${error.message}`, 'error');
+    }
+}
+
+// Categorize first 20 items (for debugging)
+async function categorizeFirst20Items() {
+    try {
+        // Start background job
+        const result = await fetchAPI('/api/amazon/items/categorize-background', {
+            method: 'POST',
+            body: JSON.stringify({ limit: 20 })
+        });
+
+        const { jobId, totalItems } = result;
+
+        // Show progress notification
+        progressNotification.show(
+            jobId,
+            'Categorizing Amazon Items (Debug)',
+            0,
+            { status: `Processing ${totalItems} items...` }
+        );
+
+        // Poll for progress
+        pollJobProgress(jobId, totalItems);
+    } catch (error) {
+        console.error('Error starting categorization:', error);
+        showToast(`Failed to start categorization: ${error.message}`, 'error');
+    }
+}
+
+// Update a single item in the UI (reactive update)
+function updateItemInUI(itemId, update) {
+    try {
+        console.log(`[Amazon Item UI] Updating item ${itemId} with category: ${update.category}`);
+
+        // Find the item container
+        const itemElement = document.getElementById(`item-${itemId}`);
+        if (!itemElement) {
+            console.warn(`[Amazon Item UI] Item element not found for item ${itemId}`);
+            return;
+        }
+
+        // Update the item in amazonOrders array
+        let itemFound = false;
+        for (const order of amazonOrders) {
+            if (order.items) {
+                const item = order.items.find(i => i.id === itemId);
+                if (item) {
+                    item.user_category = update.category;
+                    item.confidence = update.confidence;
+                    item.categorization_reasoning = update.reasoning;
+                    item.verified = update.verified || 'No';
+                    itemFound = true;
+                    break;
+                }
+            }
+        }
+
+        if (!itemFound) {
+            console.warn(`[Amazon Item UI] Item ${itemId} not found in amazonOrders array`);
+        }
+
+        // Calculate category color
+        const confidence = update.confidence || 0;
+        const isVerified = update.verified === 'Yes';
+        let categoryColor = '#6B7280';
+
+        if (update.category) {
+            if (isVerified || confidence === 100) {
+                categoryColor = '#3B82F6'; // blue for verified
+            } else if (confidence >= 85) {
+                categoryColor = '#10B981'; // green for high confidence
+            } else if (confidence >= 70) {
+                categoryColor = '#F59E0B'; // amber for medium confidence
+            } else if (confidence >= 50) {
+                categoryColor = '#F97316'; // orange for low confidence
+            } else {
+                categoryColor = '#EF4444'; // red for very low confidence
+            }
+        }
+
+        // Build new category badge
+        const categoryBadge = update.category
+            ? `<span style="background: ${categoryColor}; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;">
+                   ${escapeHtml(update.category)} ${isVerified ? '✓' : ''} ${confidence}%
+               </span>`
+            : `<span style="background: #6B7280; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; white-space: nowrap;">
+                   Uncategorized
+               </span>`;
+
+        // Build action buttons
+        const actionButtons = update.category
+            ? (isVerified
+                ? `<button onclick="unverifyItemCategory(${itemId}, ${confidence})" style="padding: 0.2rem 0.5rem; background: #F59E0B; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Unverify</button>`
+                : `<button onclick="verifyItemCategory(${itemId})" style="padding: 0.2rem 0.5rem; background: #10B981; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Verify</button>`)
+            : `<button onclick="categorizeItem(${itemId})" style="padding: 0.2rem 0.5rem; background: #3B82F6; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Categorize</button>`;
+
+        // Find the controls container (has the badge, dropdown, and buttons)
+        const controlsContainer = itemElement.querySelector('div[style*="display: flex"][style*="gap: 0.5rem"]');
+        if (controlsContainer) {
+            // Update the controls HTML
+            controlsContainer.innerHTML = `
+                ${categoryBadge}
+                ${createCategoryDropdown({
+                    id: `item-category-${itemId}`,
+                    categories: userCategories || [],
+                    placeholder: 'Change category...',
+                    onchange: `updateItemCategory(${itemId}, this.value)`,
+                    size: 'small'
+                })}
+                ${actionButtons}
+            `;
+        }
+
+        // Update reasoning text
+        const reasoningContainer = itemElement.querySelector('div[style*="font-style: italic"]');
+        if (update.reasoning) {
+            if (reasoningContainer) {
+                reasoningContainer.textContent = update.reasoning;
+            } else {
+                // Add reasoning element if it doesn't exist
+                const itemContent = itemElement.querySelector('div[style*="flex: 1"]');
+                if (itemContent) {
+                    const reasoningDiv = document.createElement('div');
+                    reasoningDiv.style = 'font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem; font-style: italic;';
+                    reasoningDiv.textContent = update.reasoning;
+                    itemContent.appendChild(reasoningDiv);
+                }
+            }
+        } else if (reasoningContainer) {
+            reasoningContainer.remove();
+        }
+
+        console.log(`[Amazon Item UI] Successfully updated item ${itemId}`);
+    } catch (error) {
+        console.error(`[Amazon Item UI] Error updating item ${itemId}:`, error);
+    }
+}
+
+// Poll for job progress
+async function pollJobProgress(jobId, totalItems) {
+    const pollInterval = 1000; // Poll every second
+    let previousProgress = 0;
+
+    const poll = async () => {
+        try {
+            const job = await fetchAPI(`/api/jobs/${jobId}`);
+
+            if (!job) {
+                progressNotification.showError(
+                    jobId,
+                    'Categorization Error',
+                    'Job not found'
+                );
+                return;
+            }
+
+            // Process incremental updates for reactive UI
+            if (job.updates && job.updates.length > 0) {
+                console.log(`[Amazon Item Categorization] Processing ${job.updates.length} incremental updates`);
+                for (const update of job.updates) {
+                    updateItemInUI(update.itemId, update);
+                }
+            }
+
+            // Update progress notification
+            const progress = job.progress || 0;
+            const status = `${job.processed || 0} of ${totalItems} items categorized`;
+
+            progressNotification.updateProgress(jobId, progress, {
+                status,
+                state: job.status
+            });
+
+            // Check if job is complete
+            if (job.status === 'completed') {
+                console.log('[Amazon Item Categorization] Job completed successfully');
+
+                progressNotification.showSuccess(
+                    jobId,
+                    'Categorization Complete',
+                    `Successfully categorized ${job.result?.count || totalItems} items!`,
+                    5000
+                );
+
+                // Reload stats to update item categorization counts
+                // No need to reload orders - UI was updated reactively
+                try {
+                    await loadAmazonStats();
+                    console.log('[Amazon Item Categorization] Stats reloaded');
+                } catch (error) {
+                    console.error('[Amazon Item Categorization] Error reloading stats:', error);
+                }
+
+                return;
+            }
+
+            // Check if job failed
+            if (job.status === 'failed') {
+                progressNotification.showError(
+                    jobId,
+                    'Categorization Failed',
+                    job.error || 'Unknown error occurred',
+                    10000
+                );
+                return;
+            }
+
+            // Continue polling if job is still running
+            if (job.status === 'running' || job.status === 'pending') {
+                setTimeout(poll, pollInterval);
+            }
+        } catch (error) {
+            console.error('Error polling job progress:', error);
+            progressNotification.showError(
+                jobId,
+                'Categorization Error',
+                'Failed to fetch job status',
+                5000
+            );
+        }
+    };
+
+    // Start polling
+    poll();
 }
 
 export default {

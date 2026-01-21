@@ -561,9 +561,27 @@
                             <label for="amazonFilterEndDate">End Date</label>
                             <input type="date" id="amazonFilterEndDate" class="form-input" onchange="applyAmazonFilters()">
                         </div>
+                        <div class="filter-item">
+                            <label for="amazonFilterItemCategorized">Item Status</label>
+                            <select id="amazonFilterItemCategorized" class="form-select" onchange="applyAmazonFilters()">
+                                <option value="">All Items</option>
+                                <option value="categorized">Categorized</option>
+                                <option value="uncategorized">Uncategorized</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="amazonFilterItemVerified">Item Verification</label>
+                            <select id="amazonFilterItemVerified" class="form-select" onchange="applyAmazonFilters()">
+                                <option value="">All Items</option>
+                                <option value="verified">Verified</option>
+                                <option value="unverified">Unverified</option>
+                            </select>
+                        </div>
                     </div>
-                    <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+                    <div style="display: flex; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap;">
                         <button onclick="clearAmazonFilters()" class="btn btn-secondary">Clear All</button>
+                        <button onclick="categorizeAllAmazonItems()" class="btn btn-primary" style="background: #10B981;">Categorize All Items</button>
+                        <button onclick="categorizeFirst20Items()" class="btn btn-secondary" style="background: #6B7280;">Categorize First 20 (Debug)</button>
                     </div>
                 </div>
 
@@ -733,6 +751,14 @@
                         <label for="editCategoryColor">Color:</label>
                         <input type="color" id="editCategoryColor" class="form-input" style="width: 100%; padding: 0.375rem; height: 3rem;" value="#6B7280">
                     </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="editCategoryUseForAmazon" checked onchange="handleUseForAmazonChange()" style="width: 1.2rem; height: 1.2rem; cursor: pointer;">
+                        <span>Use for Amazon purchase categorization</span>
+                    </label>
+                    <small style="color: #666; font-size: 0.875rem; margin-left: 1.7rem; display: block; margin-top: 0.25rem;">When enabled, this category will be available when categorizing Amazon items. Disable to exclude from Amazon categorization options. Note: Disabling a parent category will also disable all sub-categories.</small>
                 </div>
 
                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">

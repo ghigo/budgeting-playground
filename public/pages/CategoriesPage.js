@@ -31,6 +31,7 @@ export function initializeCategoriesPage(deps) {
     window.viewCategoryTransactions = viewCategoryTransactions;
     window.generateEmojiSuggestions = generateEmojiSuggestions;
     window.selectSuggestedEmoji = selectSuggestedEmoji;
+    window.handleUseForAmazonChange = handleUseForAmazonChange;
 
     // Close edit category modal on ESC key
     document.addEventListener('keydown', (e) => {
@@ -281,12 +282,14 @@ function editCategory(categoryName, parentCategory, icon = '📁', color = '#6B7
     // Find the full category object to get description
     const category = allCategories.find(cat => cat.name === categoryName);
     const categoryDescription = category?.description || description || '';
+    const useForAmazon = category?.use_for_amazon !== undefined ? category.use_for_amazon : true;
 
     // Populate modal fields
     document.getElementById('editCategoryName').value = categoryName;
     document.getElementById('editCategoryIcon').value = icon || '📁';
     document.getElementById('editCategoryColor').value = color || '#6B7280';
     document.getElementById('editCategoryDescription').value = categoryDescription;
+    document.getElementById('editCategoryUseForAmazon').checked = useForAmazon;
 
     // Hide emoji suggestions from previous session
     const emojiSuggestionsDiv = document.getElementById('emojiSuggestions');
@@ -336,6 +339,7 @@ async function saveEditCategory() {
     const newIcon = document.getElementById('editCategoryIcon').value.trim() || '📁';
     const newColor = document.getElementById('editCategoryColor').value || '#6B7280';
     const newDescription = document.getElementById('editCategoryDescription').value.trim();
+    const useForAmazon = document.getElementById('editCategoryUseForAmazon').checked;
 
     if (!newName) {
         showToast('Please enter a category name', 'error');
@@ -351,7 +355,8 @@ async function saveEditCategory() {
                 parent_category: newParent || null,
                 icon: newIcon,
                 color: newColor,
-                description: newDescription
+                description: newDescription,
+                use_for_amazon: useForAmazon
             })
         });
 
@@ -366,6 +371,31 @@ async function saveEditCategory() {
         console.error(error);
     } finally {
         hideLoading();
+    }
+}
+
+function handleUseForAmazonChange() {
+    const checkbox = document.getElementById('editCategoryUseForAmazon');
+    const isChecked = checkbox.checked;
+    const currentCategory = allCategories.find(cat => cat.name === currentEditingCategory);
+
+    if (!currentCategory) return;
+
+    // Find all children of this category
+    const children = allCategories.filter(cat => cat.parent_category === currentEditingCategory);
+
+    if (!isChecked && children.length > 0) {
+        // Warn when disabling a parent category
+        const childNames = children.map(c => c.name).join(', ');
+        showToast(`Note: Disabling this parent category will automatically disable ${children.length} sub-category(ies): ${childNames}`, 'info');
+    }
+
+    // If enabling and parent is disabled, inform user that parent will be enabled
+    if (isChecked && currentCategory.parent_category) {
+        const parent = allCategories.find(cat => cat.name === currentCategory.parent_category);
+        if (parent && !parent.use_for_amazon) {
+            showToast(`Note: The parent category "${parent.name}" is currently disabled and will be automatically enabled when you save.`, 'info');
+        }
     }
 }
 

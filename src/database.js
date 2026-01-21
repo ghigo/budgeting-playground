@@ -162,11 +162,17 @@ function createTables() {
     CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
     CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category);
     CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_name);
+    CREATE INDEX IF NOT EXISTS idx_transactions_id ON transactions(transaction_id);
+    -- Composite indexes for common query patterns (date range + filters)
+    CREATE INDEX IF NOT EXISTS idx_transactions_date_category ON transactions(date, category);
+    CREATE INDEX IF NOT EXISTS idx_transactions_date_account ON transactions(date, account_name);
     CREATE INDEX IF NOT EXISTS idx_accounts_item_id ON accounts(item_id);
+    CREATE INDEX IF NOT EXISTS idx_accounts_name ON accounts(name);
     CREATE INDEX IF NOT EXISTS idx_amazon_orders_date ON amazon_orders(order_date);
     CREATE INDEX IF NOT EXISTS idx_amazon_orders_matched ON amazon_orders(matched_transaction_id);
     CREATE INDEX IF NOT EXISTS idx_amazon_items_order ON amazon_items(order_id);
     CREATE INDEX IF NOT EXISTS idx_amazon_items_category ON amazon_items(category);
+    CREATE INDEX IF NOT EXISTS idx_amazon_items_user_category ON amazon_items(user_category);
   `);
 
   // Run migrations to add new columns to existing tables
@@ -187,6 +193,7 @@ function runMigrations() {
   const hasDescription = tableInfo.some(col => col.name === 'description');
   const hasKeywords = tableInfo.some(col => col.name === 'keywords');
   const hasExamples = tableInfo.some(col => col.name === 'examples');
+  const hasUseForAmazon = tableInfo.some(col => col.name === 'use_for_amazon');
 
   let columnsAdded = false;
 
@@ -217,6 +224,12 @@ function runMigrations() {
   if (!hasExamples) {
     console.log('Adding examples column to categories table...');
     db.exec("ALTER TABLE categories ADD COLUMN examples TEXT");
+    columnsAdded = true;
+  }
+
+  if (!hasUseForAmazon) {
+    console.log('Adding use_for_amazon column to categories table...');
+    db.exec("ALTER TABLE categories ADD COLUMN use_for_amazon INTEGER DEFAULT 1");
     columnsAdded = true;
   }
 
@@ -485,6 +498,57 @@ function runMigrations() {
 
     columnsAdded = true;
   }
+
+  // Add user categorization fields to amazon_items table
+  const hasUserCategory = amazonItemsInfo.some(col => col.name === 'user_category');
+  const hasItemConfidence = amazonItemsInfo.some(col => col.name === 'confidence');
+  const hasItemVerified = amazonItemsInfo.some(col => col.name === 'verified');
+  const hasItemReasoning = amazonItemsInfo.some(col => col.name === 'categorization_reasoning');
+
+  if (!hasUserCategory || !hasItemConfidence || !hasItemVerified || !hasItemReasoning) {
+    console.log('Adding user categorization fields to amazon_items table...');
+
+    if (!hasUserCategory) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN user_category TEXT");
+    }
+    if (!hasItemConfidence) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN confidence INTEGER DEFAULT 0");
+    }
+    if (!hasItemVerified) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN verified TEXT DEFAULT 'No'");
+    }
+    if (!hasItemReasoning) {
+      db.exec("ALTER TABLE amazon_items ADD COLUMN categorization_reasoning TEXT");
+    }
+
+    columnsAdded = true;
+  }
+
+  // Create amazon_item_rules table for learned categorization patterns
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS amazon_item_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      pattern TEXT NOT NULL,
+      category TEXT NOT NULL,
+      enabled TEXT DEFAULT 'Yes',
+      match_type TEXT DEFAULT 'partial',
+      rule_source TEXT DEFAULT 'user',
+      asin TEXT,
+      amazon_category TEXT,
+      usage_count INTEGER DEFAULT 0,
+      correct_count INTEGER DEFAULT 0,
+      incorrect_count INTEGER DEFAULT 0,
+      accuracy_rate REAL DEFAULT 1.0,
+      last_used TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_amazon_item_rules_category ON amazon_item_rules(category);
+    CREATE INDEX IF NOT EXISTS idx_amazon_item_rules_enabled ON amazon_item_rules(enabled);
+    CREATE INDEX IF NOT EXISTS idx_amazon_item_rules_asin ON amazon_item_rules(asin);
+  `);
 
   // Check if match_type and user_created columns exist in category_rules table
   const categoryRulesInfo = db.prepare("PRAGMA table_info(category_rules)").all();
@@ -869,17 +933,40 @@ export function getTransactions(limit = 50, filters = {}) {
     sql += ' AND ao.order_id IS NULL';
   }
 
-  sql += ' ORDER BY t.date DESC LIMIT ?';
+  sql += ' ORDER BY t.date DESC LIMIT ? OFFSET ?';
   params.push(limit);
+  params.push(filters.offset || 0);
 
   const transactions = db.prepare(sql).all(...params);
+
+  // Optimization: Fetch all splits for this batch of transactions in ONE query (avoids N+1 problem)
+  // Build a map of transaction_id -> splits for fast lookup
+  const splitsMap = new Map();
+
+  if (transactions.length > 0) {
+    const transactionIds = transactions.map(tx => tx.transaction_id);
+    const placeholders = transactionIds.map(() => '?').join(',');
+    const allSplits = db.prepare(`
+      SELECT * FROM transaction_splits
+      WHERE parent_transaction_id IN (${placeholders})
+      ORDER BY parent_transaction_id, split_index
+    `).all(...transactionIds);
+
+    // Group splits by parent transaction ID
+    for (const split of allSplits) {
+      if (!splitsMap.has(split.parent_transaction_id)) {
+        splitsMap.set(split.parent_transaction_id, []);
+      }
+      splitsMap.get(split.parent_transaction_id).push(split);
+    }
+  }
 
   // Process transactions: replace split parents with their children
   const processedTransactions = [];
 
   for (const tx of transactions) {
-    // Check if this transaction has splits
-    const splits = db.prepare('SELECT * FROM transaction_splits WHERE parent_transaction_id = ? ORDER BY split_index').all(tx.transaction_id);
+    // Check if this transaction has splits (using pre-fetched map)
+    const splits = splitsMap.get(tx.transaction_id) || [];
 
     if (splits.length > 0) {
       // Add split children as "virtual transactions"
@@ -1762,25 +1849,29 @@ export function getCategories() {
     const lowerName = cat.name.toLowerCase();
     if (!seen.has(lowerName)) {
       seen.set(lowerName, true);
-      unique.push(cat);
+      // Convert use_for_amazon from integer to boolean
+      unique.push({
+        ...cat,
+        use_for_amazon: cat.use_for_amazon === 1
+      });
     }
   }
 
   return unique;
 }
 
-export function addCategory(name, parentCategory = null, icon = null, color = null, description = null) {
+export function addCategory(name, parentCategory = null, icon = null, color = null, description = null, useForAmazon = true) {
   // Auto-generate icon and color if not provided
   const categoryIcon = icon || suggestIconForCategory(name);
   const categoryColor = color || getNextCategoryColor();
 
   const stmt = db.prepare(`
-    INSERT INTO categories (name, parent_category, icon, color, description) VALUES (?, ?, ?, ?, ?)
+    INSERT INTO categories (name, parent_category, icon, color, description, use_for_amazon) VALUES (?, ?, ?, ?, ?, ?)
   `);
 
   try {
-    stmt.run(name, parentCategory || '', categoryIcon, categoryColor, description || '');
-    return { success: true, name, parent_category: parentCategory, icon: categoryIcon, color: categoryColor, description };
+    stmt.run(name, parentCategory || '', categoryIcon, categoryColor, description || '', useForAmazon ? 1 : 0);
+    return { success: true, name, parent_category: parentCategory, icon: categoryIcon, color: categoryColor, description, use_for_amazon: useForAmazon };
   } catch (error) {
     if (error.message.includes('UNIQUE constraint')) {
       throw new Error('Category already exists');
@@ -1789,7 +1880,7 @@ export function addCategory(name, parentCategory = null, icon = null, color = nu
   }
 }
 
-export function updateCategory(oldName, newName, newParentCategory = null, icon = null, color = null, description = null) {
+export function updateCategory(oldName, newName, newParentCategory = null, icon = null, color = null, description = null, useForAmazon = null) {
   // Check if category exists
   const existingCategory = db.prepare('SELECT * FROM categories WHERE name = ?').get(oldName);
   if (!existingCategory) {
@@ -1808,16 +1899,40 @@ export function updateCategory(oldName, newName, newParentCategory = null, icon 
   const categoryIcon = icon || existingCategory.icon || suggestIconForCategory(newName);
   const categoryColor = color || existingCategory.color || getNextCategoryColor();
   const categoryDescription = description !== null ? description : existingCategory.description || '';
+  const categoryUseForAmazon = useForAmazon !== null ? (useForAmazon ? 1 : 0) : existingCategory.use_for_amazon;
 
   // Use transaction to update both category and all related transactions
   const transaction = db.transaction(() => {
     // Update category
     const updateCategoryStmt = db.prepare(`
       UPDATE categories
-      SET name = ?, parent_category = ?, icon = ?, color = ?, description = ?
+      SET name = ?, parent_category = ?, icon = ?, color = ?, description = ?, use_for_amazon = ?
       WHERE name = ?
     `);
-    updateCategoryStmt.run(newName, newParentCategory || '', categoryIcon, categoryColor, categoryDescription, oldName);
+    updateCategoryStmt.run(newName, newParentCategory || '', categoryIcon, categoryColor, categoryDescription, categoryUseForAmazon, oldName);
+
+    // Handle parent/child cascade for use_for_amazon changes
+    if (useForAmazon !== null && categoryUseForAmazon !== existingCategory.use_for_amazon) {
+      // Find all children of this category
+      const children = db.prepare('SELECT name FROM categories WHERE parent_category = ?').all(oldName === newName ? oldName : newName);
+
+      if (children.length > 0) {
+        // Cascade the use_for_amazon value to all children
+        const updateChildrenStmt = db.prepare('UPDATE categories SET use_for_amazon = ? WHERE parent_category = ?');
+        updateChildrenStmt.run(categoryUseForAmazon, oldName === newName ? oldName : newName);
+        console.log(`[Category] Cascaded use_for_amazon=${categoryUseForAmazon} to ${children.length} child category(ies)`);
+      }
+
+      // If enabling this category and it has a parent that's disabled, enable the parent
+      if (categoryUseForAmazon === 1 && newParentCategory) {
+        const parent = db.prepare('SELECT use_for_amazon FROM categories WHERE name = ?').get(newParentCategory);
+        if (parent && parent.use_for_amazon === 0) {
+          const updateParentStmt = db.prepare('UPDATE categories SET use_for_amazon = 1 WHERE name = ?');
+          updateParentStmt.run(newParentCategory);
+          console.log(`[Category] Auto-enabled parent category "${newParentCategory}" because child was enabled`);
+        }
+      }
+    }
 
     // Update all transactions that use this category
     const updateTransactionsStmt = db.prepare(`
@@ -1827,7 +1942,7 @@ export function updateCategory(oldName, newName, newParentCategory = null, icon 
     `);
     const result = updateTransactionsStmt.run(newName, oldName);
 
-    return { success: true, name: newName, parent_category: newParentCategory, icon: categoryIcon, color: categoryColor, description: categoryDescription, transactionsUpdated: result.changes };
+    return { success: true, name: newName, parent_category: newParentCategory, icon: categoryIcon, color: categoryColor, description: categoryDescription, use_for_amazon: categoryUseForAmazon === 1, transactionsUpdated: result.changes };
   });
 
   return transaction();
@@ -2709,6 +2824,12 @@ const DEFAULT_SETTINGS = {
     description: 'Enable Amazon CSV parsing logs',
     category: 'Logging'
   },
+  enable_amazon_item_ai_logs: {
+    value: false,
+    type: 'boolean',
+    description: 'Enable Amazon item AI categorization logs (shows prompts and responses)',
+    category: 'Logging'
+  },
 
   // General
   default_transaction_limit: {
@@ -2987,4 +3108,257 @@ export function getUnmappedExternalCategories() {
 export function deleteExternalMapping(id) {
   db.prepare('DELETE FROM external_category_mappings WHERE id = ?').run(id);
   return { success: true };
+}
+
+/**
+ * Get all Amazon items with their categorization status
+ * @param {Object} filters - Optional filters (categorized, verified, orderId)
+ * @returns {Array} Amazon items
+ */
+export function getAmazonItems(filters = {}) {
+  let query = `
+    SELECT
+      ai.*,
+      ao.order_date,
+      ao.order_id,
+      ao.account_name
+    FROM amazon_items ai
+    JOIN amazon_orders ao ON ai.order_id = ao.order_id
+    WHERE 1=1
+  `;
+
+  const params = [];
+
+  if (filters.orderId) {
+    query += ' AND ai.order_id = ?';
+    params.push(filters.orderId);
+  }
+
+  if (filters.categorized === 'yes') {
+    query += ' AND ai.user_category IS NOT NULL';
+  } else if (filters.categorized === 'no') {
+    query += ' AND ai.user_category IS NULL';
+  }
+
+  if (filters.verified === 'yes') {
+    query += ' AND ai.verified = "Yes"';
+  } else if (filters.verified === 'no') {
+    query += ' AND ai.verified = "No"';
+  }
+
+  query += ' ORDER BY ao.order_date DESC, ai.id DESC';
+
+  return db.prepare(query).all(...params);
+}
+
+/**
+ * Update Amazon item category
+ * @param {number} itemId - Item ID
+ * @param {string} category - Category name
+ * @param {number} confidence - Confidence score 0-100
+ * @param {string} reasoning - Categorization reasoning
+ */
+export function updateAmazonItemCategory(itemId, category, confidence = 0, reasoning = null) {
+  db.prepare(`
+    UPDATE amazon_items
+    SET user_category = ?, confidence = ?, categorization_reasoning = ?
+    WHERE id = ?
+  `).run(category, confidence, reasoning, itemId);
+
+  return { success: true };
+}
+
+/**
+ * Verify Amazon item category
+ * @param {number} itemId - Item ID
+ */
+export function verifyAmazonItemCategory(itemId) {
+  db.prepare(`
+    UPDATE amazon_items
+    SET verified = 'Yes', confidence = 100
+    WHERE id = ?
+  `).run(itemId);
+
+  return { success: true };
+}
+
+/**
+ * Unverify Amazon item category
+ * @param {number} itemId - Item ID
+ * @param {number} originalConfidence - Original confidence to restore
+ */
+export function unverifyAmazonItemCategory(itemId, originalConfidence = 0) {
+  db.prepare(`
+    UPDATE amazon_items
+    SET verified = 'No', confidence = ?
+    WHERE id = ?
+  `).run(originalConfidence, itemId);
+
+  return { success: true };
+}
+
+/**
+ * Get Amazon item categorization rules
+ * @returns {Array} Rules
+ */
+export function getAmazonItemRules() {
+  return db.prepare(`
+    SELECT * FROM amazon_item_rules
+    ORDER BY accuracy_rate DESC, usage_count DESC
+  `).all();
+}
+
+/**
+ * Get enabled Amazon item categorization rules
+ * @returns {Array} Enabled rules
+ */
+export function getEnabledAmazonItemRules() {
+  return db.prepare(`
+    SELECT * FROM amazon_item_rules
+    WHERE enabled = 'Yes'
+    ORDER BY accuracy_rate DESC, usage_count DESC
+  `).all();
+}
+
+/**
+ * Create Amazon item categorization rule
+ * @param {Object} ruleData - Rule data
+ * @returns {Object} Result with rule ID
+ */
+export function createAmazonItemRule(ruleData) {
+  const {
+    name,
+    pattern,
+    category,
+    matchType = 'partial',
+    ruleSource = 'user',
+    asin = null,
+    amazonCategory = null
+  } = ruleData;
+
+  const now = new Date().toISOString();
+
+  const result = db.prepare(`
+    INSERT INTO amazon_item_rules
+    (name, pattern, category, match_type, rule_source, asin, amazon_category, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(name, pattern, category, matchType, ruleSource, asin, amazonCategory, now, now);
+
+  return { success: true, id: result.lastInsertRowid };
+}
+
+/**
+ * Update Amazon item rule usage stats
+ * @param {number} ruleId - Rule ID
+ * @param {boolean} wasCorrect - Whether the categorization was correct
+ */
+export function updateAmazonItemRuleStats(ruleId, wasCorrect = true) {
+  const now = new Date().toISOString();
+
+  if (wasCorrect) {
+    db.prepare(`
+      UPDATE amazon_item_rules
+      SET usage_count = usage_count + 1,
+          correct_count = correct_count + 1,
+          accuracy_rate = CAST(correct_count + 1 AS REAL) / (usage_count + 1),
+          last_used = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(now, now, ruleId);
+  } else {
+    db.prepare(`
+      UPDATE amazon_item_rules
+      SET usage_count = usage_count + 1,
+          incorrect_count = incorrect_count + 1,
+          accuracy_rate = CAST(correct_count AS REAL) / (usage_count + 1),
+          last_used = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(now, now, ruleId);
+  }
+
+  return { success: true };
+}
+
+/**
+ * Delete Amazon item rule
+ * @param {number} ruleId - Rule ID
+ */
+export function deleteAmazonItemRule(ruleId) {
+  db.prepare('DELETE FROM amazon_item_rules WHERE id = ?').run(ruleId);
+  return { success: true };
+}
+
+/**
+ * Find Amazon item rule by title pattern
+ * @param {string} title - Item title
+ * @returns {Object|null} Matching rule or null
+ */
+export function findAmazonItemRuleByTitle(title) {
+  const rules = getEnabledAmazonItemRules();
+
+  for (const rule of rules) {
+    const pattern = rule.pattern;
+    const matchType = rule.match_type;
+
+    try {
+      if (matchType === 'exact') {
+        if (title.toLowerCase() === pattern.toLowerCase()) {
+          return rule;
+        }
+      } else if (matchType === 'partial') {
+        if (title.toLowerCase().includes(pattern.toLowerCase())) {
+          return rule;
+        }
+      } else if (matchType === 'regex') {
+        const regex = new RegExp(pattern, 'i');
+        if (regex.test(title)) {
+          return rule;
+        }
+      }
+    } catch (error) {
+      console.error(`Error matching rule ${rule.id}:`, error);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Find Amazon item rule by ASIN
+ * @param {string} asin - Product ASIN
+ * @returns {Object|null} Matching rule or null
+ */
+export function findAmazonItemRuleByASIN(asin) {
+  if (!asin) return null;
+
+  return db.prepare(`
+    SELECT * FROM amazon_item_rules
+    WHERE asin = ? AND enabled = 'Yes'
+    ORDER BY accuracy_rate DESC, usage_count DESC
+    LIMIT 1
+  `).get(asin);
+}
+
+/**
+ * Get Amazon item categorization stats
+ * @returns {Object} Stats
+ */
+export function getAmazonItemStats() {
+  const stats = db.prepare(`
+    SELECT
+      COUNT(*) as total_items,
+      COUNT(CASE WHEN user_category IS NOT NULL THEN 1 END) as categorized_items,
+      COUNT(CASE WHEN verified = 'Yes' THEN 1 END) as verified_items,
+      AVG(CASE WHEN user_category IS NOT NULL THEN confidence ELSE NULL END) as avg_confidence
+    FROM amazon_items
+  `).get();
+
+  return {
+    total_items: stats.total_items || 0,
+    categorized_items: stats.categorized_items || 0,
+    verified_items: stats.verified_items || 0,
+    avg_confidence: stats.avg_confidence || 0,
+    uncategorized_items: (stats.total_items || 0) - (stats.categorized_items || 0)
+  };
 }

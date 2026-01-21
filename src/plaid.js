@@ -74,6 +74,9 @@ export async function createLinkToken(userId = 'user-1') {
       products: ['transactions'],
       country_codes: ['US'],
       language: 'en',
+      transactions: {
+        days_requested: 730  // Request 2 years of historical data (maximum depends on institution)
+      }
     });
     return response.data.link_token;
   } catch (error) {
