@@ -385,7 +385,8 @@ function displayAmazonOrders(orders) {
                     : escapeHtml(item.title);
 
                 // Construct product image URL using ASIN (if available)
-                const imageUrl = item.asin ? `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.jpg` : null;
+                // Use modern Amazon image CDN format
+                const imageUrl = item.asin ? `https://m.media-amazon.com/images/P/${item.asin}.01._SCLZZZZZZZ_SX500_.jpg` : null;
 
                 // Build category badge with confidence color coding
                 const confidence = item.confidence || 0;
