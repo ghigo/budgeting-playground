@@ -1316,20 +1316,18 @@ app.post('/api/amazon/items/:itemId/categorize', async (req, res) => {
     }
 
     const item = items[0];
-    const result = await amazonItemCategorization.categorizeItem(item);
+
+    // Use new enhanced AI categorization service
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+    const result = await enhancedAI.categorize(item, 'amazon_item', itemId);
 
     // Save the categorization
     database.updateAmazonItemCategory(
       itemId,
       result.category,
-      result.confidence,
+      Math.round((result.confidence || 0.5) * 100),
       result.reasoning
     );
-
-    // Update rule stats if a rule was used
-    if (result.ruleId) {
-      database.updateAmazonItemRuleStats(result.ruleId, true);
-    }
 
     res.json(result);
   } catch (error) {
@@ -1355,21 +1353,28 @@ app.post('/api/amazon/items/categorize-batch', async (req, res) => {
       items = database.getAmazonItems({});
     }
 
-    const results = await amazonItemCategorization.categorizeItemsBatch(items, limit);
+    // Apply limit if specified
+    if (limit && items.length > limit) {
+      items = items.slice(0, limit);
+    }
+
+    // Use new enhanced AI categorization service
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+    const results = await enhancedAI.batchCategorize(items, 'amazon_item', {
+      batchSize: 10
+    });
 
     // Save all categorizations
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const item = items[i];
+
       database.updateAmazonItemCategory(
-        result.itemId,
+        item.id,
         result.category,
-        result.confidence,
+        Math.round((result.confidence || 0.5) * 100),
         result.reasoning
       );
-
-      // Update rule stats if a rule was used
-      if (result.ruleId) {
-        database.updateAmazonItemRuleStats(result.ruleId, true);
-      }
     }
 
     res.json({ success: true, count: results.length, results });
@@ -1506,7 +1511,7 @@ async function processCategorizationJob(jobId, items) {
 app.post('/api/amazon/items/:itemId/category', async (req, res) => {
   try {
     const { itemId } = req.params;
-    const { category } = req.body;
+    const { category, previousCategory } = req.body;
 
     if (!category) {
       return res.status(400).json({ error: 'Category required' });
@@ -1523,10 +1528,23 @@ app.post('/api/amazon/items/:itemId/category', async (req, res) => {
     // Update category
     database.updateAmazonItemCategory(itemId, category, 100, 'User selected');
 
-    // Learn from user's choice
-    const learnResult = await amazonItemCategorization.learnFromUser(item, category);
+    // Record feedback with new enhanced AI service
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+    await enhancedAI.recordFeedback(
+      itemId.toString(),
+      'amazon_item',
+      previousCategory || item.user_category || 'Uncategorized',
+      category,
+      'user_manual',
+      1.0
+    );
 
-    res.json({ success: true, learnResult });
+    console.log(`✓ User corrected Amazon item #${itemId}: ${item.title} → ${category}`);
+
+    res.json({
+      success: true,
+      message: 'Category updated and feedback recorded'
+    });
   } catch (error) {
     console.error('Error updating Amazon item category:', error);
     res.status(500).json({ error: error.message });
@@ -1534,10 +1552,39 @@ app.post('/api/amazon/items/:itemId/category', async (req, res) => {
 });
 
 // Verify item category
-app.post('/api/amazon/items/:itemId/verify', (req, res) => {
+app.post('/api/amazon/items/:itemId/verify', async (req, res) => {
   try {
     const { itemId } = req.params;
+
+    // Get the item to see its current category
+    const items = database.getAmazonItems({});
+    const item = items.find(i => i.id === parseInt(itemId));
+
+    if (!item || !item.user_category) {
+      return res.status(400).json({ error: 'Item not found or not categorized' });
+    }
+
+    // Mark as verified in database
     database.verifyAmazonItemCategory(itemId);
+
+    // Record positive confirmation feedback with enhanced AI
+    // This tells the AI that its categorization was correct
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+
+    // Get the AI categorization record to see what method was used
+    const aiCategorization = database.getAICategorization(itemId.toString(), 'amazon_item');
+
+    await enhancedAI.recordFeedback(
+      itemId.toString(),
+      'amazon_item',
+      item.user_category, // Suggested category
+      item.user_category, // Actual category (same because verified)
+      aiCategorization?.method || 'unknown',
+      aiCategorization?.confidence || item.confidence / 100
+    );
+
+    console.log(`✓ User verified Amazon item #${itemId}: ${item.title} as ${item.user_category}`);
+
     res.json({ success: true });
   } catch (error) {
     console.error('Error verifying Amazon item category:', error);
