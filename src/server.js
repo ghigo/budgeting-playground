@@ -2092,12 +2092,18 @@ const server = app.listen(PORT, async () => {
   console.log(`📊 Dashboard: http://localhost:${PORT}`);
   console.log(`🔗 Link Account: http://localhost:${PORT}/link`);
 
-  // Start scheduled retraining service
+  // Initialize retraining service (checks and retrains on startup if needed)
   try {
     const { default: scheduledRetraining } = await import('../services/scheduledRetrainingService.js');
-    scheduledRetraining.start();
+    await scheduledRetraining.initialize();
+
+    // Optionally start scheduled jobs for long-running services
+    // Comment out if service restarts frequently
+    if (process.env.ENABLE_SCHEDULED_RETRAINING !== 'false') {
+      scheduledRetraining.start();
+    }
   } catch (error) {
-    console.error('⚠️  Failed to start scheduled retraining service:', error.message);
+    console.error('⚠️  Failed to initialize retraining service:', error.message);
   }
 
   console.log('\nPress Ctrl+C to stop\n');

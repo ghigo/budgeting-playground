@@ -73,13 +73,19 @@ The retraining threshold adapts based on system maturity:
 
 ### Retraining Process
 
-When triggered (by threshold or daily schedule):
+**Triggers:**
+1. **On Startup**: Checks pending feedback and retrains if threshold is met
+2. **On Feedback**: Immediately retrains when threshold is reached
+3. **Scheduled** (optional): Daily at 2 AM and periodic checks every 5 minutes
 
+**Process:**
 1. **Pattern Analysis**: Identifies repeated correction patterns
 2. **Rule Generation**: Creates auto-generated rules from patterns
 3. **Embedding Updates**: Regenerates embeddings for confirmed items
 4. **Feedback Processing**: Marks processed feedback
 5. **Metrics Recording**: Logs training statistics
+
+**Note**: Scheduled jobs are optional and can be disabled by setting `ENABLE_SCHEDULED_RETRAINING=false` in environment variables. This is useful for services that restart frequently.
 
 ## API Endpoints
 
@@ -326,6 +332,11 @@ OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.2:3b
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 
+# Retraining Configuration
+# Set to 'false' to disable scheduled cron jobs (useful for frequently restarting services)
+# Retraining will still happen on startup and when thresholds are reached
+ENABLE_SCHEDULED_RETRAINING=true
+
 # Database (SQLite - auto-created)
 # No configuration needed
 
@@ -376,10 +387,11 @@ Review flagged purchases:
 ### 4. Automatic Improvement
 
 The system automatically:
-- Retrains every 10 corrections (or daily)
-- Creates rules from patterns
-- Updates embeddings
-- Improves accuracy over time
+- **Checks on startup**: Retrains if pending feedback exceeds threshold
+- **Retrains on threshold**: Every 5/10/50 corrections (depending on maturity)
+- **Creates rules from patterns**: Auto-generates rules from repeated corrections
+- **Updates embeddings**: Rebuilds semantic search index
+- **Optional scheduled jobs**: Daily retraining and periodic checks (can be disabled)
 
 ### 5. Ongoing Categorization
 

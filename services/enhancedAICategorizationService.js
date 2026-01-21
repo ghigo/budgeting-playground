@@ -32,7 +32,6 @@ class EnhancedAICategorization {
         this.llmModel = process.env.OLLAMA_MODEL || 'llama3.2:3b';
         this.embeddingModel = process.env.OLLAMA_EMBEDDING_MODEL || 'nomic-embed-text';
         this.httpAgent = httpAgent;
-        this.correctionsSinceRetrain = 0;
         this.embeddingsCache = new Map(); // In-memory cache for faster similarity search
     }
 
@@ -368,13 +367,13 @@ class EnhancedAICategorization {
         // Immediate rule creation for repeated patterns
         await this.checkAndCreateRules(itemId, itemType, actualCategory);
 
-        // Increment correction counter
-        this.correctionsSinceRetrain++;
-
-        // Check if retraining threshold reached
+        // Check if retraining threshold reached (check database, not just in-memory counter)
+        const feedbackCount = database.getFeedbackCountSinceLastTraining();
         const threshold = this.getRetrainingThreshold();
-        if (this.correctionsSinceRetrain >= threshold) {
-            console.log(`🔄 Retraining threshold reached (${this.correctionsSinceRetrain}/${threshold})`);
+
+        if (feedbackCount >= threshold) {
+            console.log(`🔄 Retraining threshold reached (${feedbackCount}/${threshold} corrections)`);
+            console.log('   Triggering immediate retraining...');
             // Trigger background retraining (non-blocking)
             this.retrain().catch(err => console.error('Retraining failed:', err));
         }
@@ -493,9 +492,6 @@ class EnhancedAICategorization {
                 'automatic',
                 `Processed ${feedback.length} corrections, generated ${rulesGenerated} rules, updated ${embeddingsUpdated} embeddings`
             );
-
-            // Reset counter
-            this.correctionsSinceRetrain = 0;
 
             console.log(`✅ Retraining complete in ${duration}ms:`);
             console.log(`   - Processed ${feedback.length} corrections`);
@@ -755,10 +751,9 @@ Be confident when the item clearly matches a category. Use lower confidence (0.5
             ollamaAvailable,
             llmModel: this.llmModel,
             embeddingModel: this.embeddingModel,
-            correctionsSinceRetrain: this.correctionsSinceRetrain,
             retrainingThreshold: threshold,
             pendingFeedback: feedbackCount,
-            nextRetrainingIn: threshold - this.correctionsSinceRetrain
+            nextRetrainingIn: Math.max(0, threshold - feedbackCount)
         };
     }
 }

@@ -1,7 +1,7 @@
 /**
  * Scheduled Retraining Service
- * Handles automatic retraining of AI categorization on a schedule
- * Uses node-cron for scheduling
+ * Handles automatic retraining of AI categorization on startup and schedule
+ * Uses node-cron for scheduling (optional - for long-running services)
  */
 
 import cron from 'node-cron';
@@ -16,10 +16,22 @@ class ScheduledRetrainingService {
     }
 
     /**
-     * Start all scheduled jobs
+     * Initialize service - check and retrain on startup
+     */
+    async initialize() {
+        console.log('🕐 Initializing retraining service...');
+
+        // Check if retraining is needed on startup
+        await this.checkAndRetrain('startup');
+
+        console.log('✓ Retraining service initialized');
+    }
+
+    /**
+     * Start scheduled jobs (optional - only needed for long-running services)
      */
     start() {
-        console.log('🕐 Starting scheduled retraining service...');
+        console.log('🕐 Starting scheduled retraining jobs...');
 
         // Daily retraining at 2 AM
         this.dailyRetrainingJob = cron.schedule('0 2 * * *', async () => {
@@ -29,10 +41,10 @@ class ScheduledRetrainingService {
 
         // Check correction threshold every 5 minutes
         this.periodicCheckJob = cron.schedule('*/5 * * * *', async () => {
-            await this.checkAndRetrain();
+            await this.checkAndRetrain('periodic_check');
         });
 
-        console.log('✓ Scheduled retraining service started');
+        console.log('✓ Scheduled retraining jobs started');
         console.log('  - Daily retraining: 2:00 AM');
         console.log('  - Threshold check: Every 5 minutes');
     }
@@ -59,7 +71,7 @@ class ScheduledRetrainingService {
     /**
      * Check if correction threshold is reached and retrain if necessary
      */
-    async checkAndRetrain() {
+    async checkAndRetrain(triggerType = 'threshold_check') {
         if (this.isRetraining) {
             // Already retraining, skip
             return;
@@ -68,10 +80,20 @@ class ScheduledRetrainingService {
         try {
             const feedbackCount = database.getFeedbackCountSinceLastTraining();
             const threshold = enhancedAI.getRetrainingThreshold();
+            const lastTraining = database.getLastTrainingTimestamp();
+
+            if (triggerType === 'startup') {
+                console.log('📊 Checking retraining status on startup:');
+                console.log(`   - Pending feedback: ${feedbackCount}`);
+                console.log(`   - Retraining threshold: ${threshold}`);
+                console.log(`   - Last training: ${lastTraining || 'Never'}`);
+            }
 
             if (feedbackCount >= threshold) {
                 console.log(`🔄 Threshold reached: ${feedbackCount}/${threshold} corrections`);
-                await this.performRetraining('threshold_triggered');
+                await this.performRetraining(triggerType);
+            } else if (triggerType === 'startup' && feedbackCount > 0) {
+                console.log(`✓ No retraining needed (${feedbackCount}/${threshold} corrections pending)`);
             }
         } catch (error) {
             console.error('Error checking retraining threshold:', error);
