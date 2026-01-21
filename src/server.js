@@ -1892,6 +1892,178 @@ app.post('/api/external-categories/suggest-mapping', async (req, res) => {
 });
 
 // ============================================================================
+// ENHANCED AI CATEGORIZATION (4-STAGE PIPELINE)
+// ============================================================================
+
+// Categorize a single purchase/item
+app.post('/api/categorize', async (req, res) => {
+  try {
+    const { purchase, item_type = 'amazon_item', item_id } = req.body;
+
+    if (!purchase) {
+      return res.status(400).json({ error: 'Purchase data is required' });
+    }
+
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+    const result = await enhancedAI.categorize(purchase, item_type, item_id);
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error categorizing purchase:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Batch categorize purchases
+app.post('/api/categorize/batch', async (req, res) => {
+  try {
+    const { purchases, item_type = 'amazon_item', batch_size = 10 } = req.body;
+
+    if (!purchases || !Array.isArray(purchases)) {
+      return res.status(400).json({ error: 'Purchases array is required' });
+    }
+
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+
+    const results = await enhancedAI.batchCategorize(purchases, item_type, {
+      batchSize: batch_size
+    });
+
+    res.json({
+      total: purchases.length,
+      results: results
+    });
+  } catch (error) {
+    console.error('Error batch categorizing:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Submit user feedback/correction
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const {
+      purchase_id,
+      item_type = 'amazon_item',
+      suggested_category,
+      actual_category,
+      suggestion_method,
+      suggestion_confidence
+    } = req.body;
+
+    if (!purchase_id || !actual_category) {
+      return res.status(400).json({
+        error: 'purchase_id and actual_category are required'
+      });
+    }
+
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+
+    await enhancedAI.recordFeedback(
+      purchase_id,
+      item_type,
+      suggested_category || 'Unknown',
+      actual_category,
+      suggestion_method,
+      suggestion_confidence
+    );
+
+    res.json({
+      success: true,
+      message: 'Feedback recorded successfully'
+    });
+  } catch (error) {
+    console.error('Error recording feedback:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get AI categorization status and metrics
+app.get('/api/categorize/status', async (req, res) => {
+  try {
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+    const status = await enhancedAI.getStatus();
+
+    // Get metrics
+    const metrics = database.getAIMetrics();
+    const trainingHistory = database.getAITrainingHistory(5);
+    const accuracyByMethod = database.getCategorizationAccuracyByMethod(null, 30);
+
+    res.json({
+      ...status,
+      metrics,
+      trainingHistory,
+      accuracyByMethod
+    });
+  } catch (error) {
+    console.error('Error getting categorization status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Trigger manual retraining
+app.post('/api/categorize/retrain', async (req, res) => {
+  try {
+    const { default: scheduledRetraining } = await import('../services/scheduledRetrainingService.js');
+
+    // Trigger retraining asynchronously
+    scheduledRetraining.manualRetrain().catch(err =>
+      console.error('Manual retraining failed:', err)
+    );
+
+    res.json({
+      success: true,
+      message: 'Retraining initiated in background'
+    });
+  } catch (error) {
+    console.error('Error triggering retraining:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get retraining status
+app.get('/api/categorize/retrain/status', async (req, res) => {
+  try {
+    const { default: scheduledRetraining } = await import('../services/scheduledRetrainingService.js');
+    const status = scheduledRetraining.getStatus();
+
+    res.json(status);
+  } catch (error) {
+    console.error('Error getting retraining status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Import Amazon CSV with categorization
+app.post('/api/imports/amazon-csv', async (req, res) => {
+  try {
+    // TODO: Implement CSV import with auto-categorization
+    res.status(501).json({ error: 'Not yet implemented' });
+  } catch (error) {
+    console.error('Error importing Amazon CSV:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get categorization metrics
+app.get('/api/metrics/categorization', async (req, res) => {
+  try {
+    const { item_type, start_date, end_date, days = 30 } = req.query;
+
+    const metrics = database.getAIMetrics(item_type, start_date, end_date);
+    const accuracyByMethod = database.getCategorizationAccuracyByMethod(item_type, parseInt(days));
+
+    res.json({
+      metrics,
+      accuracyByMethod
+    });
+  } catch (error) {
+    console.error('Error getting categorization metrics:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
 // SERVER START
 // ============================================================================
 
@@ -1911,7 +2083,7 @@ app.get('*', (req, res) => {
 });
 
 // Start server
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   const envEmoji = plaidEnvironment === 'production' ? '🟢' : '🟡';
   const envLabel = plaidEnvironment.toUpperCase();
 
@@ -1919,6 +2091,15 @@ const server = app.listen(PORT, () => {
   console.log(`${envEmoji} Environment: ${envLabel}`);
   console.log(`📊 Dashboard: http://localhost:${PORT}`);
   console.log(`🔗 Link Account: http://localhost:${PORT}/link`);
+
+  // Start scheduled retraining service
+  try {
+    const { default: scheduledRetraining } = await import('../services/scheduledRetrainingService.js');
+    scheduledRetraining.start();
+  } catch (error) {
+    console.error('⚠️  Failed to start scheduled retraining service:', error.message);
+  }
+
   console.log('\nPress Ctrl+C to stop\n');
 });
 
@@ -1932,6 +2113,14 @@ async function gracefulShutdown(signal) {
   });
 
   try {
+    // Stop scheduled retraining service
+    try {
+      const { default: scheduledRetraining } = await import('../services/scheduledRetrainingService.js');
+      scheduledRetraining.stop();
+    } catch (error) {
+      console.error('   Failed to stop scheduled retraining:', error.message);
+    }
+
     // Cleanup AI resources (unload Ollama model, stop processes)
     await aiCategorization.cleanup();
 

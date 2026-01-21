@@ -42,6 +42,8 @@
     "express": "^4.22.1",
     "googleapis": "^131.0.0",
     "inquirer": "^9.2.0",
+    "node-cron": "^4.2.1",
+    "ollama": "^0.6.3",
     "plaid": "^27.0.0"
   }
 }
