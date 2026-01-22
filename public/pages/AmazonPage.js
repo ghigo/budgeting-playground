@@ -1512,14 +1512,8 @@ window.handleImageLoad = function(imageId) {
     // Amazon CDN sometimes returns 1x1 or very small images for missing products
     if (img.naturalWidth < 50 || img.naturalHeight < 50) {
         tryNextFallback(imageId, img);
-    } else {
-        // Valid image loaded - log success if this was after fallback attempts
-        const fallbackIndex = parseInt(img.getAttribute('data-fallback-index') || '0');
-        if (fallbackIndex > 0) {
-            const asin = img.src.match(/\/([A-Z0-9]{10})/)?.[1] || 'unknown';
-            console.log(`[Amazon Images] ASIN ${asin}: Image loaded successfully using fallback #${fallbackIndex + 1}`);
-        }
     }
+    // Removed verbose success logging to reduce console spam
 };
 
 async function tryNextFallback(imageId, img) {
@@ -1541,26 +1535,22 @@ async function tryNextFallback(imageId, img) {
                 img.setAttribute('data-backend-tried', 'true');
 
                 try {
-                    console.log(`[Amazon Images] ASIN ${asin}: Trying backend scraper as final fallback...`);
+                    // Silently try backend scraper (no console spam)
                     const response = await fetch(`/api/amazon/product-image/${asin}`);
 
                     if (response.ok) {
                         const data = await response.json();
                         if (data.imageUrl) {
-                            console.log(`[Amazon Images] ASIN ${asin}: Real image URL found via backend scraper!`);
                             img.src = data.imageUrl;
                             return; // Don't show placeholder yet, wait for this to load
                         }
                     }
                 } catch (backendError) {
-                    console.log(`[Amazon Images] ASIN ${asin}: Backend scraper failed:`, backendError.message);
+                    // Silent failure - placeholder will show below
                 }
             }
 
-            // Show placeholder as absolute last resort
-            if (currentIndex > 0) {
-                console.log(`[Amazon Images] ASIN ${asin || 'unknown'}: No image available after trying all sources`);
-            }
+            // Show placeholder as absolute last resort (silently)
             showPlaceholder(imageId);
         }
     } catch (error) {

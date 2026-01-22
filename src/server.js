@@ -1214,7 +1214,7 @@ app.get('/api/amazon/product-image/:asin', async (req, res) => {
     // Check if we have a cached image URL in database first
     const cachedItems = database.getAmazonItems({ asin });
     if (cachedItems.length > 0 && cachedItems[0].image_url) {
-      console.log(`[Image Cache] Using cached image URL for ASIN ${asin}`);
+      // Return cached image URL silently (no console spam)
       return res.json({ asin, imageUrl: cachedItems[0].image_url, cached: true });
     }
 
@@ -1283,13 +1283,12 @@ app.get('/api/amazon/product-image/:asin', async (req, res) => {
     // Clean up the image URL (remove size parameters for better quality)
     imageUrl = imageUrl.split('._')[0] + '._AC_SL500_.jpg';
 
-    // Cache the image URL in database for future use
+    // Cache the image URL in database for future use (silently)
     try {
       database.updateAmazonItemImageUrl(asin, imageUrl);
-      console.log(`[Image Cache] Saved scraped image URL for ASIN ${asin}`);
     } catch (dbError) {
+      // Only log errors, not successes
       console.error(`[Image Cache] Failed to save image URL for ASIN ${asin}:`, dbError);
-      // Don't fail the request if caching fails
     }
 
     res.json({ asin, imageUrl, cached: false });
