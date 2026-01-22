@@ -527,6 +527,57 @@ class EnhancedAICategorization {
     }
 
     /**
+     * Attempt to auto-install embedding model
+     */
+    async autoInstallEmbeddingModel() {
+        console.log(`📥 Attempting to auto-install embedding model: ${this.embeddingModel}`);
+        console.log('   This may take a few minutes (model size: ~275 MB)...');
+
+        try {
+            const { exec } = await import('child_process');
+            const { promisify } = await import('util');
+            const execAsync = promisify(exec);
+
+            // Try to pull the model using Ollama CLI
+            const { stdout, stderr } = await execAsync(`ollama pull ${this.embeddingModel}`, {
+                timeout: 300000 // 5 minute timeout
+            });
+
+            console.log('✅ Embedding model installed successfully!');
+            console.log('   Semantic similarity search is now enabled.');
+            this.embeddingsAvailable = true;
+            return true;
+        } catch (error) {
+            console.error('❌ Failed to auto-install embedding model:', error.message);
+            console.log('');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('⚠️  EMBEDDINGS DISABLED - Semantic Search Unavailable');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('');
+            console.log('The AI categorization system is working, but Stage 3 (Semantic');
+            console.log('Similarity) is disabled. This reduces accuracy for similar items.');
+            console.log('');
+            console.log('To enable semantic similarity search, manually install the model:');
+            console.log('');
+            console.log(`  $ ollama pull ${this.embeddingModel}`);
+            console.log('');
+            console.log('Then restart the server:');
+            console.log('');
+            console.log('  $ npm run start:prod');
+            console.log('');
+            console.log('Current categorization pipeline:');
+            console.log('  ✅ Stage 1: Exact Match (100% confidence)');
+            console.log('  ✅ Stage 2: Rule-Based (90-98% confidence)');
+            console.log('  ❌ Stage 3: Semantic Similarity (DISABLED)');
+            console.log('  ✅ Stage 4: LLM Reasoning (fallback)');
+            console.log('');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('');
+            return false;
+        }
+    }
+
+    /**
      * Generate embedding using Ollama
      */
     async generateEmbedding(text) {
@@ -547,7 +598,7 @@ class EnhancedAICategorization {
             if (response.status === 404) {
                 response = await fetch(`${this.ollamaUrl}/api/embeddings`, {
                     method: 'POST',
-                    headers: { 'Content-Type: application/json' },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         model: this.embeddingModel,
                         prompt: text
@@ -561,24 +612,37 @@ class EnhancedAICategorization {
                 // If still failing, it's likely the model isn't installed
                 if (response.status === 404) {
                     this.embeddingsAvailable = false;
+
+                    // Only try to auto-install once
                     if (!this.embeddingCheckWarningShown) {
-                        console.warn(`⚠️  Embedding model '${this.embeddingModel}' not found. Semantic search disabled.`);
-                        console.warn(`   To enable: ollama pull ${this.embeddingModel}`);
                         this.embeddingCheckWarningShown = true;
+
+                        // Attempt automatic installation
+                        const installed = await this.autoInstallEmbeddingModel();
+
+                        if (installed) {
+                            // Try generating embedding again after successful installation
+                            return this.generateEmbedding(text);
+                        }
                     }
+
                     return null;
                 }
                 throw new Error(`Ollama embeddings API error: ${response.status}`);
             }
 
             const result = await response.json();
+            // Mark as available on first success
+            if (this.embeddingsAvailable === null) {
+                this.embeddingsAvailable = true;
+            }
             // Handle both response formats
             return result.embedding || result.embeddings?.[0];
         } catch (error) {
             if (error.name === 'AbortError') {
-                console.warn('Embedding generation timed out');
-            } else if (!error.message.includes('not found')) {
-                console.warn('Failed to generate embedding:', error.message);
+                console.warn('⚠️  Embedding generation timed out');
+            } else if (!error.message.includes('not found') && !error.message.includes('404')) {
+                console.warn('⚠️  Failed to generate embedding:', error.message);
             }
             return null;
         }
