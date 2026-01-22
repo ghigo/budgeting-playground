@@ -1201,6 +1201,88 @@ app.get('/api/amazon/orders/:orderId', (req, res) => {
   }
 });
 
+// Get Amazon product image URL by ASIN (scrapes actual product page)
+app.get('/api/amazon/product-image/:asin', async (req, res) => {
+  try {
+    const { asin } = req.params;
+
+    // Validate ASIN format
+    if (!/^[A-Z0-9]{10}$/.test(asin)) {
+      return res.status(400).json({ error: 'Invalid ASIN format' });
+    }
+
+    // Fetch Amazon product page
+    const productUrl = `https://www.amazon.com/dp/${asin}`;
+    const response = await fetch(productUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
+      }
+    });
+
+    if (!response.ok) {
+      return res.status(404).json({ error: 'Product not found on Amazon' });
+    }
+
+    const html = await response.text();
+
+    // Extract image URL from HTML - try multiple patterns
+    let imageUrl = null;
+
+    // Pattern 1: OpenGraph image (most reliable)
+    const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
+    if (ogImageMatch) {
+      imageUrl = ogImageMatch[1];
+    }
+
+    // Pattern 2: Main product image in data attribute
+    if (!imageUrl) {
+      const dataImageMatch = html.match(/data-old-hires="([^"]+)"/);
+      if (dataImageMatch) {
+        imageUrl = dataImageMatch[1];
+      }
+    }
+
+    // Pattern 3: Image in imageBlock
+    if (!imageUrl) {
+      const imgSrcMatch = html.match(/id="landingImage"[^>]*src="([^"]+)"/);
+      if (imgSrcMatch) {
+        imageUrl = imgSrcMatch[1];
+      }
+    }
+
+    // Pattern 4: colorImages JSON data
+    if (!imageUrl) {
+      const colorImagesMatch = html.match(/'colorImages':\s*{\s*'initial':\s*\[({[^}]+})/);
+      if (colorImagesMatch) {
+        try {
+          const imageData = JSON.parse(colorImagesMatch[1]);
+          if (imageData.large) {
+            imageUrl = imageData.large;
+          } else if (imageData.hiRes) {
+            imageUrl = imageData.hiRes;
+          }
+        } catch (e) {
+          // JSON parse failed, continue
+        }
+      }
+    }
+
+    if (!imageUrl) {
+      return res.status(404).json({ error: 'Image not found in product page' });
+    }
+
+    // Clean up the image URL (remove size parameters for better quality)
+    imageUrl = imageUrl.split('._')[0] + '._AC_SL500_.jpg';
+
+    res.json({ asin, imageUrl });
+  } catch (error) {
+    console.error('Error fetching Amazon product image:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get Amazon order statistics
 app.get('/api/amazon/stats', (req, res) => {
   try {

@@ -1416,7 +1416,7 @@ window.handleImageLoad = function(imageId) {
     }
 };
 
-function tryNextFallback(imageId, img) {
+async function tryNextFallback(imageId, img) {
     try {
         const fallbackUrls = JSON.parse(img.getAttribute('data-fallback-urls') || '[]');
         const currentIndex = parseInt(img.getAttribute('data-fallback-index') || '0');
@@ -1427,11 +1427,33 @@ function tryNextFallback(imageId, img) {
             img.setAttribute('data-fallback-index', nextIndex.toString());
             img.src = fallbackUrls[nextIndex];
         } else {
-            // All fallbacks exhausted, show placeholder (only log this final state)
-            const asin = fallbackUrls[0]?.match(/\/([A-Z0-9]{10})/)?.[1] || 'unknown';
+            // All static fallbacks exhausted - try fetching real image URL from backend as last resort
+            const asin = fallbackUrls[0]?.match(/\/([A-Z0-9]{10})/)?.[1];
+
+            if (asin && !img.getAttribute('data-backend-tried')) {
+                // Mark that we're trying backend to avoid infinite loops
+                img.setAttribute('data-backend-tried', 'true');
+
+                try {
+                    console.log(`[Amazon Images] ASIN ${asin}: Trying backend scraper as final fallback...`);
+                    const response = await fetch(`/api/amazon/product-image/${asin}`);
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.imageUrl) {
+                            console.log(`[Amazon Images] ASIN ${asin}: Real image URL found via backend scraper!`);
+                            img.src = data.imageUrl;
+                            return; // Don't show placeholder yet, wait for this to load
+                        }
+                    }
+                } catch (backendError) {
+                    console.log(`[Amazon Images] ASIN ${asin}: Backend scraper failed:`, backendError.message);
+                }
+            }
+
+            // Show placeholder as absolute last resort
             if (currentIndex > 0) {
-                // Only log if we actually tried fallbacks (not on first load)
-                console.log(`[Amazon Images] ASIN ${asin}: No image available after trying ${fallbackUrls.length} sources`);
+                console.log(`[Amazon Images] ASIN ${asin || 'unknown'}: No image available after trying all sources`);
             }
             showPlaceholder(imageId);
         }
