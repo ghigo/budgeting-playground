@@ -384,18 +384,25 @@ function displayAmazonOrders(orders) {
                     ? `<a href="${itemUrl}" target="_blank" style="color: var(--primary); text-decoration: none; hover:text-decoration: underline;">${escapeHtml(item.title)}</a>`
                     : escapeHtml(item.title);
 
-                // Construct product image URL using ASIN (if available)
-                // Use modern Amazon image CDN format
-                const imageUrl = item.asin ? `https://m.media-amazon.com/images/P/${item.asin}.01._SCLZZZZZZZ_SX500_.jpg` : null;
-
-                // Create image HTML with proper fallback
+                // Create image HTML with proper fallback cascade
                 let imageHtml = '';
-                if (imageUrl) {
+                if (item.asin) {
                     const uniqueId = `img-${item.id}-${Math.random().toString(36).substr(2, 9)}`;
+
+                    // Build fallback URL list (will try each in sequence if previous fails)
+                    const fallbackUrls = [
+                        `https://m.media-amazon.com/images/P/${item.asin}.01._SCLZZZZZZZ_SX500_.jpg`,
+                        `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.01.LZZZZZZZ.jpg`,
+                        `https://m.media-amazon.com/images/I/${item.asin}._SL200_.jpg`,
+                        `https://images-na.ssl-images-amazon.com/images/I/${item.asin}._SL160_.jpg`
+                    ];
+
                     imageHtml = `
                         <div id="container-${uniqueId}" style="flex-shrink: 0; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; background: white; border-radius: 4px; overflow: hidden;">
                             <img id="${uniqueId}"
-                                 src="${imageUrl}"
+                                 src="${fallbackUrls[0]}"
+                                 data-fallback-urls='${JSON.stringify(fallbackUrls)}'
+                                 data-fallback-index="0"
                                  alt="${escapeHtml(item.title)}"
                                  style="width: 100%; height: 100%; object-fit: contain; padding: 2px;"
                                  onerror="handleImageError('${uniqueId}')"
@@ -1369,9 +1376,12 @@ async function pollJobProgress(jobId, totalItems) {
     poll();
 }
 
-// Handle image loading errors
+// Handle image loading errors - try fallback URLs before showing placeholder
 window.handleImageError = function(imageId) {
-    showPlaceholder(imageId);
+    const img = document.getElementById(imageId);
+    if (!img) return;
+
+    tryNextFallback(imageId, img);
 };
 
 // Handle image load success - check if image is valid (not tiny/broken)
@@ -1382,9 +1392,32 @@ window.handleImageLoad = function(imageId) {
     // Check if image is too small (likely a broken/missing image placeholder)
     // Amazon CDN sometimes returns 1x1 or very small images for missing products
     if (img.naturalWidth < 50 || img.naturalHeight < 50) {
-        showPlaceholder(imageId);
+        console.log(`[Image] Tiny image detected for ${imageId}: ${img.naturalWidth}x${img.naturalHeight}, trying fallback...`);
+        tryNextFallback(imageId, img);
     }
 };
+
+function tryNextFallback(imageId, img) {
+    try {
+        const fallbackUrls = JSON.parse(img.getAttribute('data-fallback-urls') || '[]');
+        const currentIndex = parseInt(img.getAttribute('data-fallback-index') || '0');
+        const nextIndex = currentIndex + 1;
+
+        if (nextIndex < fallbackUrls.length) {
+            // Try next URL in fallback cascade
+            console.log(`[Image] Trying fallback ${nextIndex + 1}/${fallbackUrls.length} for ${imageId}`);
+            img.setAttribute('data-fallback-index', nextIndex.toString());
+            img.src = fallbackUrls[nextIndex];
+        } else {
+            // All fallbacks exhausted, show placeholder
+            console.log(`[Image] All fallbacks exhausted for ${imageId}, showing placeholder`);
+            showPlaceholder(imageId);
+        }
+    } catch (error) {
+        console.error(`[Image] Error in fallback logic for ${imageId}:`, error);
+        showPlaceholder(imageId);
+    }
+}
 
 function showPlaceholder(imageId) {
     const container = document.getElementById(`container-${imageId}`);
