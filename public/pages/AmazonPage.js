@@ -16,6 +16,13 @@ let amazonYearlyChart = null;
 let amazonCurrentTimeRange = 'all';
 let newlyMatchedAmazonOrderIds = new Set();
 
+// Pagination state
+let currentOffset = 0;
+let hasMoreOrders = true;
+let isLoadingMore = false;
+const ORDERS_PER_PAGE = 50;
+let currentFilters = {};
+
 // Dependencies (injected)
 let fetchAPI = null;
 let navigateTo = null;
@@ -46,6 +53,31 @@ export function initializeAmazonPage(deps) {
     window.unverifyItemCategory = unverifyItemCategory;
     window.categorizeAllAmazonItems = categorizeAllAmazonItems;
     window.categorizeFirst20Items = categorizeFirst20Items;
+
+    // Setup infinite scroll
+    setupInfiniteScroll();
+}
+
+// Setup infinite scroll listener
+function setupInfiniteScroll() {
+    let scrollTimeout;
+
+    window.addEventListener('scroll', () => {
+        // Debounce scroll events
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+            // Check if user is near bottom of page (within 500px)
+            const scrollPosition = window.innerHeight + window.scrollY;
+            const pageHeight = document.documentElement.scrollHeight;
+
+            if (scrollPosition >= pageHeight - 500) {
+                // Auto-load more if we have more orders
+                if (hasMoreOrders && !isLoadingMore) {
+                    loadMoreOrders();
+                }
+            }
+        }, 100);
+    });
 }
 
 export async function loadAmazonPage() {
@@ -88,17 +120,43 @@ async function loadAmazonStats() {
     }
 }
 
-async function loadAmazonOrders(filters = {}) {
+async function loadAmazonOrders(filters = {}, reset = true) {
+    // If reset, start fresh; otherwise append
+    if (reset) {
+        currentOffset = 0;
+        hasMoreOrders = true;
+        amazonOrders = [];
+        currentFilters = filters;
+    } else if (isLoadingMore || !hasMoreOrders) {
+        return; // Already loading or no more data
+    }
+
+    isLoadingMore = true;
+
     try {
         const queryParams = new URLSearchParams();
 
+        // Add filters
         if (filters.startDate) queryParams.append('startDate', filters.startDate);
         if (filters.endDate) queryParams.append('endDate', filters.endDate);
         if (filters.matched !== undefined) queryParams.append('matched', filters.matched);
 
+        // Add pagination
+        queryParams.append('limit', ORDERS_PER_PAGE.toString());
+        queryParams.append('offset', currentOffset.toString());
+
         const queryString = queryParams.toString();
-        const url = `/api/amazon/orders${queryString ? '?' + queryString : ''}`;
-        amazonOrders = await fetchAPI(url);
+        const url = `/api/amazon/orders?${queryString}`;
+        const newOrders = await fetchAPI(url);
+
+        // Check if we got fewer orders than requested (end of data)
+        if (newOrders.length < ORDERS_PER_PAGE) {
+            hasMoreOrders = false;
+        }
+
+        // Append new orders to existing ones
+        amazonOrders = [...amazonOrders, ...newOrders];
+        currentOffset += newOrders.length;
 
         // Log item categorization data for debugging
         const totalItems = amazonOrders.reduce((sum, order) => sum + (order.items?.length || 0), 0);
@@ -106,8 +164,10 @@ async function loadAmazonOrders(filters = {}) {
             sum + (order.items?.filter(item => item.user_category)?.length || 0), 0);
         console.log(`[Amazon Orders] Loaded ${amazonOrders.length} orders with ${totalItems} items (${categorizedItems} categorized)`);
 
-        // Populate account filter dropdown with unique account names
-        populateAccountFilter();
+        // Populate account filter dropdown with unique account names (only on reset)
+        if (reset) {
+            populateAccountFilter();
+        }
 
         // Apply search/confidence filters if they exist
         const searchInput = document.getElementById('amazonSearchInput');
@@ -117,9 +177,47 @@ async function loadAmazonOrders(filters = {}) {
         } else {
             displayAmazonOrders(amazonOrders);
         }
+
+        // Update load more indicator
+        updateLoadMoreIndicator();
     } catch (error) {
         console.error('Error loading Amazon orders:', error);
         showToast('Failed to load orders', 'error');
+    } finally {
+        isLoadingMore = false;
+    }
+}
+
+// Load more orders (for infinite scroll)
+async function loadMoreOrders() {
+    await loadAmazonOrders(currentFilters, false);
+}
+
+// Update "Load More" indicator
+function updateLoadMoreIndicator() {
+    const ordersContainer = document.getElementById('amazonOrdersContainer');
+    if (!ordersContainer) return;
+
+    // Remove existing load more indicator
+    const existingIndicator = document.getElementById('loadMoreIndicator');
+    if (existingIndicator) {
+        existingIndicator.remove();
+    }
+
+    if (!hasMoreOrders && amazonOrders.length > 0) {
+        // Show "end of list" message
+        const endMessage = document.createElement('div');
+        endMessage.id = 'loadMoreIndicator';
+        endMessage.style.cssText = 'text-align: center; padding: 2rem; color: var(--text-secondary); font-style: italic;';
+        endMessage.textContent = `Showing all ${amazonOrders.length} orders`;
+        ordersContainer.appendChild(endMessage);
+    } else if (hasMoreOrders && amazonOrders.length > 0) {
+        // Show "scroll for more" hint
+        const loadHint = document.createElement('div');
+        loadHint.id = 'loadMoreIndicator';
+        loadHint.style.cssText = 'text-align: center; padding: 1rem; color: var(--text-secondary);';
+        loadHint.textContent = '↓ Scroll down to load more orders';
+        ordersContainer.appendChild(loadHint);
     }
 }
 
