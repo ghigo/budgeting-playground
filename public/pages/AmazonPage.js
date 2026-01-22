@@ -1187,7 +1187,7 @@ async function updateItemCategory(itemId, category) {
             body: JSON.stringify({ category })
         });
 
-        showToast(`✓ Item categorized as: ${category}`, 'success');
+        showToast(`✓ Item categorized as: ${category} (verified)`, 'success');
 
         if (result.learnResult && result.learnResult.success) {
             if (result.learnResult.action === 'created') {

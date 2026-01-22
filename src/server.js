@@ -1679,8 +1679,9 @@ app.post('/api/amazon/items/:itemId/category', async (req, res) => {
 
     const item = items[0];
 
-    // Update category
+    // Update category and auto-verify (manual selection implies verification)
     database.updateAmazonItemCategory(itemId, category, 100, 'User selected');
+    database.verifyAmazonItemCategory(itemId);
 
     // Record feedback with new enhanced AI service
     const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
