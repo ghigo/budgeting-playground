@@ -3301,9 +3301,9 @@ export function getAmazonItems(filters = {}) {
   }
 
   if (filters.verified === 'yes') {
-    whereClause += ' AND ai.verified = "Yes"';
+    whereClause += ' AND ai.verified = \'Yes\'';
   } else if (filters.verified === 'no') {
-    whereClause += ' AND ai.verified = "No"';
+    whereClause += ' AND ai.verified = \'No\'';
   }
 
   // Build data query with pagination
