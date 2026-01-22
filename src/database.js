@@ -3289,6 +3289,11 @@ export function getAmazonItems(filters = {}) {
     params.push(filters.orderId);
   }
 
+  if (filters.asin) {
+    whereClause += ' AND ai.asin = ?';
+    params.push(filters.asin);
+  }
+
   if (filters.categorized === 'yes') {
     whereClause += ' AND ai.user_category IS NOT NULL';
   } else if (filters.categorized === 'no') {
@@ -3370,6 +3375,21 @@ export function unverifyAmazonItemCategory(itemId, originalConfidence = 0) {
     SET verified = 'No', confidence = ?
     WHERE id = ?
   `).run(originalConfidence, itemId);
+
+  return { success: true };
+}
+
+/**
+ * Update Amazon item image URL (cache scraped image URL)
+ * @param {string} asin - Product ASIN
+ * @param {string} imageUrl - Scraped image URL
+ */
+export function updateAmazonItemImageUrl(asin, imageUrl) {
+  db.prepare(`
+    UPDATE amazon_items
+    SET image_url = ?
+    WHERE asin = ?
+  `).run(imageUrl, asin);
 
   return { success: true };
 }

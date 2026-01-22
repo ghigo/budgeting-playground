@@ -390,8 +390,16 @@ function displayAmazonOrders(orders) {
                     const uniqueId = `img-${item.id}-${Math.random().toString(36).substr(2, 9)}`;
 
                     // Build fallback URL list (will try each in sequence if previous fails)
-                    // Try multiple CDN endpoints and format variations
-                    const fallbackUrls = [
+                    // If we have a cached image_url from database, use it first
+                    const fallbackUrls = [];
+
+                    if (item.image_url) {
+                        // Use cached image URL as first choice
+                        fallbackUrls.push(item.image_url);
+                    }
+
+                    // Add standard CDN URL guesses as additional fallbacks
+                    fallbackUrls.push(
                         // Modern CDN with .01 suffix (most common)
                         `https://m.media-amazon.com/images/P/${item.asin}.01._SCLZZZZZZZ_SX500_.jpg`,
                         // Without .01 suffix (some products don't use it)
@@ -408,7 +416,7 @@ function displayAmazonOrders(orders) {
                         `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.01.jpg`,
                         // Basic format without .01 (simplest format, last resort)
                         `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.jpg`
-                    ];
+                    );
 
                     imageHtml = `
                         <div id="container-${uniqueId}" style="flex-shrink: 0; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; background: white; border-radius: 4px; overflow: hidden;">

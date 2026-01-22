@@ -1211,6 +1211,13 @@ app.get('/api/amazon/product-image/:asin', async (req, res) => {
       return res.status(400).json({ error: 'Invalid ASIN format' });
     }
 
+    // Check if we have a cached image URL in database first
+    const cachedItems = database.getAmazonItems({ asin });
+    if (cachedItems.length > 0 && cachedItems[0].image_url) {
+      console.log(`[Image Cache] Using cached image URL for ASIN ${asin}`);
+      return res.json({ asin, imageUrl: cachedItems[0].image_url, cached: true });
+    }
+
     // Fetch Amazon product page
     const productUrl = `https://www.amazon.com/dp/${asin}`;
     const response = await fetch(productUrl, {
@@ -1276,7 +1283,16 @@ app.get('/api/amazon/product-image/:asin', async (req, res) => {
     // Clean up the image URL (remove size parameters for better quality)
     imageUrl = imageUrl.split('._')[0] + '._AC_SL500_.jpg';
 
-    res.json({ asin, imageUrl });
+    // Cache the image URL in database for future use
+    try {
+      database.updateAmazonItemImageUrl(asin, imageUrl);
+      console.log(`[Image Cache] Saved scraped image URL for ASIN ${asin}`);
+    } catch (dbError) {
+      console.error(`[Image Cache] Failed to save image URL for ASIN ${asin}:`, dbError);
+      // Don't fail the request if caching fails
+    }
+
+    res.json({ asin, imageUrl, cached: false });
   } catch (error) {
     console.error('Error fetching Amazon product image:', error);
     res.status(500).json({ error: error.message });
