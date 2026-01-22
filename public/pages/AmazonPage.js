@@ -390,11 +390,23 @@ function displayAmazonOrders(orders) {
                     const uniqueId = `img-${item.id}-${Math.random().toString(36).substr(2, 9)}`;
 
                     // Build fallback URL list (will try each in sequence if previous fails)
-                    // Note: /images/I/ format requires IMAGE_ID (not ASIN), so we only use /images/P/ formats
+                    // Try multiple CDN endpoints and format variations
                     const fallbackUrls = [
+                        // Modern CDN with .01 suffix (most common)
                         `https://m.media-amazon.com/images/P/${item.asin}.01._SCLZZZZZZZ_SX500_.jpg`,
+                        // Without .01 suffix (some products don't use it)
+                        `https://m.media-amazon.com/images/P/${item.asin}._SCLZZZZZZZ_SX500_.jpg`,
+                        // Legacy CDN with .01
                         `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.01.LZZZZZZZ.jpg`,
+                        // Legacy CDN without .01
+                        `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.LZZZZZZZ.jpg`,
+                        // Modern CDN smaller size with .01
                         `https://m.media-amazon.com/images/P/${item.asin}.01._SCLZZZZZZZ_SX300_.jpg`,
+                        // Modern CDN smaller size without .01
+                        `https://m.media-amazon.com/images/P/${item.asin}._SCLZZZZZZZ_SX300_.jpg`,
+                        // Basic format with .01
+                        `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.01.jpg`,
+                        // Basic format without .01 (simplest format, last resort)
                         `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.jpg`
                     ];
 
@@ -1394,6 +1406,13 @@ window.handleImageLoad = function(imageId) {
     // Amazon CDN sometimes returns 1x1 or very small images for missing products
     if (img.naturalWidth < 50 || img.naturalHeight < 50) {
         tryNextFallback(imageId, img);
+    } else {
+        // Valid image loaded - log success if this was after fallback attempts
+        const fallbackIndex = parseInt(img.getAttribute('data-fallback-index') || '0');
+        if (fallbackIndex > 0) {
+            const asin = img.src.match(/\/([A-Z0-9]{10})/)?.[1] || 'unknown';
+            console.log(`[Amazon Images] ASIN ${asin}: Image loaded successfully using fallback #${fallbackIndex + 1}`);
+        }
     }
 };
 
