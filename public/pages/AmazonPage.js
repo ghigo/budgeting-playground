@@ -390,11 +390,12 @@ function displayAmazonOrders(orders) {
                     const uniqueId = `img-${item.id}-${Math.random().toString(36).substr(2, 9)}`;
 
                     // Build fallback URL list (will try each in sequence if previous fails)
+                    // Note: /images/I/ format requires IMAGE_ID (not ASIN), so we only use /images/P/ formats
                     const fallbackUrls = [
                         `https://m.media-amazon.com/images/P/${item.asin}.01._SCLZZZZZZZ_SX500_.jpg`,
                         `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.01.LZZZZZZZ.jpg`,
-                        `https://m.media-amazon.com/images/I/${item.asin}._SL200_.jpg`,
-                        `https://images-na.ssl-images-amazon.com/images/I/${item.asin}._SL160_.jpg`
+                        `https://m.media-amazon.com/images/P/${item.asin}.01._SCLZZZZZZZ_SX300_.jpg`,
+                        `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.jpg`
                     ];
 
                     imageHtml = `
@@ -1392,7 +1393,6 @@ window.handleImageLoad = function(imageId) {
     // Check if image is too small (likely a broken/missing image placeholder)
     // Amazon CDN sometimes returns 1x1 or very small images for missing products
     if (img.naturalWidth < 50 || img.naturalHeight < 50) {
-        console.log(`[Image] Tiny image detected for ${imageId}: ${img.naturalWidth}x${img.naturalHeight}, trying fallback...`);
         tryNextFallback(imageId, img);
     }
 };
@@ -1404,17 +1404,20 @@ function tryNextFallback(imageId, img) {
         const nextIndex = currentIndex + 1;
 
         if (nextIndex < fallbackUrls.length) {
-            // Try next URL in fallback cascade
-            console.log(`[Image] Trying fallback ${nextIndex + 1}/${fallbackUrls.length} for ${imageId}`);
+            // Try next URL in fallback cascade (silent - no console spam)
             img.setAttribute('data-fallback-index', nextIndex.toString());
             img.src = fallbackUrls[nextIndex];
         } else {
-            // All fallbacks exhausted, show placeholder
-            console.log(`[Image] All fallbacks exhausted for ${imageId}, showing placeholder`);
+            // All fallbacks exhausted, show placeholder (only log this final state)
+            const asin = fallbackUrls[0]?.match(/\/([A-Z0-9]{10})/)?.[1] || 'unknown';
+            if (currentIndex > 0) {
+                // Only log if we actually tried fallbacks (not on first load)
+                console.log(`[Amazon Images] ASIN ${asin}: No image available after trying ${fallbackUrls.length} sources`);
+            }
             showPlaceholder(imageId);
         }
     } catch (error) {
-        console.error(`[Image] Error in fallback logic for ${imageId}:`, error);
+        console.error(`[Amazon Images] Error in fallback logic:`, error);
         showPlaceholder(imageId);
     }
 }
