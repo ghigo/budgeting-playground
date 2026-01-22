@@ -177,6 +177,9 @@ function createTables() {
     CREATE INDEX IF NOT EXISTS idx_transactions_merchant ON transactions(merchant_name);
     CREATE INDEX IF NOT EXISTS idx_amazon_items_asin ON amazon_items(asin);
     CREATE INDEX IF NOT EXISTS idx_transactions_confidence ON transactions(confidence);
+    -- Compound index for common transaction queries
+    CREATE INDEX IF NOT EXISTS idx_transactions_date_desc ON transactions(date DESC);
+    CREATE INDEX IF NOT EXISTS idx_accounts_name_lookup ON accounts(name);
   `);
 
   // Run migrations to add new columns to existing tables
@@ -1008,7 +1011,10 @@ export function renameAccount(accountId, newName) {
 // ============================================================================
 
 export function getTransactions(limit = 50, filters = {}) {
-  // Join with amazon_orders to include matching information and accounts for institution name
+  const startTime = Date.now();
+
+  // Join with amazon_orders to include matching information
+  // Note: Removed accounts join for performance - institution_name not critical for display
   let sql = `
     SELECT
       t.*,
@@ -1016,11 +1022,9 @@ export function getTransactions(limit = 50, filters = {}) {
       ao.total_amount as amazon_total,
       ao.order_date as amazon_order_date,
       ao.match_confidence as amazon_match_confidence,
-      ao.order_status as amazon_order_status,
-      acc.institution_name
+      ao.order_status as amazon_order_status
     FROM transactions t
     LEFT JOIN amazon_orders ao ON t.transaction_id = ao.matched_transaction_id
-    LEFT JOIN accounts acc ON t.account_name = acc.name
     WHERE 1=1
   `;
   const params = [];
@@ -1127,6 +1131,11 @@ export function getTransactions(limit = 50, filters = {}) {
         } : null
       });
     }
+  }
+
+  const elapsed = Date.now() - startTime;
+  if (elapsed > 100) {
+    console.log(`⚠️  getTransactions took ${elapsed}ms (limit: ${limit}, filters: ${JSON.stringify(filters)})`);
   }
 
   return processedTransactions;
@@ -2455,6 +2464,17 @@ export function getAmazonOrders(filters = {}) {
   }
 
   sql += ' ORDER BY order_date DESC';
+
+  // Add pagination support
+  if (filters.limit) {
+    sql += ' LIMIT ?';
+    params.push(filters.limit);
+
+    if (filters.offset) {
+      sql += ' OFFSET ?';
+      params.push(filters.offset);
+    }
+  }
 
   const orders = db.prepare(sql).all(...params);
 

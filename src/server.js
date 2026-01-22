@@ -1145,7 +1145,9 @@ app.get('/api/amazon/orders', (req, res) => {
       startDate: req.query.startDate,
       endDate: req.query.endDate,
       matched: req.query.matched === 'true' ? true : req.query.matched === 'false' ? false : undefined,
-      accountName: req.query.accountName
+      accountName: req.query.accountName,
+      limit: req.query.limit ? parseInt(req.query.limit) : 100,  // Default limit to prevent slow loads
+      offset: req.query.offset ? parseInt(req.query.offset) : 0
     };
 
     const orders = database.getAmazonOrders(filters);
