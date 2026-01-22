@@ -1242,12 +1242,12 @@ async function unverifyItemCategory(itemId, originalConfidence) {
 
 // Categorize all Amazon items (background job)
 async function categorizeAllAmazonItems() {
-    if (!confirm('This will categorize ALL Amazon items. This may take a while. You can navigate to other pages while this runs. Continue?')) {
+    if (!confirm('This will categorize uncategorized Amazon items (verified items will be skipped). This may take a while. You can navigate to other pages while this runs. Continue?')) {
         return;
     }
 
     try {
-        // Start background job
+        // Start background job (skipVerified defaults to true on backend)
         const result = await fetchAPI('/api/amazon/items/categorize-background', {
             method: 'POST',
             body: JSON.stringify({ categorizedOnly: false })

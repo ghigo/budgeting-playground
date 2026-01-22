@@ -1498,18 +1498,26 @@ app.post('/api/amazon/items/:itemId/categorize', async (req, res) => {
 // Batch categorize Amazon items (synchronous - for small batches)
 app.post('/api/amazon/items/categorize-batch', async (req, res) => {
   try {
-    const { limit, itemIds, categorizedOnly } = req.body;
+    const { limit, itemIds, categorizedOnly, skipVerified } = req.body;
 
     let items;
     if (itemIds && itemIds.length > 0) {
       // Categorize specific items (optimized: filter in database not JavaScript)
       items = database.getAmazonItems({ itemIds });
     } else if (categorizedOnly === false) {
-      // Only uncategorized items
-      items = database.getAmazonItems({ categorized: 'no', limit: limit || 1000 });
+      // Only uncategorized items, skip verified by default
+      const filters = { categorized: 'no', limit: limit || 1000 };
+      if (skipVerified !== false) {
+        filters.verified = 'no';
+      }
+      items = database.getAmazonItems(filters);
     } else {
-      // All items
-      items = database.getAmazonItems({ limit: limit || 1000 });
+      // All items, skip verified by default
+      const filters = { limit: limit || 1000 };
+      if (skipVerified !== false) {
+        filters.verified = 'no';
+      }
+      items = database.getAmazonItems(filters);
     }
 
     // Use new enhanced AI categorization service
@@ -1541,16 +1549,27 @@ app.post('/api/amazon/items/categorize-batch', async (req, res) => {
 // Start background categorization job
 app.post('/api/amazon/items/categorize-background', async (req, res) => {
   try {
-    const { limit, itemIds, categorizedOnly } = req.body;
+    const { limit, itemIds, categorizedOnly, skipVerified } = req.body;
 
     // Get items to categorize (optimized: filter in database not JavaScript)
     let items;
     if (itemIds && itemIds.length > 0) {
       items = database.getAmazonItems({ itemIds, limit: limit || 1000 });
     } else if (categorizedOnly === false) {
-      items = database.getAmazonItems({ categorized: 'no', limit: limit || 1000 });
+      // Only uncategorized items, and optionally skip verified items
+      const filters = { categorized: 'no', limit: limit || 1000 };
+      if (skipVerified !== false) {
+        // By default, skip verified items
+        filters.verified = 'no';
+      }
+      items = database.getAmazonItems(filters);
     } else {
-      items = database.getAmazonItems({ limit: limit || 1000 });
+      // All items, but skip verified ones by default
+      const filters = { limit: limit || 1000 };
+      if (skipVerified !== false) {
+        filters.verified = 'no';
+      }
+      items = database.getAmazonItems(filters);
     }
 
     const itemsToProcess = items;
