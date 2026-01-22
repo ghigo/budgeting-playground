@@ -388,6 +388,22 @@ function displayAmazonOrders(orders) {
                 // Use modern Amazon image CDN format
                 const imageUrl = item.asin ? `https://m.media-amazon.com/images/P/${item.asin}.01._SCLZZZZZZZ_SX500_.jpg` : null;
 
+                // Create image HTML with proper fallback
+                let imageHtml = '';
+                if (imageUrl) {
+                    const uniqueId = `img-${item.id}-${Math.random().toString(36).substr(2, 9)}`;
+                    imageHtml = `
+                        <div id="container-${uniqueId}" style="flex-shrink: 0; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; background: white; border-radius: 4px; overflow: hidden;">
+                            <img id="${uniqueId}"
+                                 src="${imageUrl}"
+                                 alt="${escapeHtml(item.title)}"
+                                 style="width: 100%; height: 100%; object-fit: contain; padding: 2px;"
+                                 onerror="handleImageError('${uniqueId}')"
+                                 onload="handleImageLoad('${uniqueId}')">
+                        </div>
+                    `;
+                }
+
                 // Build category badge with confidence color coding
                 const confidence = item.confidence || 0;
                 const isVerified = item.verified === 'Yes';
@@ -422,14 +438,7 @@ function displayAmazonOrders(orders) {
 
                 itemsHtml += `
                     <div id="item-${item.id}" style="display: flex; gap: 1rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
-                        ${imageUrl ? `
-                            <div style="flex-shrink: 0;">
-                                <img src="${imageUrl}"
-                                     alt="${escapeHtml(item.title)}"
-                                     style="width: 60px; height: 60px; object-fit: contain; border-radius: 4px; background: white; padding: 2px;"
-                                     onerror="this.style.display='none'">
-                            </div>
-                        ` : ''}
+                        ${imageHtml}
                         <div style="flex: 1; min-width: 0;">
                             <div style="font-size: 0.9rem; margin-bottom: 0.25rem;">
                                 ${titleHtml}
@@ -1358,6 +1367,34 @@ async function pollJobProgress(jobId, totalItems) {
 
     // Start polling
     poll();
+}
+
+// Handle image loading errors
+window.handleImageError = function(imageId) {
+    showPlaceholder(imageId);
+};
+
+// Handle image load success - check if image is valid (not tiny/broken)
+window.handleImageLoad = function(imageId) {
+    const img = document.getElementById(imageId);
+    if (!img) return;
+
+    // Check if image is too small (likely a broken/missing image placeholder)
+    // Amazon CDN sometimes returns 1x1 or very small images for missing products
+    if (img.naturalWidth < 50 || img.naturalHeight < 50) {
+        showPlaceholder(imageId);
+    }
+};
+
+function showPlaceholder(imageId) {
+    const container = document.getElementById(`container-${imageId}`);
+    if (container) {
+        container.innerHTML = `
+            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#f3f4f6;color:#9ca3af;font-size:1.5rem;">
+                📦
+            </div>
+        `;
+    }
 }
 
 export default {
