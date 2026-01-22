@@ -173,6 +173,10 @@ function createTables() {
     CREATE INDEX IF NOT EXISTS idx_amazon_items_order ON amazon_items(order_id);
     CREATE INDEX IF NOT EXISTS idx_amazon_items_category ON amazon_items(category);
     CREATE INDEX IF NOT EXISTS idx_amazon_items_user_category ON amazon_items(user_category);
+    -- Additional performance indexes
+    CREATE INDEX IF NOT EXISTS idx_transactions_merchant ON transactions(merchant_name);
+    CREATE INDEX IF NOT EXISTS idx_amazon_items_asin ON amazon_items(asin);
+    CREATE INDEX IF NOT EXISTS idx_transactions_confidence ON transactions(confidence);
   `);
 
   // Run migrations to add new columns to existing tables
@@ -2454,12 +2458,28 @@ export function getAmazonOrders(filters = {}) {
 
   const orders = db.prepare(sql).all(...params);
 
-  // Fetch items for each order
-  const itemsStmt = db.prepare('SELECT * FROM amazon_items WHERE order_id = ?');
+  // Fetch all items for these orders in a single query (fix N+1 problem)
+  if (orders.length === 0) {
+    return [];
+  }
 
+  const orderIds = orders.map(o => o.order_id);
+  const placeholders = orderIds.map(() => '?').join(',');
+  const allItems = db.prepare(`SELECT * FROM amazon_items WHERE order_id IN (${placeholders})`).all(...orderIds);
+
+  // Group items by order_id
+  const itemsByOrderId = {};
+  for (const item of allItems) {
+    if (!itemsByOrderId[item.order_id]) {
+      itemsByOrderId[item.order_id] = [];
+    }
+    itemsByOrderId[item.order_id].push(item);
+  }
+
+  // Attach items to each order
   return orders.map(order => ({
     ...order,
-    items: itemsStmt.all(order.order_id)
+    items: itemsByOrderId[order.order_id] || []
   }));
 }
 
@@ -3230,6 +3250,38 @@ export function deleteExternalMapping(id) {
  * @returns {Array} Amazon items
  */
 export function getAmazonItems(filters = {}) {
+  let whereClause = 'WHERE 1=1';
+  const params = [];
+
+  if (filters.itemId) {
+    whereClause += ' AND ai.id = ?';
+    params.push(filters.itemId);
+  }
+
+  if (filters.itemIds && Array.isArray(filters.itemIds) && filters.itemIds.length > 0) {
+    const placeholders = filters.itemIds.map(() => '?').join(',');
+    whereClause += ` AND ai.id IN (${placeholders})`;
+    params.push(...filters.itemIds);
+  }
+
+  if (filters.orderId) {
+    whereClause += ' AND ai.order_id = ?';
+    params.push(filters.orderId);
+  }
+
+  if (filters.categorized === 'yes') {
+    whereClause += ' AND ai.user_category IS NOT NULL';
+  } else if (filters.categorized === 'no') {
+    whereClause += ' AND ai.user_category IS NULL';
+  }
+
+  if (filters.verified === 'yes') {
+    whereClause += ' AND ai.verified = "Yes"';
+  } else if (filters.verified === 'no') {
+    whereClause += ' AND ai.verified = "No"';
+  }
+
+  // Build data query with pagination
   let query = `
     SELECT
       ai.*,
@@ -3238,29 +3290,20 @@ export function getAmazonItems(filters = {}) {
       ao.account_name
     FROM amazon_items ai
     JOIN amazon_orders ao ON ai.order_id = ao.order_id
-    WHERE 1=1
+    ${whereClause}
+    ORDER BY ao.order_date DESC, ai.id DESC
   `;
 
-  const params = [];
+  // Add pagination if limit is specified
+  if (filters.limit) {
+    query += ' LIMIT ?';
+    params.push(filters.limit);
 
-  if (filters.orderId) {
-    query += ' AND ai.order_id = ?';
-    params.push(filters.orderId);
+    if (filters.offset) {
+      query += ' OFFSET ?';
+      params.push(filters.offset);
+    }
   }
-
-  if (filters.categorized === 'yes') {
-    query += ' AND ai.user_category IS NOT NULL';
-  } else if (filters.categorized === 'no') {
-    query += ' AND ai.user_category IS NULL';
-  }
-
-  if (filters.verified === 'yes') {
-    query += ' AND ai.verified = "Yes"';
-  } else if (filters.verified === 'no') {
-    query += ' AND ai.verified = "No"';
-  }
-
-  query += ' ORDER BY ao.order_date DESC, ai.id DESC';
 
   return db.prepare(query).all(...params);
 }
@@ -3848,4 +3891,15 @@ export function getAmazonItemById(itemId) {
  */
 export function getTransactionById(transactionId) {
   return db.prepare('SELECT * FROM transactions WHERE transaction_id = ?').get(transactionId);
+}
+
+/**
+ * Get multiple transactions by their IDs (optimized for bulk lookups)
+ */
+export function getTransactionsByIds(transactionIds) {
+  if (!transactionIds || transactionIds.length === 0) {
+    return [];
+  }
+  const placeholders = transactionIds.map(() => '?').join(',');
+  return db.prepare(`SELECT * FROM transactions WHERE transaction_id IN (${placeholders})`).all(...transactionIds);
 }

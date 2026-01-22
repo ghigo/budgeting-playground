@@ -33,9 +33,11 @@ export async function loadDashboard() {
         displayRecentTransactions(transactions);
         updateCategoryChart(stats);
 
-        // Load new charts
-        await loadNetWorthChart(currentTimeRange);
-        await loadDailySpendingChart();
+        // Load new charts in parallel (2x faster)
+        await Promise.all([
+            loadNetWorthChart(currentTimeRange),
+            loadDailySpendingChart()
+        ]);
 
         // Set up time range selector listeners
         setupTimeRangeSelector();

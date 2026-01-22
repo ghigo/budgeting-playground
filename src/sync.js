@@ -37,9 +37,12 @@ export async function syncAllAccounts() {
       }
       console.log(`  ✓ Updated ${result.accounts.length} account(s)`);
 
-      // Add account_name to transactions
+      // Add account_name to transactions (optimized: use Map for O(1) lookups)
+      const accountMap = new Map();
+      result.accounts.forEach(acc => accountMap.set(acc.account_id, acc));
+
       for (const transaction of result.transactions) {
-        const account = result.accounts.find(acc => acc.account_id === transaction.account_id);
+        const account = accountMap.get(transaction.account_id);
         transaction.account_name = account ? account.name : transaction.account_id;
       }
 
@@ -99,9 +102,12 @@ export async function syncSingleAccount(itemId) {
       database.saveAccount(account, item.institution_name);
     }
 
-    // Add account_name to transactions
+    // Add account_name to transactions (optimized: use Map for O(1) lookups)
+    const accountMap = new Map();
+    result.accounts.forEach(acc => accountMap.set(acc.account_id, acc));
+
     for (const transaction of result.transactions) {
-      const account = result.accounts.find(acc => acc.account_id === transaction.account_id);
+      const account = accountMap.get(transaction.account_id);
       transaction.account_name = account ? account.name : transaction.account_id;
     }
 

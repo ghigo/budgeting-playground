@@ -265,8 +265,8 @@ class EnhancedAICategorization {
      * Main categorization pipeline
      * Executes all 4 stages in sequence
      */
-    async categorize(item, itemType, itemId = null) {
-        const categories = database.getCategories();
+    async categorize(item, itemType, itemId = null, cachedCategories = null) {
+        const categories = cachedCategories || database.getCategories();
 
         // Use provided itemId or generate from item
         const id = itemId || this.getItemId(item, itemType);
@@ -318,11 +318,14 @@ class EnhancedAICategorization {
         const results = [];
         const batchSize = options.batchSize || 10;
 
+        // Fetch categories once for all items (massive performance improvement)
+        const categories = database.getCategories();
+
         for (let i = 0; i < items.length; i += batchSize) {
             const batch = items.slice(i, i + batchSize);
 
             const batchResults = await Promise.all(
-                batch.map(item => this.categorize(item, itemType))
+                batch.map(item => this.categorize(item, itemType, null, categories))
             );
 
             results.push(...batchResults);
@@ -336,9 +339,9 @@ class EnhancedAICategorization {
                 });
             }
 
-            // Small delay between batches
+            // Small delay between batches to avoid overwhelming Ollama (reduced from 100ms to 10ms)
             if (i + batchSize < items.length) {
-                await new Promise(resolve => setTimeout(resolve, 100));
+                await new Promise(resolve => setTimeout(resolve, 10));
             }
         }
 
