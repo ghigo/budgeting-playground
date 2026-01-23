@@ -4,7 +4,7 @@
  * selection, bulk operations, and category management
  */
 
-import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, showLoading, hideLoading } from '../utils/formatters.js';
+import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, createConfidenceBadge, createButton, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
 import { debounce } from '../utils/helpers.js';
@@ -29,55 +29,6 @@ let currentDropdownInput = null;
 // ============================================================================
 // HELPER FUNCTIONS FOR UI GENERATION
 // ============================================================================
-
-/**
- * Get confidence styling colors based on confidence score
- */
-function getConfidenceStyle(confidence) {
-    if (confidence === 100) {
-        return { color: '#fff', background: '#2563eb' }; // blue
-    }
-
-    if (confidence >= 85) {
-        return { color: '#fff', background: '#16a34a' }; // green
-    }
-
-    if (confidence >= 70) {
-        return { color: '#fff', background: '#ca8a04' }; // amber
-    }
-
-    if (confidence >= 50) {
-        return { color: '#fff', background: '#ea580c' }; // orange
-    }
-
-    if (confidence > 0) {
-        return { color: '#fff', background: '#dc2626' }; // red
-    }
-
-    return { color: '#666', background: '#eee' }; // gray (default)
-}
-
-/**
- * Build confidence badge HTML
- */
-function buildConfidenceBadge(hasCategory, confidence) {
-    if (!hasCategory || confidence === 0) {
-        return '';
-    }
-
-    const style = getConfidenceStyle(confidence);
-
-    return `<span style="
-        display: inline-block;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: ${style.color};
-        background: ${style.background};
-        white-space: nowrap;
-    " title="Confidence: ${confidence}%">${confidence}%</span>`;
-}
 
 /**
  * Build verification button HTML
@@ -434,7 +385,7 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
                                onclick="showCategoryDropdown(this)"
                                autocomplete="off">
                     </div>`}
-                    ${buildConfidenceBadge(hasCategory, confidence)}
+                    ${createConfidenceBadge(confidence, isVerified)}
                     ${buildVerifyButton(isVerified, hasCategory, tx.transaction_id)}
                 </div>
             </td>
