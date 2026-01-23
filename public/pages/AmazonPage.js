@@ -475,13 +475,24 @@ function displayAmazonOrders(orders) {
         // Build items list HTML
         let itemsHtml = '';
         if (order.items && order.items.length > 0) {
+            // Filter items based on visibility (if item filters are active)
+            const visibleItemIds = order._visibleItemIds;
+            const itemsToShow = visibleItemIds
+                ? order.items.filter(item => visibleItemIds.has(item.id))
+                : order.items;
+
+            // Show count of visible items vs total
+            const itemCountText = visibleItemIds && itemsToShow.length < order.items.length
+                ? `Items (${itemsToShow.length} of ${order.items.length}):`
+                : `Items (${order.items.length}):`;
+
             itemsHtml = `
                 <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
-                    <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Items (${order.items.length}):</div>
+                    <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">${itemCountText}</div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
             `;
 
-            order.items.forEach(item => {
+            itemsToShow.forEach(item => {
                 const itemUrl = item.asin ? `https://www.amazon.com/dp/${item.asin}` : null;
                 const titleHtml = itemUrl
                     ? `<a href="${itemUrl}" target="_blank" style="color: var(--primary); text-decoration: none; hover:text-decoration: underline;">${escapeHtml(item.title)}</a>`
@@ -874,62 +885,71 @@ function clearAmazonFilters() {
 
 function searchAmazonOrders() {
     const searchTerm = document.getElementById('amazonSearchInput').value.toLowerCase();
-    const minConfidence = parseInt(document.getElementById('amazonFilterConfidence').value) || 0;
     const accountFilter = document.getElementById('amazonFilterAccount').value;
+
+    // Item-level filters
     const itemCategorizedFilter = document.getElementById('amazonFilterItemCategorized')?.value || '';
     const itemVerifiedFilter = document.getElementById('amazonFilterItemVerified')?.value || '';
+    const minItemConfidence = parseInt(document.getElementById('amazonFilterItemConfidence')?.value) || 0;
 
     // Start with all orders
     let filtered = amazonOrders;
+
+    // =====================================================================
+    // STEP 1: Apply ORDER-level filters (filter which orders to show)
+    // =====================================================================
 
     // Apply account filter
     if (accountFilter) {
         filtered = filtered.filter(order => order.account_name === accountFilter);
     }
 
-    // Apply confidence filter
-    if (minConfidence > 0) {
-        filtered = filtered.filter(order => {
-            // If order is matched, check confidence
-            if (order.matched_transaction_id) {
-                return (order.match_confidence || 0) >= minConfidence;
-            }
-            // Unmatched orders have 0 confidence, so they're excluded if minConfidence > 0
+    // =====================================================================
+    // STEP 2: Apply ITEM-level filters (filter which items within orders to show)
+    // =====================================================================
+
+    // Function to check if an item should be visible based on filters
+    const isItemVisible = (item) => {
+        // Categorization filter
+        if (itemCategorizedFilter === 'categorized' && !item.user_category) {
             return false;
-        });
-    }
+        }
+        if (itemCategorizedFilter === 'uncategorized' && item.user_category) {
+            return false;
+        }
 
-    // Apply item categorization filter
-    if (itemCategorizedFilter) {
-        filtered = filtered.filter(order => {
-            if (!order.items || order.items.length === 0) return false;
+        // Verification filter
+        if (itemVerifiedFilter === 'verified' && item.verified !== 'Yes') {
+            return false;
+        }
+        if (itemVerifiedFilter === 'unverified' && item.verified === 'Yes') {
+            return false;
+        }
 
-            if (itemCategorizedFilter === 'categorized') {
-                // At least one item must be categorized
-                return order.items.some(item => item.user_category);
-            } else if (itemCategorizedFilter === 'uncategorized') {
-                // At least one item must be uncategorized
-                return order.items.some(item => !item.user_category);
+        // Confidence filter (only applies to categorized items)
+        if (minItemConfidence > 0 && item.user_category) {
+            if ((item.confidence || 0) < minItemConfidence) {
+                return false;
             }
-            return true;
-        });
-    }
+        }
 
-    // Apply item verified filter
-    if (itemVerifiedFilter) {
-        filtered = filtered.filter(order => {
-            if (!order.items || order.items.length === 0) return false;
+        return true;
+    };
 
-            if (itemVerifiedFilter === 'verified') {
-                // At least one item must be verified
-                return order.items.some(item => item.verified === 'Yes');
-            } else if (itemVerifiedFilter === 'unverified') {
-                // At least one item must be unverified
-                return order.items.some(item => item.verified !== 'Yes');
-            }
-            return true;
-        });
-    }
+    // Mark items as visible/hidden and filter out orders with no visible items
+    filtered = filtered.map(order => {
+        if (!order.items || order.items.length === 0) {
+            return { ...order, _hasVisibleItems: false };
+        }
+
+        const visibleItems = order.items.filter(isItemVisible);
+
+        return {
+            ...order,
+            _hasVisibleItems: visibleItems.length > 0,
+            _visibleItemIds: new Set(visibleItems.map(i => i.id))
+        };
+    }).filter(order => order._hasVisibleItems);
 
     // Apply search term filter if present
     if (searchTerm) {

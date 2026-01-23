@@ -528,23 +528,15 @@
                                style="width: 100%; padding: 0.75rem; font-size: 0.9rem;">
                     </div>
 
-                    <div class="filter-grid">
+                    <!-- Order Filters -->
+                    <h4 style="margin-bottom: 0.75rem; font-size: 0.95rem; color: var(--text-secondary);">📦 Order Filters</h4>
+                    <div class="filter-grid" style="margin-bottom: 1.5rem;">
                         <div class="filter-item">
                             <label for="amazonFilterMatched">Match Status</label>
                             <select id="amazonFilterMatched" class="form-select" onchange="applyAmazonFilters()">
                                 <option value="">All Orders</option>
                                 <option value="true">Matched Only</option>
                                 <option value="false">Unmatched Only</option>
-                            </select>
-                        </div>
-                        <div class="filter-item">
-                            <label for="amazonFilterConfidence">Min Confidence</label>
-                            <select id="amazonFilterConfidence" class="form-select" onchange="applyAmazonFilters()">
-                                <option value="">Any Confidence</option>
-                                <option value="90">90%+ (Excellent)</option>
-                                <option value="80">80%+ (High)</option>
-                                <option value="70">70%+ (Good)</option>
-                                <option value="60">60%+ (Fair)</option>
                             </select>
                         </div>
                         <div class="filter-item">
@@ -561,8 +553,13 @@
                             <label for="amazonFilterEndDate">End Date</label>
                             <input type="date" id="amazonFilterEndDate" class="form-input" onchange="applyAmazonFilters()">
                         </div>
+                    </div>
+
+                    <!-- Item Filters -->
+                    <h4 style="margin-bottom: 0.75rem; font-size: 0.95rem; color: var(--text-secondary);">🏷️ Item Filters</h4>
+                    <div class="filter-grid">
                         <div class="filter-item">
-                            <label for="amazonFilterItemCategorized">Item Status</label>
+                            <label for="amazonFilterItemCategorized">Categorization</label>
                             <select id="amazonFilterItemCategorized" class="form-select" onchange="applyAmazonFilters()">
                                 <option value="">All Items</option>
                                 <option value="categorized">Categorized</option>
@@ -570,11 +567,21 @@
                             </select>
                         </div>
                         <div class="filter-item">
-                            <label for="amazonFilterItemVerified">Item Verification</label>
+                            <label for="amazonFilterItemVerified">Verification</label>
                             <select id="amazonFilterItemVerified" class="form-select" onchange="applyAmazonFilters()">
                                 <option value="">All Items</option>
-                                <option value="verified">Verified</option>
-                                <option value="unverified">Unverified</option>
+                                <option value="verified">Verified Only</option>
+                                <option value="unverified">Unverified Only</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label for="amazonFilterItemConfidence">Min Confidence</label>
+                            <select id="amazonFilterItemConfidence" class="form-select" onchange="applyAmazonFilters()">
+                                <option value="">Any Confidence</option>
+                                <option value="90">90%+ (Excellent)</option>
+                                <option value="80">80%+ (High)</option>
+                                <option value="70">70%+ (Good)</option>
+                                <option value="50">50%+ (Fair)</option>
                             </select>
                         </div>
                     </div>
