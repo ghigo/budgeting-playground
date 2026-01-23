@@ -582,7 +582,7 @@ function displayAmazonOrders(orders) {
                             </div>
                             <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                                 ${categoryBadge}
-                                <button id="category-trigger-${item.id}" onclick="showItemCategorySelector(${item.id}, this)" style="padding: 0.2rem 0.5rem; background: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 4px; font-size: 0.75rem; cursor: pointer; color: #374151;">
+                                <button id="category-trigger-${item.id}" onclick="showItemCategorySelector(event, ${item.id}, this)" style="padding: 0.2rem 0.5rem; background: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 4px; font-size: 0.75rem; cursor: pointer; color: #374151;">
                                     ${item.user_category ? 'Change' : 'Select'} Category
                                 </button>
                                 ${item.user_category ? `
@@ -1135,7 +1135,11 @@ async function loadCategories() {
 }
 
 // Show category selector for an Amazon item
-function showItemCategorySelector(itemId, triggerElement) {
+function showItemCategorySelector(event, itemId, triggerElement) {
+    // Stop event propagation to prevent immediate closing
+    event.stopPropagation();
+    event.preventDefault();
+
     console.log('showItemCategorySelector called', {
         itemId,
         triggerElement,

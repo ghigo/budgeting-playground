@@ -76,9 +76,10 @@ export function showCategorySelector(options) {
     dropdown._categories = categories;
 
     // Close dropdown when clicking outside
+    // Delay registration to avoid catching the same click that opened it
     setTimeout(() => {
         document.addEventListener('click', handleOutsideClick);
-    }, 10);
+    }, 100);
 }
 
 /**
