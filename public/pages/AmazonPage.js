@@ -3,10 +3,11 @@
  * Handles all Amazon purchases page functionality including order display, matching, and charts
  */
 
-import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading, createCategoryDropdown, populateCategoryDropdown } from '../utils/formatters.js';
+import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { debounce } from '../utils/helpers.js';
 import { progressNotification } from '../services/progressNotification.js';
+import { showCategorySelector } from '../components/CategorySelector.js';
 
 // Module state
 let amazonOrders = [];
@@ -48,6 +49,7 @@ export function initializeAmazonPage(deps) {
 
     // Item categorization functions
     window.categorizeItem = categorizeItem;
+    window.showItemCategorySelector = showItemCategorySelector;
     window.updateItemCategory = updateItemCategory;
     window.verifyItemCategory = verifyItemCategory;
     window.unverifyItemCategory = unverifyItemCategory;
@@ -580,13 +582,9 @@ function displayAmazonOrders(orders) {
                             </div>
                             <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                                 ${categoryBadge}
-                                ${createCategoryDropdown({
-                                    id: `item-category-${item.id}`,
-                                    categories: userCategories || [],
-                                    placeholder: 'Change category...',
-                                    onchange: `updateItemCategory(${item.id}, this.value)`,
-                                    size: 'small'
-                                })}
+                                <button id="category-trigger-${item.id}" onclick="showItemCategorySelector(${item.id}, this)" style="padding: 0.2rem 0.5rem; background: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 4px; font-size: 0.75rem; cursor: pointer; color: #374151;">
+                                    ${item.user_category ? 'Change' : 'Select'} Category
+                                </button>
                                 ${item.user_category ? `
                                     ${isVerified ?
                                         `<button onclick="unverifyItemCategory(${item.id}, ${confidence})" style="padding: 0.2rem 0.5rem; background: #F59E0B; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Unverify</button>` :
@@ -678,9 +676,6 @@ function displayAmazonOrders(orders) {
 
     html += '</div>';
     container.innerHTML = html;
-
-    // Populate category dropdowns for all items
-    populateItemCategoryDropdowns();
 }
 
 export async function handleAmazonFileUpload(event) {
@@ -1139,21 +1134,12 @@ async function loadCategories() {
     }
 }
 
-// Populate category dropdowns for all items
-function populateItemCategoryDropdowns() {
-    // Get all item category dropdowns
-    const dropdowns = document.querySelectorAll('[id^="item-category-"]');
-
-    dropdowns.forEach(select => {
-        // Clear and repopulate
-        select.innerHTML = '<option value="">Change category...</option>';
-
-        userCategories.forEach(cat => {
-            const option = document.createElement('option');
-            option.value = cat.name;
-            option.textContent = cat.parent_category ? `${cat.parent_category} > ${cat.name}` : cat.name;
-            select.appendChild(option);
-        });
+// Show category selector for an Amazon item
+function showItemCategorySelector(itemId, triggerElement) {
+    showCategorySelector({
+        triggerElement: triggerElement,
+        categories: userCategories || [],
+        onSelect: (categoryName) => updateItemCategory(itemId, categoryName)
     });
 }
 
