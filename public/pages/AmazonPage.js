@@ -652,10 +652,10 @@ function displayAmazonOrders(orders) {
                             ${matchBadge}
                             ${order.account_name ? `<span style="background: var(--bg-primary); padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">👤 ${escapeHtml(order.account_name)}</span>` : ''}
                         </div>
-                        <div style="color: var(--text-secondary); font-size: 0.9rem;">
-                            <div style="margin-bottom: 0.25rem;">📅 ${formatDate(order.order_date)}</div>
-                            ${order.payment_method ? `<div style="margin-bottom: 0.25rem;">💳 ${escapeHtml(order.payment_method)}</div>` : ''}
-                            ${order.order_status ? `<div>📦 ${escapeHtml(order.order_status)}</div>` : ''}
+                        <div style="color: var(--text-secondary); font-size: 0.85rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                            <span>📅 ${formatDate(order.order_date)}</span>
+                            ${order.payment_method ? `<span style="color: var(--border-color);">•</span><span>💳 ${escapeHtml(order.payment_method)}</span>` : ''}
+                            ${order.order_status ? `<span style="color: var(--border-color);">•</span><span>📦 ${escapeHtml(order.order_status)}</span>` : ''}
                         </div>
                         ${itemsHtml}
                         ${matchedTransactionHtml}
