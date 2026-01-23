@@ -83,10 +83,13 @@ function setupInfiniteScroll() {
 export async function loadAmazonPage() {
     showLoading();
     try {
+        // Load categories first so they're available for dropdowns
+        await loadCategories();
+
+        // Then load stats and orders in parallel
         await Promise.all([
             loadAmazonStats(),
-            loadAmazonOrders(),
-            loadCategories()
+            loadAmazonOrders()
         ]);
     } catch (error) {
         console.error('Error loading Amazon page:', error);
