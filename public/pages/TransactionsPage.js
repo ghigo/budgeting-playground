@@ -4,7 +4,7 @@
  * selection, bulk operations, and category management
  */
 
-import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, createConfidenceBadge, createButton, showLoading, hideLoading } from '../utils/formatters.js';
+import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, renderCategoryControl, createConfidenceBadge, createButton, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
 import { debounce } from '../utils/helpers.js';
@@ -29,21 +29,6 @@ let currentDropdownInput = null;
 // ============================================================================
 // HELPER FUNCTIONS FOR UI GENERATION
 // ============================================================================
-
-/**
- * Build verification button HTML
- */
-function buildVerifyButton(isVerified, hasCategory, transactionId) {
-    if (isVerified) {
-        return `<button class="verify-btn verified" onclick="unverifyCategory('${transactionId}')" title="Click to unverify">✓</button>`;
-    }
-
-    if (hasCategory) {
-        return `<button class="verify-btn" onclick="verifyCategory('${transactionId}')" title="Verify auto-assigned category">✓</button>`;
-    }
-
-    return '';
-}
 
 /**
  * Clear multiple filter input values
@@ -365,29 +350,17 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
                 </div>
             </td>
             <td>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    ${hasCategory ? (() => {
-                        const categoryObj = allCategories.find(c => c.name === tx.category);
-                        const badgeHtml = categoryObj
-                            ? renderCategoryBadge(categoryObj, { inline: true })
-                            : `<span class="category-badge" style="display: inline-flex; align-items: center; gap: 0.25rem;">
-                                <span>📁</span>
-                                <span>${escapeHtml(tx.category)}</span>
-                            </span>`;
-                        return `<span onclick="showCategoryDropdown(event, '${tx.transaction_id}')" style="cursor: pointer;" title="Click to change category">${badgeHtml}</span>`;
-                    })() : `<div class="searchable-dropdown-container" style="position: relative; flex: 1;">
-                        <input type="text"
-                               class="category-input ${isVerified ? 'verified' : ''}"
-                               data-transaction-id="${tx.transaction_id}"
-                               value="${escapeHtml(tx.category || '')}"
-                               placeholder="Select category..."
-                               readonly
-                               onclick="showCategoryDropdown(this)"
-                               autocomplete="off">
-                    </div>`}
-                    ${createConfidenceBadge(confidence, isVerified)}
-                    ${buildVerifyButton(isVerified, hasCategory, tx.transaction_id)}
-                </div>
+                ${renderCategoryControl({
+                    itemId: tx.transaction_id,
+                    category: tx.category,
+                    confidence,
+                    isVerified,
+                    allCategories,
+                    onCategoryClick: hasCategory ? `showCategoryDropdown(event, '${tx.transaction_id}')` : `showCategoryDropdown(this)`,
+                    onVerify: `verifyCategory('${tx.transaction_id}')`,
+                    onUnverify: `unverifyCategory('${tx.transaction_id}')`,
+                    itemType: 'transaction'
+                })}
             </td>
             <td>
                 <div>${escapeHtml(tx.account_name || 'Unknown')}</div>

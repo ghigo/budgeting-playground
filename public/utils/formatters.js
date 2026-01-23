@@ -401,3 +401,82 @@ export function createButton(label, onClick, options = {}) {
         >${iconHtml}${escapeHtml(label)}</button>
     `;
 }
+
+/**
+ * Render unified category control (category badge/input, confidence badge, verify button)
+ * This is the standard UI component for displaying and editing categories across the entire app
+ * Replicates the TransactionsPage pattern: clickable category, separate confidence %, verify checkbox
+ *
+ * @param {Object} options - Configuration object
+ * @param {string} options.itemId - ID of the item (transaction_id or item.id)
+ * @param {string} options.category - Current category name
+ * @param {number} options.confidence - Confidence percentage (0-100)
+ * @param {boolean} options.isVerified - Whether category is verified
+ * @param {Array} options.allCategories - Array of all categories for badge rendering
+ * @param {string} options.onCategoryClick - onclick handler for category badge/input
+ * @param {string} options.onVerify - onclick handler for verify button
+ * @param {string} options.onUnverify - onclick handler for unverify button
+ * @param {string} options.itemType - Type of item ('transaction' or 'amazon-item')
+ * @returns {string} HTML for complete category control UI
+ */
+export function renderCategoryControl(options) {
+    const {
+        itemId,
+        category,
+        confidence = 0,
+        isVerified = false,
+        allCategories = [],
+        onCategoryClick,
+        onVerify,
+        onUnverify,
+        itemType = 'transaction'
+    } = options;
+
+    const hasCategory = category && category.length > 0;
+
+    // Build category display (badge or input)
+    let categoryDisplay;
+    if (hasCategory) {
+        // Show clickable category badge
+        const categoryObj = allCategories.find(c => c.name === category);
+        const badgeHtml = categoryObj
+            ? renderCategoryBadge(categoryObj, { inline: true })
+            : `<span class="category-badge" style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                <span>📁</span>
+                <span>${escapeHtml(category)}</span>
+            </span>`;
+        categoryDisplay = `<span onclick="${onCategoryClick}" style="cursor: pointer;" title="Click to change category">${badgeHtml}</span>`;
+    } else {
+        // Show input field for uncategorized items
+        categoryDisplay = `<div class="searchable-dropdown-container" style="position: relative; flex: 1;">
+            <input type="text"
+                   class="category-input ${isVerified ? 'verified' : ''}"
+                   data-${itemType}-id="${itemId}"
+                   value="${escapeHtml(category || '')}"
+                   placeholder="Select category..."
+                   readonly
+                   onclick="${onCategoryClick}"
+                   autocomplete="off">
+        </div>`;
+    }
+
+    // Build confidence badge (separate from category, positioned to the right)
+    const confidenceBadge = createConfidenceBadge(confidence, isVerified);
+
+    // Build verify button (checkbox style with ✓)
+    let verifyButton = '';
+    if (isVerified) {
+        verifyButton = `<button class="verify-btn verified" onclick="${onUnverify}" title="Click to unverify">✓</button>`;
+    } else if (hasCategory) {
+        verifyButton = `<button class="verify-btn" onclick="${onVerify}" title="Verify auto-assigned category">✓</button>`;
+    }
+
+    // Return complete category control UI (matching TransactionsPage layout)
+    return `
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            ${categoryDisplay}
+            ${confidenceBadge}
+            ${verifyButton}
+        </div>
+    `;
+}

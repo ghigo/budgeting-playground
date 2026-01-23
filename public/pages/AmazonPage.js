@@ -3,7 +3,7 @@
  * Handles all Amazon purchases page functionality including order display, matching, and charts
  */
 
-import { formatCurrency, formatDate, escapeHtml, createBadge, createConfidenceBadge, createButton, createStatusBadge, showLoading, hideLoading } from '../utils/formatters.js';
+import { formatCurrency, formatDate, escapeHtml, renderCategoryControl, createBadge, createConfidenceBadge, createButton, createStatusBadge, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { debounce, withLoadingState } from '../utils/helpers.js';
 import { progressNotification } from '../services/progressNotification.js';
@@ -31,50 +31,6 @@ let navigateTo = null;
 // ============================================================================
 // HELPER FUNCTIONS FOR UI GENERATION
 // ============================================================================
-
-/**
- * Build category badge with confidence for an item (unified with TransactionsPage)
- */
-function buildCategoryBadge(category, isVerified, confidence) {
-    if (!category) {
-        return createBadge('Uncategorized', {
-            background: '#6B7280',
-            color: 'white',
-            size: 'small'
-        });
-    }
-
-    // Show category name with verification checkmark and confidence percentage
-    const verifiedMark = isVerified ? ' ✓' : '';
-    return createConfidenceBadge(confidence, isVerified).replace(
-        `${confidence}%`,
-        `${escapeHtml(category)}${verifiedMark} ${confidence}%`
-    );
-}
-
-/**
- * Build action buttons for an item (unified with TransactionsPage)
- */
-function buildItemActionButtons(itemId, hasCategory, isVerified, confidence) {
-    if (!hasCategory) {
-        return createButton('Categorize', `categorizeItem(${itemId})`, {
-            variant: 'primary',
-            size: 'small'
-        });
-    }
-
-    if (isVerified) {
-        return createButton('Unverify', `unverifyItemCategory(${itemId}, ${confidence})`, {
-            variant: 'warning',
-            size: 'small'
-        });
-    }
-
-    return createButton('Verify', `verifyItemCategory(${itemId})`, {
-        variant: 'success',
-        size: 'small'
-    });
-}
 
 /**
  * Build match status badge for an order (unified with TransactionsPage)
@@ -632,10 +588,9 @@ function displayAmazonOrders(orders) {
                     `;
                 }
 
-                // Build category badge with confidence color coding
+                // Category control data
                 const confidence = item.confidence || 0;
                 const isVerified = item.verified === 'Yes';
-                const categoryBadge = buildCategoryBadge(item.user_category, isVerified, confidence);
 
                 itemsHtml += `
                     <div id="item-${item.id}" style="display: flex; gap: 1rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
@@ -650,13 +605,17 @@ function displayAmazonOrders(orders) {
                                 ${item.category ? ` • Amazon: ${escapeHtml(item.category)}` : ''}
                                 ${item.seller ? ` • Sold by: ${escapeHtml(item.seller)}` : ''}
                             </div>
-                            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                                ${categoryBadge}
-                                <button id="category-trigger-${item.id}" onclick="showItemCategorySelector(event, ${item.id}, this)" style="padding: 0.2rem 0.5rem; background: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 4px; font-size: 0.75rem; cursor: pointer; color: #374151;">
-                                    ${item.user_category ? 'Change' : 'Select'} Category
-                                </button>
-                                ${buildItemActionButtons(item.id, !!item.user_category, isVerified, confidence)}
-                            </div>
+                            ${renderCategoryControl({
+                                itemId: item.id,
+                                category: item.user_category,
+                                confidence,
+                                isVerified,
+                                allCategories,
+                                onCategoryClick: `showItemCategorySelector(event, ${item.id}, this)`,
+                                onVerify: `verifyItemCategory(${item.id})`,
+                                onUnverify: `unverifyItemCategory(${item.id}, ${confidence})`,
+                                itemType: 'amazon-item'
+                            })}
                             ${item.categorization_reasoning ? `
                                 <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem; font-style: italic;">
                                     ${escapeHtml(item.categorization_reasoning)}
@@ -1417,27 +1376,25 @@ function updateItemInUI(itemId, update) {
             console.warn(`[Amazon Item UI] Item ${itemId} not found in amazonOrders array`);
         }
 
-        // Build UI components using helper functions
+        // Build UI using renderCategoryControl component
         const confidence = update.confidence || 0;
         const isVerified = update.verified === 'Yes';
-        const categoryBadge = buildCategoryBadge(update.category, isVerified, confidence);
-        const actionButtons = buildItemActionButtons(itemId, !!update.category, isVerified, confidence);
 
-        // Find the controls container (has the badge, dropdown, and buttons)
-        const controlsContainer = itemElement.querySelector('div[style*="display: flex"][style*="gap: 0.5rem"]');
+        // Find the controls container
+        const controlsContainer = itemElement.querySelector('div[style*="display: flex"][style*="align-items: center"]');
         if (controlsContainer) {
-            // Update the controls HTML
-            controlsContainer.innerHTML = `
-                ${categoryBadge}
-                ${createCategoryDropdown({
-                    id: `item-category-${itemId}`,
-                    categories: userCategories || [],
-                    placeholder: 'Change category...',
-                    onchange: `updateItemCategory(${itemId}, this.value)`,
-                    size: 'small'
-                })}
-                ${actionButtons}
-            `;
+            // Update with unified category control
+            controlsContainer.outerHTML = renderCategoryControl({
+                itemId,
+                category: update.category,
+                confidence,
+                isVerified,
+                allCategories,
+                onCategoryClick: `showItemCategorySelector(event, ${itemId}, this)`,
+                onVerify: `verifyItemCategory(${itemId})`,
+                onUnverify: `unverifyItemCategory(${itemId}, ${confidence})`,
+                itemType: 'amazon-item'
+            });
         }
 
         // Update reasoning text
