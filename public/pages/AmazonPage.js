@@ -28,6 +28,101 @@ let currentFilters = {};
 let fetchAPI = null;
 let navigateTo = null;
 
+// ============================================================================
+// HELPER FUNCTIONS FOR UI GENERATION
+// ============================================================================
+
+/**
+ * Determine category color based on confidence and verification status
+ */
+function getCategoryColor(hasCategory, isVerified, confidence) {
+    if (!hasCategory) {
+        return '#6B7280'; // gray for uncategorized
+    }
+
+    if (isVerified || confidence === 100) {
+        return '#3B82F6'; // blue for verified
+    }
+
+    if (confidence >= 85) {
+        return '#10B981'; // green for high confidence
+    }
+
+    if (confidence >= 70) {
+        return '#F59E0B'; // amber for medium confidence
+    }
+
+    if (confidence >= 50) {
+        return '#F97316'; // orange for low confidence
+    }
+
+    return '#EF4444'; // red for very low confidence
+}
+
+/**
+ * Build category badge HTML for an item
+ */
+function buildCategoryBadge(category, isVerified, confidence) {
+    const categoryColor = getCategoryColor(!!category, isVerified, confidence);
+
+    if (category) {
+        return `
+            <span style="background: ${categoryColor}; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;">
+                ${escapeHtml(category)} ${isVerified ? '✓' : ''} ${confidence}%
+            </span>
+        `;
+    }
+
+    return `
+        <span style="background: #6B7280; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; white-space: nowrap;">
+            Uncategorized
+        </span>
+    `;
+}
+
+/**
+ * Build action buttons HTML for an item
+ */
+function buildItemActionButtons(itemId, hasCategory, isVerified, confidence) {
+    if (!hasCategory) {
+        return `<button onclick="categorizeItem(${itemId})" style="padding: 0.2rem 0.5rem; background: #3B82F6; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Categorize</button>`;
+    }
+
+    if (isVerified) {
+        return `<button onclick="unverifyItemCategory(${itemId}, ${confidence})" style="padding: 0.2rem 0.5rem; background: #F59E0B; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Unverify</button>`;
+    }
+
+    return `<button onclick="verifyItemCategory(${itemId})" style="padding: 0.2rem 0.5rem; background: #10B981; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Verify</button>`;
+}
+
+/**
+ * Build match badge HTML for an order
+ */
+function buildOrderMatchBadge(isMatched, matchConfidence, isNewlyMatched) {
+    if (!isMatched) {
+        return `<span style="background: #f59e0b; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">⚠ Unmatched</span>`;
+    }
+
+    let badge = `<span style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">✓ Matched (${matchConfidence}%)</span>`;
+
+    if (isNewlyMatched) {
+        badge += ` <span style="background: #3b82f6; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">🆕 NEW</span>`;
+    }
+
+    return badge;
+}
+
+/**
+ * Build verification button HTML for a matched order
+ */
+function buildMatchVerificationButton(orderId, isVerified) {
+    if (isVerified) {
+        return `<button onclick="unverifyAmazonMatch('${escapeHtml(orderId)}')" class="btn-small" style="background: #f59e0b; color: white; padding: 0.25rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">Unverify</button>`;
+    }
+
+    return `<button onclick="verifyAmazonMatch('${escapeHtml(orderId)}')" class="btn-small" style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">Approve</button>`;
+}
+
 export function initializeAmazonPage(deps) {
     fetchAPI = deps.fetchAPI;
     navigateTo = deps.navigateTo;
@@ -465,9 +560,7 @@ function displayAmazonOrders(orders) {
     validOrders.forEach(order => {
         const isMatched = order.matched_transaction_id !== null;
         const isNewlyMatched = newlyMatchedAmazonOrderIds.has(order.order_id);
-        const matchBadge = isMatched
-            ? `<span style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">✓ Matched (${order.match_confidence}%)</span>${isNewlyMatched ? ` <span style="background: #3b82f6; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">🆕 NEW</span>` : ''}`
-            : `<span style="background: #f59e0b; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">⚠ Unmatched</span>`;
+        const matchBadge = buildOrderMatchBadge(isMatched, order.match_confidence, isNewlyMatched);
 
         // Add highlight border for newly matched orders
         const cardStyle = isNewlyMatched ? 'border: 3px solid #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);' : '';
@@ -549,34 +642,7 @@ function displayAmazonOrders(orders) {
                 // Build category badge with confidence color coding
                 const confidence = item.confidence || 0;
                 const isVerified = item.verified === 'Yes';
-                let categoryBadge = '';
-                let categoryColor = '#6B7280'; // gray for uncategorized
-
-                if (item.user_category) {
-                    if (isVerified || confidence === 100) {
-                        categoryColor = '#3B82F6'; // blue for verified
-                    } else if (confidence >= 85) {
-                        categoryColor = '#10B981'; // green for high confidence
-                    } else if (confidence >= 70) {
-                        categoryColor = '#F59E0B'; // amber for medium confidence
-                    } else if (confidence >= 50) {
-                        categoryColor = '#F97316'; // orange for low confidence
-                    } else {
-                        categoryColor = '#EF4444'; // red for very low confidence
-                    }
-
-                    categoryBadge = `
-                        <span style="background: ${categoryColor}; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;">
-                            ${escapeHtml(item.user_category)} ${isVerified ? '✓' : ''} ${confidence}%
-                        </span>
-                    `;
-                } else {
-                    categoryBadge = `
-                        <span style="background: #6B7280; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; white-space: nowrap;">
-                            Uncategorized
-                        </span>
-                    `;
-                }
+                const categoryBadge = buildCategoryBadge(item.user_category, isVerified, confidence);
 
                 itemsHtml += `
                     <div id="item-${item.id}" style="display: flex; gap: 1rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
@@ -596,14 +662,7 @@ function displayAmazonOrders(orders) {
                                 <button id="category-trigger-${item.id}" onclick="showItemCategorySelector(event, ${item.id}, this)" style="padding: 0.2rem 0.5rem; background: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 4px; font-size: 0.75rem; cursor: pointer; color: #374151;">
                                     ${item.user_category ? 'Change' : 'Select'} Category
                                 </button>
-                                ${item.user_category ? `
-                                    ${isVerified ?
-                                        `<button onclick="unverifyItemCategory(${item.id}, ${confidence})" style="padding: 0.2rem 0.5rem; background: #F59E0B; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Unverify</button>` :
-                                        `<button onclick="verifyItemCategory(${item.id})" style="padding: 0.2rem 0.5rem; background: #10B981; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Verify</button>`
-                                    }
-                                ` : `
-                                    <button onclick="categorizeItem(${item.id})" style="padding: 0.2rem 0.5rem; background: #3B82F6; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Categorize</button>
-                                `}
+                                ${buildItemActionButtons(item.id, !!item.user_category, isVerified, confidence)}
                             </div>
                             ${item.categorization_reasoning ? `
                                 <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem; font-style: italic;">
@@ -631,10 +690,7 @@ function displayAmazonOrders(orders) {
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                         <div style="font-weight: 600; font-size: 0.9rem; color: var(--success);">✓ Matched Transaction ${isVerified ? '(Verified)' : ''}</div>
                         <div style="display: flex; gap: 0.5rem;">
-                            ${isVerified ?
-                                `<button onclick="unverifyAmazonMatch('${escapeHtml(order.order_id)}')" class="btn-small" style="background: #f59e0b; color: white; padding: 0.25rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">Unverify</button>` :
-                                `<button onclick="verifyAmazonMatch('${escapeHtml(order.order_id)}')" class="btn-small" style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">Approve</button>`
-                            }
+                            ${buildMatchVerificationButton(order.order_id, isVerified)}
                             <button onclick="unmatchAmazonOrder('${escapeHtml(order.order_id)}')" class="btn-small" style="background: #dc2626; color: white; padding: 0.25rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">Unmatch</button>
                         </div>
                     </div>
@@ -1360,40 +1416,11 @@ function updateItemInUI(itemId, update) {
             console.warn(`[Amazon Item UI] Item ${itemId} not found in amazonOrders array`);
         }
 
-        // Calculate category color
+        // Build UI components using helper functions
         const confidence = update.confidence || 0;
         const isVerified = update.verified === 'Yes';
-        let categoryColor = '#6B7280';
-
-        if (update.category) {
-            if (isVerified || confidence === 100) {
-                categoryColor = '#3B82F6'; // blue for verified
-            } else if (confidence >= 85) {
-                categoryColor = '#10B981'; // green for high confidence
-            } else if (confidence >= 70) {
-                categoryColor = '#F59E0B'; // amber for medium confidence
-            } else if (confidence >= 50) {
-                categoryColor = '#F97316'; // orange for low confidence
-            } else {
-                categoryColor = '#EF4444'; // red for very low confidence
-            }
-        }
-
-        // Build new category badge
-        const categoryBadge = update.category
-            ? `<span style="background: ${categoryColor}; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;">
-                   ${escapeHtml(update.category)} ${isVerified ? '✓' : ''} ${confidence}%
-               </span>`
-            : `<span style="background: #6B7280; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; white-space: nowrap;">
-                   Uncategorized
-               </span>`;
-
-        // Build action buttons
-        const actionButtons = update.category
-            ? (isVerified
-                ? `<button onclick="unverifyItemCategory(${itemId}, ${confidence})" style="padding: 0.2rem 0.5rem; background: #F59E0B; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Unverify</button>`
-                : `<button onclick="verifyItemCategory(${itemId})" style="padding: 0.2rem 0.5rem; background: #10B981; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Verify</button>`)
-            : `<button onclick="categorizeItem(${itemId})" style="padding: 0.2rem 0.5rem; background: #3B82F6; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Categorize</button>`;
+        const categoryBadge = buildCategoryBadge(update.category, isVerified, confidence);
+        const actionButtons = buildItemActionButtons(itemId, !!update.category, isVerified, confidence);
 
         // Find the controls container (has the badge, dropdown, and buttons)
         const controlsContainer = itemElement.querySelector('div[style*="display: flex"][style*="gap: 0.5rem"]');
