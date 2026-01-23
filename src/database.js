@@ -2537,12 +2537,9 @@ export function deleteCategory(name) {
 
   // Use transaction to delete category and uncategorize related records
   const transaction = db.transaction(() => {
-    // Delete category (this will cascade to child categories via parent_category_id if we had CASCADE)
-    const deleteCategoryStmt = db.prepare('DELETE FROM categories WHERE name = ?');
-    deleteCategoryStmt.run(name);
+    // FIRST: Clean up all foreign key references before deleting the category
 
-    // Move all transactions in this category to uncategorized and unverify them
-    // Update both category (backward compat) and category_id (normalized)
+    // 1. Move all transactions in this category to uncategorized and unverify them
     const updateTransactionsStmt = db.prepare(`
       UPDATE transactions
       SET category = '', category_id = NULL, verified = 'No', confidence = 0
@@ -2550,13 +2547,43 @@ export function deleteCategory(name) {
     `);
     const result = updateTransactionsStmt.run(categoryId);
 
-    // Delete all merchant mappings for this category
-    const deleteMappingsStmt = db.prepare('DELETE FROM merchant_mappings WHERE category_id = ?');
-    deleteMappingsStmt.run(categoryId);
-
-    // Update other tables that reference this category
+    // 2. Update Amazon items
     db.prepare('UPDATE amazon_items SET user_category = NULL, category_id = NULL WHERE category_id = ?').run(categoryId);
+
+    // 3. Update transaction splits
+    db.prepare('UPDATE transaction_splits SET category = NULL, category_id = NULL WHERE category_id = ?').run(categoryId);
+
+    // 4. Delete merchant mappings
+    db.prepare('DELETE FROM merchant_mappings WHERE category_id = ?').run(categoryId);
+
+    // 5. Update category rules
     db.prepare('UPDATE category_rules SET category = NULL, category_id = NULL WHERE category_id = ?').run(categoryId);
+
+    // 6. Update plaid category mappings
+    db.prepare('UPDATE plaid_category_mappings SET user_category = NULL, category_id = NULL WHERE category_id = ?').run(categoryId);
+
+    // 7. Update external category mappings
+    db.prepare('UPDATE external_category_mappings SET user_category = NULL, category_id = NULL WHERE category_id = ?').run(categoryId);
+
+    // 8. Update amazon item rules
+    db.prepare('UPDATE amazon_item_rules SET category = NULL, category_id = NULL WHERE category_id = ?').run(categoryId);
+
+    // 9. Update child categories (set parent to null)
+    db.prepare('UPDATE categories SET parent_category = NULL, parent_category_id = NULL WHERE parent_category_id = ?').run(categoryId);
+
+    // 10. Update AI categorizations
+    db.prepare('UPDATE ai_categorizations SET category = NULL, category_id = NULL WHERE category_id = ?').run(categoryId);
+
+    // 11. Update AI embeddings
+    db.prepare('UPDATE ai_embeddings SET category = NULL, category_id = NULL WHERE category_id = ?').run(categoryId);
+
+    // 12. Update AI feedback
+    db.prepare('UPDATE ai_feedback SET suggested_category = NULL, suggested_category_id = NULL WHERE suggested_category_id = ?').run(categoryId);
+    db.prepare('UPDATE ai_feedback SET actual_category = NULL, actual_category_id = NULL WHERE actual_category_id = ?').run(categoryId);
+
+    // LAST: Now delete the category itself (all foreign keys are cleaned up)
+    const deleteCategoryStmt = db.prepare('DELETE FROM categories WHERE id = ?');
+    deleteCategoryStmt.run(categoryId);
 
     return { success: true, transactionsAffected: result.changes };
   });
