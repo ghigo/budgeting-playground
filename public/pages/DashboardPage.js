@@ -3,9 +3,10 @@
  * Handles all dashboard page functionality including stats, charts, and recent transactions
  */
 
-import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
+import { formatCurrency, formatDate, escapeHtml } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { createCategoryChart, createLineChart, createBarChart, currencyTooltipFormatter } from '../utils/charts.js';
+import { withLoadingState } from '../utils/helpers.js';
 
 // Chart instances
 let netWorthChartInstance = null;
@@ -21,8 +22,7 @@ export function initializeDashboardPage(fetchFunction) {
 }
 
 export async function loadDashboard() {
-    showLoading();
-    try {
+    return withLoadingState(async () => {
         const [accounts, transactions, stats] = await Promise.all([
             fetchAPI('/api/accounts'),
             fetchAPI('/api/transactions?limit=10'),
@@ -41,12 +41,7 @@ export async function loadDashboard() {
 
         // Set up time range selector listeners
         setupTimeRangeSelector();
-    } catch (error) {
-        showToast('Failed to load dashboard', 'error');
-        console.error(error);
-    } finally {
-        hideLoading();
-    }
+    }, 'Failed to load dashboard');
 }
 
 function updateDashboardStats(accounts, stats) {

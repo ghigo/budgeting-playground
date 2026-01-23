@@ -3,7 +3,7 @@
  * Handles accounts and institutions display and management
  */
 
-import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
+import { formatCurrency, formatDate, formatRelativeDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
 
@@ -147,7 +147,7 @@ function displayAccounts(accounts) {
                         ${typeAccounts.map(acc => {
                             const balance = parseFloat(acc.current_balance) || 0;
                             const updatedAt = acc.updated_at;
-                            const timeAgo = getTimeAgo(updatedAt);
+                            const timeAgo = formatRelativeDate(updatedAt) || 'Unknown';
 
                             return `
                                 <div
@@ -221,30 +221,6 @@ function displayAccounts(accounts) {
     });
 
     container.innerHTML = html;
-}
-
-function getTimeAgo(dateString) {
-    if (!dateString) return 'Unknown';
-
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffSecs = Math.floor(diffMs / 1000);
-    const diffMins = Math.floor(diffSecs / 60);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-    const diffMonths = Math.floor(diffDays / 30);
-    const diffYears = Math.floor(diffDays / 365);
-
-    // Helper function to format time with proper pluralization
-    const formatTime = (value, unit) => `${value} ${unit}${value > 1 ? 's' : ''} ago`;
-
-    if (diffYears > 0) return formatTime(diffYears, 'year');
-    if (diffMonths > 0) return formatTime(diffMonths, 'month');
-    if (diffDays > 0) return formatTime(diffDays, 'day');
-    if (diffHours > 0) return formatTime(diffHours, 'hour');
-    if (diffMins > 0) return formatTime(diffMins, 'minute');
-    return 'Just now';
 }
 
 function viewAccountTransactions(accountName) {
