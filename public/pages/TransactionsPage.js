@@ -10,6 +10,7 @@ import { eventBus } from '../services/eventBus.js';
 import { debounce } from '../utils/helpers.js';
 import { aiCategorization } from '../services/aiCategorizationClient.js';
 import { showConfirmModal } from '../components/Modal.js';
+import { showCategorySelector, closeCategorySelector } from '../components/CategorySelector.js';
 
 // Module state
 let allCategories = [];
@@ -50,7 +51,6 @@ export function initializeTransactionsPage(deps) {
     window.applyUnverifiedFilter = applyUnverifiedFilter;
     window.showNewlyCategorizedTransactions = showNewlyCategorizedTransactions;
     window.autoCategorizeTransactions = autoCategorizeTransactions;
-    window.filterCategoryDropdown = filterCategoryDropdown;
     window.closeAllDropdowns = closeAllDropdowns;
     window.closeSimilarTransactionsModal = closeSimilarTransactionsModal;
     window.toggleAllSimilarTransactions = toggleAllSimilarTransactions;
@@ -635,21 +635,17 @@ async function autoCategorizeTransactions() {
 function showCategoryDropdown(inputElementOrEvent, transactionIdParam = null) {
     let inputElement;
     let transactionId;
-    let clickedElement;
 
     if (typeof inputElementOrEvent === 'object' && inputElementOrEvent.target) {
         const event = inputElementOrEvent;
         event.preventDefault();
         event.stopPropagation();
         transactionId = transactionIdParam;
-        clickedElement = event.target.closest('button') || event.target.closest('span[onclick]');
-        inputElement = clickedElement;
+        inputElement = event.target.closest('button') || event.target.closest('span[onclick]');
     } else {
         inputElement = inputElementOrEvent;
         transactionId = inputElement.getAttribute('data-transaction-id');
     }
-
-    closeAllDropdowns();
 
     if (transactionId && inputElement) {
         inputElement.setAttribute('data-transaction-id', transactionId);
@@ -657,100 +653,12 @@ function showCategoryDropdown(inputElementOrEvent, transactionIdParam = null) {
 
     currentDropdownInput = inputElement;
 
-    const dropdown = document.createElement('div');
-    dropdown.className = 'category-dropdown';
-    dropdown.id = 'category-dropdown-' + transactionId;
-
-    dropdown.innerHTML = `
-        <div class="category-dropdown-search">
-            <input type="text"
-                   class="category-search-input"
-                   placeholder="Search categories..."
-                   oninput="filterCategoryDropdown(this.value)"
-                   autofocus>
-        </div>
-        <div class="category-dropdown-list" id="category-list-${transactionId}">
-            ${buildCategoryList(allCategories)}
-        </div>
-    `;
-
-    document.body.appendChild(dropdown);
-
-    const rect = inputElement.getBoundingClientRect();
-    dropdown.style.position = 'fixed';
-    dropdown.style.top = (rect.bottom + 2) + 'px';
-    dropdown.style.left = rect.left + 'px';
-    dropdown.style.minWidth = '250px';
-    dropdown.style.maxWidth = '400px';
-
-    setTimeout(() => {
-        const searchInput = dropdown.querySelector('.category-search-input');
-        if (searchInput) searchInput.focus();
-    }, 10);
-}
-
-function buildCategoryList(categories, searchTerm = '') {
-    const filtered = searchTerm
-        ? categories.filter(cat =>
-            cat.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (cat.parent_category && cat.parent_category.toLowerCase().includes(searchTerm.toLowerCase()))
-          )
-        : categories;
-
-    if (filtered.length === 0) {
-        return '<div class="category-dropdown-empty">No categories found</div>';
-    }
-
-    const topLevel = filtered.filter(cat => !cat.parent_category);
-    const withParent = filtered.filter(cat => cat.parent_category);
-
-    const html = [];
-
-    topLevel.forEach(cat => {
-        html.push(`
-            <div class="category-dropdown-item" onclick="selectCategory('${escapeHtml(cat.name)}')">
-                <span class="category-name" style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span style="font-size: 1.1rem;">${cat.icon || '📁'}</span>
-                    <span>${escapeHtml(cat.name)}</span>
-                </span>
-            </div>
-        `);
+    // Use the reusable CategorySelector component
+    showCategorySelector({
+        triggerElement: inputElement,
+        categories: allCategories,
+        onSelect: (categoryName) => selectCategory(categoryName)
     });
-
-    const parentGroups = {};
-    withParent.forEach(cat => {
-        if (!parentGroups[cat.parent_category]) {
-            parentGroups[cat.parent_category] = [];
-        }
-        parentGroups[cat.parent_category].push(cat);
-    });
-
-    Object.keys(parentGroups).sort().forEach(parent => {
-        html.push(`<div class="category-dropdown-group-label">${escapeHtml(parent)}</div>`);
-        parentGroups[parent].forEach(cat => {
-            html.push(`
-                <div class="category-dropdown-item indented" onclick="selectCategory('${escapeHtml(cat.name)}')">
-                    <span class="category-name" style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span style="font-size: 1.1rem;">${cat.icon || '📁'}</span>
-                        <span>${escapeHtml(cat.name)}</span>
-                    </span>
-                </div>
-            `);
-        });
-    });
-
-    return html.join('');
-}
-
-function filterCategoryDropdown(searchTerm) {
-    if (!currentDropdownInput) return;
-
-    const transactionId = currentDropdownInput.getAttribute('data-transaction-id');
-    const listContainer = document.getElementById('category-list-' + transactionId);
-
-    if (listContainer) {
-        listContainer.innerHTML = buildCategoryList(allCategories, searchTerm);
-    }
 }
 
 async function selectCategory(categoryName) {
@@ -837,7 +745,7 @@ async function bulkUpdateCategory(categoryName) {
 }
 
 function closeAllDropdowns() {
-    document.querySelectorAll('.category-dropdown').forEach(dropdown => dropdown.remove());
+    closeCategorySelector();
     currentDropdownInput = null;
 }
 

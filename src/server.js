@@ -32,11 +32,27 @@ app.use(compression({
 app.use(express.json());
 app.use(express.static(join(__dirname, '../public')));
 
-// Disable caching for all API routes to ensure fresh data
+// Smart API caching: cache static data, disable for dynamic data
 app.use('/api', (req, res, next) => {
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-  res.set('Pragma', 'no-cache');
-  res.set('Expires', '0');
+  // Static data that rarely changes - cache for 5 minutes
+  const staticEndpoints = [
+    '/api/categories',
+    '/api/accounts',
+    '/api/category-mappings/rules'
+  ];
+
+  // Check if this is a GET request to a static endpoint
+  const isStaticEndpoint = req.method === 'GET' && staticEndpoints.some(endpoint => req.path === endpoint);
+
+  if (isStaticEndpoint) {
+    // Cache for 5 minutes (300 seconds)
+    res.set('Cache-Control', 'public, max-age=300');
+  } else {
+    // Disable caching for dynamic data
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+  }
   next();
 });
 
@@ -380,8 +396,7 @@ app.get('/api/transactions/:transactionId/similar', async (req, res) => {
     const { transactionId } = req.params;
 
     // Get the transaction to find its merchant name
-    const transactions = database.getTransactions(999999);
-    const transaction = transactions.find(t => t.transaction_id === transactionId);
+    const transaction = database.getTransactionById(transactionId);
 
     if (!transaction) {
       return res.status(404).json({ error: 'Transaction not found' });
@@ -531,12 +546,30 @@ app.post('/api/ai/auto-categorize', async (req, res) => {
       `).all();
     }
 
-    // Fetch Amazon items for matched transactions
-    for (const tx of transactions) {
-      if (tx.amazon_order_id) {
-        const items = db.prepare('SELECT * FROM amazon_items WHERE order_id = ?').all(tx.amazon_order_id);
-        tx.amazon_items = items;
-      }
+    // Fetch Amazon items for matched transactions (optimized to avoid N+1 queries)
+    const orderIds = transactions
+      .filter(tx => tx.amazon_order_id)
+      .map(tx => tx.amazon_order_id);
+
+    if (orderIds.length > 0) {
+      const placeholders = orderIds.map(() => '?').join(',');
+      const allItems = db.prepare(`SELECT * FROM amazon_items WHERE order_id IN (${placeholders})`).all(...orderIds);
+
+      // Group items by order_id
+      const itemsByOrderId = {};
+      allItems.forEach(item => {
+        if (!itemsByOrderId[item.order_id]) {
+          itemsByOrderId[item.order_id] = [];
+        }
+        itemsByOrderId[item.order_id].push(item);
+      });
+
+      // Attach items to transactions
+      transactions.forEach(tx => {
+        if (tx.amazon_order_id) {
+          tx.amazon_items = itemsByOrderId[tx.amazon_order_id] || [];
+        }
+      });
     }
 
     // Categorize them
@@ -621,12 +654,30 @@ app.post('/api/ai/review-all', async (req, res) => {
       LIMIT ? OFFSET ?
     `).all(confidenceThreshold, limit, offset);
 
-    // Fetch Amazon items for matched transactions
-    for (const tx of transactions) {
-      if (tx.amazon_order_id) {
-        const items = db.prepare('SELECT * FROM amazon_items WHERE order_id = ?').all(tx.amazon_order_id);
-        tx.amazon_items = items;
-      }
+    // Fetch Amazon items for matched transactions (optimized to avoid N+1 queries)
+    const orderIds = transactions
+      .filter(tx => tx.amazon_order_id)
+      .map(tx => tx.amazon_order_id);
+
+    if (orderIds.length > 0) {
+      const placeholders = orderIds.map(() => '?').join(',');
+      const allItems = db.prepare(`SELECT * FROM amazon_items WHERE order_id IN (${placeholders})`).all(...orderIds);
+
+      // Group items by order_id
+      const itemsByOrderId = {};
+      allItems.forEach(item => {
+        if (!itemsByOrderId[item.order_id]) {
+          itemsByOrderId[item.order_id] = [];
+        }
+        itemsByOrderId[item.order_id].push(item);
+      });
+
+      // Attach items to transactions
+      transactions.forEach(tx => {
+        if (tx.amazon_order_id) {
+          tx.amazon_items = itemsByOrderId[tx.amazon_order_id] || [];
+        }
+      });
     }
 
     // Get total count for info
@@ -1094,23 +1145,32 @@ app.get('/api/amazon/orders', (req, res) => {
       startDate: req.query.startDate,
       endDate: req.query.endDate,
       matched: req.query.matched === 'true' ? true : req.query.matched === 'false' ? false : undefined,
-      accountName: req.query.accountName
+      accountName: req.query.accountName,
+      limit: req.query.limit ? parseInt(req.query.limit) : 100,  // Default limit to prevent slow loads
+      offset: req.query.offset ? parseInt(req.query.offset) : 0
     };
 
     const orders = database.getAmazonOrders(filters);
 
-    // Include matched transaction details for each order
-    const ordersWithTransactions = orders.map(order => {
-      if (order.matched_transaction_id) {
-        const transaction = database.getTransactions(10000)
-          .find(t => t.transaction_id === order.matched_transaction_id);
-        return {
-          ...order,
-          matched_transaction: transaction || null
-        };
-      }
-      return order;
-    });
+    // Include matched transaction details for each order (optimized to avoid N+1 queries)
+    const matchedTransactionIds = orders
+      .filter(order => order.matched_transaction_id)
+      .map(order => order.matched_transaction_id);
+
+    let transactionMap = {};
+    if (matchedTransactionIds.length > 0) {
+      // Fetch all matched transactions in a single query
+      const transactions = database.getTransactionsByIds(matchedTransactionIds);
+      transactionMap = transactions.reduce((map, t) => {
+        map[t.transaction_id] = t;
+        return map;
+      }, {});
+    }
+
+    const ordersWithTransactions = orders.map(order => ({
+      ...order,
+      matched_transaction: order.matched_transaction_id ? transactionMap[order.matched_transaction_id] || null : undefined
+    }));
 
     res.json(ordersWithTransactions);
   } catch (error) {
@@ -1130,15 +1190,110 @@ app.get('/api/amazon/orders/:orderId', (req, res) => {
 
     // If matched, include transaction details
     if (order.matched_transaction_id) {
-      const transaction = database.getTransactions(10000)
-        .find(t => t.transaction_id === order.matched_transaction_id);
-
+      const transaction = database.getTransactionById(order.matched_transaction_id);
       order.matched_transaction = transaction || null;
     }
 
     res.json(order);
   } catch (error) {
     console.error('Error fetching Amazon order:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get Amazon product image URL by ASIN (scrapes actual product page)
+app.get('/api/amazon/product-image/:asin', async (req, res) => {
+  try {
+    const { asin } = req.params;
+
+    // Validate ASIN format
+    if (!/^[A-Z0-9]{10}$/.test(asin)) {
+      return res.status(400).json({ error: 'Invalid ASIN format' });
+    }
+
+    // Check if we have a cached image URL in database first
+    const cachedItems = database.getAmazonItems({ asin });
+    if (cachedItems.length > 0 && cachedItems[0].image_url) {
+      // Return cached image URL silently (no console spam)
+      return res.json({ asin, imageUrl: cachedItems[0].image_url, cached: true });
+    }
+
+    // Fetch Amazon product page
+    const productUrl = `https://www.amazon.com/dp/${asin}`;
+    const response = await fetch(productUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
+      }
+    });
+
+    if (!response.ok) {
+      return res.status(404).json({ error: 'Product not found on Amazon' });
+    }
+
+    const html = await response.text();
+
+    // Extract image URL from HTML - try multiple patterns
+    let imageUrl = null;
+
+    // Pattern 1: OpenGraph image (most reliable)
+    const ogImageMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
+    if (ogImageMatch) {
+      imageUrl = ogImageMatch[1];
+    }
+
+    // Pattern 2: Main product image in data attribute
+    if (!imageUrl) {
+      const dataImageMatch = html.match(/data-old-hires="([^"]+)"/);
+      if (dataImageMatch) {
+        imageUrl = dataImageMatch[1];
+      }
+    }
+
+    // Pattern 3: Image in imageBlock
+    if (!imageUrl) {
+      const imgSrcMatch = html.match(/id="landingImage"[^>]*src="([^"]+)"/);
+      if (imgSrcMatch) {
+        imageUrl = imgSrcMatch[1];
+      }
+    }
+
+    // Pattern 4: colorImages JSON data
+    if (!imageUrl) {
+      const colorImagesMatch = html.match(/'colorImages':\s*{\s*'initial':\s*\[({[^}]+})/);
+      if (colorImagesMatch) {
+        try {
+          const imageData = JSON.parse(colorImagesMatch[1]);
+          if (imageData.large) {
+            imageUrl = imageData.large;
+          } else if (imageData.hiRes) {
+            imageUrl = imageData.hiRes;
+          }
+        } catch (e) {
+          // JSON parse failed, continue
+        }
+      }
+    }
+
+    if (!imageUrl) {
+      return res.status(404).json({ error: 'Image not found in product page' });
+    }
+
+    // Clean up the image URL (remove size parameters for better quality)
+    imageUrl = imageUrl.split('._')[0] + '._AC_SL500_.jpg';
+
+    // Cache the image URL in database for future use (silently)
+    try {
+      database.updateAmazonItemImageUrl(asin, imageUrl);
+    } catch (dbError) {
+      // Only log errors, not successes
+      console.error(`[Image Cache] Failed to save image URL for ASIN ${asin}:`, dbError);
+    }
+
+    res.json({ asin, imageUrl, cached: false });
+  } catch (error) {
+    console.error('Error fetching Amazon product image:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1279,12 +1434,16 @@ app.get('/api/amazon/accounts', (req, res) => {
 // Get Amazon items with optional filters
 app.get('/api/amazon/items', (req, res) => {
   try {
-    const { categorized, verified, orderId } = req.query;
+    const { categorized, verified, orderId, limit, offset } = req.query;
     const filters = {};
 
     if (categorized) filters.categorized = categorized;
     if (verified) filters.verified = verified;
     if (orderId) filters.orderId = orderId;
+
+    // Add pagination support (default limit to prevent excessive data transfer)
+    filters.limit = limit ? parseInt(limit) : 100;
+    filters.offset = offset ? parseInt(offset) : 0;
 
     const items = database.getAmazonItems(filters);
     res.json(items);
@@ -1316,20 +1475,18 @@ app.post('/api/amazon/items/:itemId/categorize', async (req, res) => {
     }
 
     const item = items[0];
-    const result = await amazonItemCategorization.categorizeItem(item);
+
+    // Use new enhanced AI categorization service
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+    const result = await enhancedAI.categorize(item, 'amazon_item', itemId);
 
     // Save the categorization
     database.updateAmazonItemCategory(
       itemId,
       result.category,
-      result.confidence,
+      Math.round((result.confidence || 0.5) * 100),
       result.reasoning
     );
-
-    // Update rule stats if a rule was used
-    if (result.ruleId) {
-      database.updateAmazonItemRuleStats(result.ruleId, true);
-    }
 
     res.json(result);
   } catch (error) {
@@ -1341,35 +1498,45 @@ app.post('/api/amazon/items/:itemId/categorize', async (req, res) => {
 // Batch categorize Amazon items (synchronous - for small batches)
 app.post('/api/amazon/items/categorize-batch', async (req, res) => {
   try {
-    const { limit, itemIds, categorizedOnly } = req.body;
+    const { limit, itemIds, categorizedOnly, skipVerified } = req.body;
 
     let items;
     if (itemIds && itemIds.length > 0) {
-      // Categorize specific items
-      items = database.getAmazonItems({}).filter(item => itemIds.includes(item.id));
+      // Categorize specific items (optimized: filter in database not JavaScript)
+      items = database.getAmazonItems({ itemIds });
     } else if (categorizedOnly === false) {
-      // Only uncategorized items
-      items = database.getAmazonItems({ categorized: 'no' });
+      // Only uncategorized items, skip verified by default
+      const filters = { categorized: 'no', limit: limit || 1000 };
+      if (skipVerified !== false) {
+        filters.verified = 'no';
+      }
+      items = database.getAmazonItems(filters);
     } else {
-      // All items
-      items = database.getAmazonItems({});
+      // All items, skip verified by default
+      const filters = { limit: limit || 1000 };
+      if (skipVerified !== false) {
+        filters.verified = 'no';
+      }
+      items = database.getAmazonItems(filters);
     }
 
-    const results = await amazonItemCategorization.categorizeItemsBatch(items, limit);
+    // Use new enhanced AI categorization service
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+    const results = await enhancedAI.batchCategorize(items, 'amazon_item', {
+      batchSize: 10
+    });
 
     // Save all categorizations
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const item = items[i];
+
       database.updateAmazonItemCategory(
-        result.itemId,
+        item.id,
         result.category,
-        result.confidence,
+        Math.round((result.confidence || 0.5) * 100),
         result.reasoning
       );
-
-      // Update rule stats if a rule was used
-      if (result.ruleId) {
-        database.updateAmazonItemRuleStats(result.ruleId, true);
-      }
     }
 
     res.json({ success: true, count: results.length, results });
@@ -1382,20 +1549,30 @@ app.post('/api/amazon/items/categorize-batch', async (req, res) => {
 // Start background categorization job
 app.post('/api/amazon/items/categorize-background', async (req, res) => {
   try {
-    const { limit, itemIds, categorizedOnly } = req.body;
+    const { limit, itemIds, categorizedOnly, skipVerified } = req.body;
 
-    // Get items to categorize
+    // Get items to categorize (optimized: filter in database not JavaScript)
     let items;
     if (itemIds && itemIds.length > 0) {
-      items = database.getAmazonItems({}).filter(item => itemIds.includes(item.id));
+      items = database.getAmazonItems({ itemIds, limit: limit || 1000 });
     } else if (categorizedOnly === false) {
-      items = database.getAmazonItems({ categorized: 'no' });
+      // Only uncategorized items, and optionally skip verified items
+      const filters = { categorized: 'no', limit: limit || 1000 };
+      if (skipVerified !== false) {
+        // By default, skip verified items
+        filters.verified = 'no';
+      }
+      items = database.getAmazonItems(filters);
     } else {
-      items = database.getAmazonItems({});
+      // All items, but skip verified ones by default
+      const filters = { limit: limit || 1000 };
+      if (skipVerified !== false) {
+        filters.verified = 'no';
+      }
+      items = database.getAmazonItems(filters);
     }
 
-    // Apply limit if specified
-    const itemsToProcess = limit ? items.slice(0, limit) : items;
+    const itemsToProcess = items;
 
     // Create background job
     const jobId = backgroundJobService.createJob('amazon-item-categorization', {
@@ -1506,27 +1683,42 @@ async function processCategorizationJob(jobId, items) {
 app.post('/api/amazon/items/:itemId/category', async (req, res) => {
   try {
     const { itemId } = req.params;
-    const { category } = req.body;
+    const { category, previousCategory } = req.body;
 
     if (!category) {
       return res.status(400).json({ error: 'Category required' });
     }
 
-    // Get the item
-    const items = database.getAmazonItems({});
-    const item = items.find(i => i.id === parseInt(itemId));
+    // Get the item (optimized: query by ID instead of loading all)
+    const items = database.getAmazonItems({ itemId: parseInt(itemId) });
 
-    if (!item) {
+    if (items.length === 0) {
       return res.status(404).json({ error: 'Item not found' });
     }
 
-    // Update category
+    const item = items[0];
+
+    // Update category and auto-verify (manual selection implies verification)
     database.updateAmazonItemCategory(itemId, category, 100, 'User selected');
+    database.verifyAmazonItemCategory(itemId);
 
-    // Learn from user's choice
-    const learnResult = await amazonItemCategorization.learnFromUser(item, category);
+    // Record feedback with new enhanced AI service
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+    await enhancedAI.recordFeedback(
+      itemId.toString(),
+      'amazon_item',
+      previousCategory || item.user_category || 'Uncategorized',
+      category,
+      'user_manual',
+      1.0
+    );
 
-    res.json({ success: true, learnResult });
+    console.log(`✓ User corrected Amazon item #${itemId}: ${item.title} → ${category}`);
+
+    res.json({
+      success: true,
+      message: 'Category updated and feedback recorded'
+    });
   } catch (error) {
     console.error('Error updating Amazon item category:', error);
     res.status(500).json({ error: error.message });
@@ -1534,10 +1726,40 @@ app.post('/api/amazon/items/:itemId/category', async (req, res) => {
 });
 
 // Verify item category
-app.post('/api/amazon/items/:itemId/verify', (req, res) => {
+app.post('/api/amazon/items/:itemId/verify', async (req, res) => {
   try {
     const { itemId } = req.params;
+
+    // Get the item to see its current category (optimized: query by ID instead of loading all)
+    const items = database.getAmazonItems({ itemId: parseInt(itemId) });
+
+    if (items.length === 0 || !items[0].user_category) {
+      return res.status(400).json({ error: 'Item not found or not categorized' });
+    }
+
+    const item = items[0];
+
+    // Mark as verified in database
     database.verifyAmazonItemCategory(itemId);
+
+    // Record positive confirmation feedback with enhanced AI
+    // This tells the AI that its categorization was correct
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+
+    // Get the AI categorization record to see what method was used
+    const aiCategorization = database.getAICategorization(itemId.toString(), 'amazon_item');
+
+    await enhancedAI.recordFeedback(
+      itemId.toString(),
+      'amazon_item',
+      item.user_category, // Suggested category
+      item.user_category, // Actual category (same because verified)
+      aiCategorization?.method || 'unknown',
+      aiCategorization?.confidence || item.confidence / 100
+    );
+
+    console.log(`✓ User verified Amazon item #${itemId}: ${item.title} as ${item.user_category}`);
+
     res.json({ success: true });
   } catch (error) {
     console.error('Error verifying Amazon item category:', error);
@@ -1892,6 +2114,178 @@ app.post('/api/external-categories/suggest-mapping', async (req, res) => {
 });
 
 // ============================================================================
+// ENHANCED AI CATEGORIZATION (4-STAGE PIPELINE)
+// ============================================================================
+
+// Categorize a single purchase/item
+app.post('/api/categorize', async (req, res) => {
+  try {
+    const { purchase, item_type = 'amazon_item', item_id } = req.body;
+
+    if (!purchase) {
+      return res.status(400).json({ error: 'Purchase data is required' });
+    }
+
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+    const result = await enhancedAI.categorize(purchase, item_type, item_id);
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error categorizing purchase:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Batch categorize purchases
+app.post('/api/categorize/batch', async (req, res) => {
+  try {
+    const { purchases, item_type = 'amazon_item', batch_size = 10 } = req.body;
+
+    if (!purchases || !Array.isArray(purchases)) {
+      return res.status(400).json({ error: 'Purchases array is required' });
+    }
+
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+
+    const results = await enhancedAI.batchCategorize(purchases, item_type, {
+      batchSize: batch_size
+    });
+
+    res.json({
+      total: purchases.length,
+      results: results
+    });
+  } catch (error) {
+    console.error('Error batch categorizing:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Submit user feedback/correction
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const {
+      purchase_id,
+      item_type = 'amazon_item',
+      suggested_category,
+      actual_category,
+      suggestion_method,
+      suggestion_confidence
+    } = req.body;
+
+    if (!purchase_id || !actual_category) {
+      return res.status(400).json({
+        error: 'purchase_id and actual_category are required'
+      });
+    }
+
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+
+    await enhancedAI.recordFeedback(
+      purchase_id,
+      item_type,
+      suggested_category || 'Unknown',
+      actual_category,
+      suggestion_method,
+      suggestion_confidence
+    );
+
+    res.json({
+      success: true,
+      message: 'Feedback recorded successfully'
+    });
+  } catch (error) {
+    console.error('Error recording feedback:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get AI categorization status and metrics
+app.get('/api/categorize/status', async (req, res) => {
+  try {
+    const { default: enhancedAI } = await import('../services/enhancedAICategorizationService.js');
+    const status = await enhancedAI.getStatus();
+
+    // Get metrics
+    const metrics = database.getAIMetrics();
+    const trainingHistory = database.getAITrainingHistory(5);
+    const accuracyByMethod = database.getCategorizationAccuracyByMethod(null, 30);
+
+    res.json({
+      ...status,
+      metrics,
+      trainingHistory,
+      accuracyByMethod
+    });
+  } catch (error) {
+    console.error('Error getting categorization status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Trigger manual retraining
+app.post('/api/categorize/retrain', async (req, res) => {
+  try {
+    const { default: scheduledRetraining } = await import('../services/scheduledRetrainingService.js');
+
+    // Trigger retraining asynchronously
+    scheduledRetraining.manualRetrain().catch(err =>
+      console.error('Manual retraining failed:', err)
+    );
+
+    res.json({
+      success: true,
+      message: 'Retraining initiated in background'
+    });
+  } catch (error) {
+    console.error('Error triggering retraining:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get retraining status
+app.get('/api/categorize/retrain/status', async (req, res) => {
+  try {
+    const { default: scheduledRetraining } = await import('../services/scheduledRetrainingService.js');
+    const status = scheduledRetraining.getStatus();
+
+    res.json(status);
+  } catch (error) {
+    console.error('Error getting retraining status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Import Amazon CSV with categorization
+app.post('/api/imports/amazon-csv', async (req, res) => {
+  try {
+    // TODO: Implement CSV import with auto-categorization
+    res.status(501).json({ error: 'Not yet implemented' });
+  } catch (error) {
+    console.error('Error importing Amazon CSV:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get categorization metrics
+app.get('/api/metrics/categorization', async (req, res) => {
+  try {
+    const { item_type, start_date, end_date, days = 30 } = req.query;
+
+    const metrics = database.getAIMetrics(item_type, start_date, end_date);
+    const accuracyByMethod = database.getCategorizationAccuracyByMethod(item_type, parseInt(days));
+
+    res.json({
+      metrics,
+      accuracyByMethod
+    });
+  } catch (error) {
+    console.error('Error getting categorization metrics:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
 // SERVER START
 // ============================================================================
 
@@ -1911,7 +2305,7 @@ app.get('*', (req, res) => {
 });
 
 // Start server
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   const envEmoji = plaidEnvironment === 'production' ? '🟢' : '🟡';
   const envLabel = plaidEnvironment.toUpperCase();
 
@@ -1919,6 +2313,21 @@ const server = app.listen(PORT, () => {
   console.log(`${envEmoji} Environment: ${envLabel}`);
   console.log(`📊 Dashboard: http://localhost:${PORT}`);
   console.log(`🔗 Link Account: http://localhost:${PORT}/link`);
+
+  // Initialize retraining service (checks and retrains on startup if needed)
+  try {
+    const { default: scheduledRetraining } = await import('../services/scheduledRetrainingService.js');
+    await scheduledRetraining.initialize();
+
+    // Optionally start scheduled jobs for long-running services
+    // Comment out if service restarts frequently
+    if (process.env.ENABLE_SCHEDULED_RETRAINING !== 'false') {
+      scheduledRetraining.start();
+    }
+  } catch (error) {
+    console.error('⚠️  Failed to initialize retraining service:', error.message);
+  }
+
   console.log('\nPress Ctrl+C to stop\n');
 });
 
@@ -1932,6 +2341,14 @@ async function gracefulShutdown(signal) {
   });
 
   try {
+    // Stop scheduled retraining service
+    try {
+      const { default: scheduledRetraining } = await import('../services/scheduledRetrainingService.js');
+      scheduledRetraining.stop();
+    } catch (error) {
+      console.error('   Failed to stop scheduled retraining:', error.message);
+    }
+
     // Cleanup AI resources (unload Ollama model, stop processes)
     await aiCategorization.cleanup();
 

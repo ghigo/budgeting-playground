@@ -13,6 +13,17 @@ export function matchAmazonOrdersToTransactions(amazonOrders, transactions) {
   const unmatchedOrders = [];
   const usedTransactionIds = new Set();
 
+  // Pre-filter transactions to only Amazon transactions (massive performance optimization)
+  // This reduces O(n×m) to O(n×k) where k is much smaller than m
+  const amazonTransactions = transactions.filter(t => {
+    const description = (t.description || '').toLowerCase();
+    const merchantName = (t.merchant_name || '').toLowerCase();
+    return description.includes('amazon') || merchantName.includes('amazon') ||
+           description.includes('amzn') || merchantName.includes('amzn');
+  });
+
+  console.log(`[MATCHING] Pre-filtered ${amazonTransactions.length} Amazon transactions from ${transactions.length} total (${Math.round(amazonTransactions.length/transactions.length*100)}% reduction)`);
+
   for (const order of amazonOrders) {
     // Skip orders with $0 total - these are typically cancelled/refunded items
     const orderAmount = Math.abs(parseFloat(order.total_amount) || 0);
@@ -20,7 +31,7 @@ export function matchAmazonOrdersToTransactions(amazonOrders, transactions) {
       continue; // Don't add to matches or unmatchedOrders
     }
 
-    const match = findBestTransactionMatch(order, transactions, usedTransactionIds);
+    const match = findBestTransactionMatch(order, amazonTransactions, usedTransactionIds);
 
     if (match) {
       matches.push({
@@ -62,12 +73,12 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
 
   let candidatesChecked = 0;
   let candidatesSkippedAlreadyMatched = 0;
-  let candidatesSkippedNotAmazon = 0;
   let candidatesSkippedAmountMismatch = 0;
   let candidatesSkippedDateRange = 0;
   let validCandidates = [];
 
-  // Iterate through ALL transactions to find the best match
+  // Iterate through Amazon transactions to find the best match
+  // Note: transactions are pre-filtered to Amazon only by the caller
   for (const transaction of transactions) {
     candidatesChecked++;
 
@@ -79,18 +90,6 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
 
     const transactionDate = new Date(transaction.date);
     const transactionAmount = Math.abs(parseFloat(transaction.amount));
-
-    // CRITICAL: Only match transactions that have Amazon in description/merchant name
-    const description = (transaction.description || '').toLowerCase();
-    const merchantName = (transaction.merchant_name || '').toLowerCase();
-    const hasAmazon = description.includes('amazon') || merchantName.includes('amazon') ||
-                      description.includes('amzn') || merchantName.includes('amzn');
-
-    if (!hasAmazon) {
-      // Skip non-Amazon transactions entirely
-      candidatesSkippedNotAmazon++;
-      continue;
-    }
 
     // CRITICAL REQUIREMENT: Amount must be EXACT (within tolerance for floating-point precision)
     const amountDiff = Math.abs(transactionAmount - orderAmount);
@@ -162,7 +161,6 @@ function findBestTransactionMatch(order, transactions, usedTransactionIds = new 
     console.log(`[MATCHING] Summary for Order ${order.order_id}:`);
     console.log(`  Total transactions checked: ${candidatesChecked}`);
     console.log(`  Skipped - already matched: ${candidatesSkippedAlreadyMatched}`);
-    console.log(`  Skipped - not Amazon: ${candidatesSkippedNotAmazon}`);
     console.log(`  Skipped - amount mismatch: ${candidatesSkippedAmountMismatch}`);
     console.log(`  Skipped - date out of range: ${candidatesSkippedDateRange}`);
     console.log(`  Valid candidates found: ${validCandidates.length}`);

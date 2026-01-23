@@ -3,10 +3,11 @@
  * Handles all Amazon purchases page functionality including order display, matching, and charts
  */
 
-import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading, createCategoryDropdown, populateCategoryDropdown } from '../utils/formatters.js';
+import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { debounce } from '../utils/helpers.js';
 import { progressNotification } from '../services/progressNotification.js';
+import { showCategorySelector } from '../components/CategorySelector.js';
 
 // Module state
 let amazonOrders = [];
@@ -15,6 +16,13 @@ let amazonMonthlyChart = null;
 let amazonYearlyChart = null;
 let amazonCurrentTimeRange = 'all';
 let newlyMatchedAmazonOrderIds = new Set();
+
+// Pagination state
+let currentOffset = 0;
+let hasMoreOrders = true;
+let isLoadingMore = false;
+const ORDERS_PER_PAGE = 50;
+let currentFilters = {};
 
 // Dependencies (injected)
 let fetchAPI = null;
@@ -41,20 +49,49 @@ export function initializeAmazonPage(deps) {
 
     // Item categorization functions
     window.categorizeItem = categorizeItem;
+    window.showItemCategorySelector = showItemCategorySelector;
     window.updateItemCategory = updateItemCategory;
     window.verifyItemCategory = verifyItemCategory;
     window.unverifyItemCategory = unverifyItemCategory;
     window.categorizeAllAmazonItems = categorizeAllAmazonItems;
     window.categorizeFirst20Items = categorizeFirst20Items;
+
+    // Setup infinite scroll
+    setupInfiniteScroll();
+}
+
+// Setup infinite scroll listener
+function setupInfiniteScroll() {
+    let scrollTimeout;
+
+    window.addEventListener('scroll', () => {
+        // Debounce scroll events
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+            // Check if user is near bottom of page (within 500px)
+            const scrollPosition = window.innerHeight + window.scrollY;
+            const pageHeight = document.documentElement.scrollHeight;
+
+            if (scrollPosition >= pageHeight - 500) {
+                // Auto-load more if we have more orders
+                if (hasMoreOrders && !isLoadingMore) {
+                    loadMoreOrders();
+                }
+            }
+        }, 100);
+    });
 }
 
 export async function loadAmazonPage() {
     showLoading();
     try {
+        // Load categories first so they're available for dropdowns
+        await loadCategories();
+
+        // Then load stats and orders in parallel
         await Promise.all([
             loadAmazonStats(),
-            loadAmazonOrders(),
-            loadCategories()
+            loadAmazonOrders()
         ]);
     } catch (error) {
         console.error('Error loading Amazon page:', error);
@@ -88,17 +125,43 @@ async function loadAmazonStats() {
     }
 }
 
-async function loadAmazonOrders(filters = {}) {
+async function loadAmazonOrders(filters = {}, reset = true) {
+    // If reset, start fresh; otherwise append
+    if (reset) {
+        currentOffset = 0;
+        hasMoreOrders = true;
+        amazonOrders = [];
+        currentFilters = filters;
+    } else if (isLoadingMore || !hasMoreOrders) {
+        return; // Already loading or no more data
+    }
+
+    isLoadingMore = true;
+
     try {
         const queryParams = new URLSearchParams();
 
+        // Add filters
         if (filters.startDate) queryParams.append('startDate', filters.startDate);
         if (filters.endDate) queryParams.append('endDate', filters.endDate);
         if (filters.matched !== undefined) queryParams.append('matched', filters.matched);
 
+        // Add pagination
+        queryParams.append('limit', ORDERS_PER_PAGE.toString());
+        queryParams.append('offset', currentOffset.toString());
+
         const queryString = queryParams.toString();
-        const url = `/api/amazon/orders${queryString ? '?' + queryString : ''}`;
-        amazonOrders = await fetchAPI(url);
+        const url = `/api/amazon/orders?${queryString}`;
+        const newOrders = await fetchAPI(url);
+
+        // Check if we got fewer orders than requested (end of data)
+        if (newOrders.length < ORDERS_PER_PAGE) {
+            hasMoreOrders = false;
+        }
+
+        // Append new orders to existing ones
+        amazonOrders = [...amazonOrders, ...newOrders];
+        currentOffset += newOrders.length;
 
         // Log item categorization data for debugging
         const totalItems = amazonOrders.reduce((sum, order) => sum + (order.items?.length || 0), 0);
@@ -106,8 +169,10 @@ async function loadAmazonOrders(filters = {}) {
             sum + (order.items?.filter(item => item.user_category)?.length || 0), 0);
         console.log(`[Amazon Orders] Loaded ${amazonOrders.length} orders with ${totalItems} items (${categorizedItems} categorized)`);
 
-        // Populate account filter dropdown with unique account names
-        populateAccountFilter();
+        // Populate account filter dropdown with unique account names (only on reset)
+        if (reset) {
+            populateAccountFilter();
+        }
 
         // Apply search/confidence filters if they exist
         const searchInput = document.getElementById('amazonSearchInput');
@@ -117,9 +182,47 @@ async function loadAmazonOrders(filters = {}) {
         } else {
             displayAmazonOrders(amazonOrders);
         }
+
+        // Update load more indicator
+        updateLoadMoreIndicator();
     } catch (error) {
         console.error('Error loading Amazon orders:', error);
         showToast('Failed to load orders', 'error');
+    } finally {
+        isLoadingMore = false;
+    }
+}
+
+// Load more orders (for infinite scroll)
+async function loadMoreOrders() {
+    await loadAmazonOrders(currentFilters, false);
+}
+
+// Update "Load More" indicator
+function updateLoadMoreIndicator() {
+    const ordersContainer = document.getElementById('amazonOrdersContainer');
+    if (!ordersContainer) return;
+
+    // Remove existing load more indicator
+    const existingIndicator = document.getElementById('loadMoreIndicator');
+    if (existingIndicator) {
+        existingIndicator.remove();
+    }
+
+    if (!hasMoreOrders && amazonOrders.length > 0) {
+        // Show "end of list" message
+        const endMessage = document.createElement('div');
+        endMessage.id = 'loadMoreIndicator';
+        endMessage.style.cssText = 'text-align: center; padding: 2rem; color: var(--text-secondary); font-style: italic;';
+        endMessage.textContent = `Showing all ${amazonOrders.length} orders`;
+        ordersContainer.appendChild(endMessage);
+    } else if (hasMoreOrders && amazonOrders.length > 0) {
+        // Show "scroll for more" hint
+        const loadHint = document.createElement('div');
+        loadHint.id = 'loadMoreIndicator';
+        loadHint.style.cssText = 'text-align: center; padding: 1rem; color: var(--text-secondary);';
+        loadHint.textContent = '↓ Scroll down to load more orders';
+        ordersContainer.appendChild(loadHint);
     }
 }
 
@@ -372,20 +475,76 @@ function displayAmazonOrders(orders) {
         // Build items list HTML
         let itemsHtml = '';
         if (order.items && order.items.length > 0) {
+            // Filter items based on visibility (if item filters are active)
+            const visibleItemIds = order._visibleItemIds;
+            const itemsToShow = visibleItemIds
+                ? order.items.filter(item => visibleItemIds.has(item.id))
+                : order.items;
+
+            // Show count of visible items vs total
+            const itemCountText = visibleItemIds && itemsToShow.length < order.items.length
+                ? `Items (${itemsToShow.length} of ${order.items.length}):`
+                : `Items (${order.items.length}):`;
+
             itemsHtml = `
                 <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
-                    <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">Items (${order.items.length}):</div>
+                    <div style="font-weight: 600; margin-bottom: 0.5rem; font-size: 0.9rem;">${itemCountText}</div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;">
             `;
 
-            order.items.forEach(item => {
+            itemsToShow.forEach(item => {
                 const itemUrl = item.asin ? `https://www.amazon.com/dp/${item.asin}` : null;
                 const titleHtml = itemUrl
                     ? `<a href="${itemUrl}" target="_blank" style="color: var(--primary); text-decoration: none; hover:text-decoration: underline;">${escapeHtml(item.title)}</a>`
                     : escapeHtml(item.title);
 
-                // Construct product image URL using ASIN (if available)
-                const imageUrl = item.asin ? `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.jpg` : null;
+                // Create image HTML with proper fallback cascade
+                let imageHtml = '';
+                if (item.asin) {
+                    const uniqueId = `img-${item.id}-${Math.random().toString(36).substr(2, 9)}`;
+
+                    // Build fallback URL list (will try each in sequence if previous fails)
+                    // If we have a cached image_url from database, use it first
+                    const fallbackUrls = [];
+
+                    if (item.image_url) {
+                        // Use cached image URL as first choice
+                        fallbackUrls.push(item.image_url);
+                    }
+
+                    // Add standard CDN URL guesses as additional fallbacks
+                    fallbackUrls.push(
+                        // Modern CDN with .01 suffix (most common)
+                        `https://m.media-amazon.com/images/P/${item.asin}.01._SCLZZZZZZZ_SX500_.jpg`,
+                        // Without .01 suffix (some products don't use it)
+                        `https://m.media-amazon.com/images/P/${item.asin}._SCLZZZZZZZ_SX500_.jpg`,
+                        // Legacy CDN with .01
+                        `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.01.LZZZZZZZ.jpg`,
+                        // Legacy CDN without .01
+                        `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.LZZZZZZZ.jpg`,
+                        // Modern CDN smaller size with .01
+                        `https://m.media-amazon.com/images/P/${item.asin}.01._SCLZZZZZZZ_SX300_.jpg`,
+                        // Modern CDN smaller size without .01
+                        `https://m.media-amazon.com/images/P/${item.asin}._SCLZZZZZZZ_SX300_.jpg`,
+                        // Basic format with .01
+                        `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.01.jpg`,
+                        // Basic format without .01 (simplest format, last resort)
+                        `https://images-na.ssl-images-amazon.com/images/P/${item.asin}.jpg`
+                    );
+
+                    imageHtml = `
+                        <div id="container-${uniqueId}" style="flex-shrink: 0; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; background: white; border-radius: 4px; overflow: hidden;">
+                            <img id="${uniqueId}"
+                                 src="${fallbackUrls[0]}"
+                                 data-fallback-urls='${JSON.stringify(fallbackUrls)}'
+                                 data-fallback-index="0"
+                                 alt="${escapeHtml(item.title)}"
+                                 style="width: 100%; height: 100%; object-fit: contain; padding: 2px;"
+                                 onerror="handleImageError('${uniqueId}')"
+                                 onload="handleImageLoad('${uniqueId}')">
+                        </div>
+                    `;
+                }
 
                 // Build category badge with confidence color coding
                 const confidence = item.confidence || 0;
@@ -421,14 +580,7 @@ function displayAmazonOrders(orders) {
 
                 itemsHtml += `
                     <div id="item-${item.id}" style="display: flex; gap: 1rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
-                        ${imageUrl ? `
-                            <div style="flex-shrink: 0;">
-                                <img src="${imageUrl}"
-                                     alt="${escapeHtml(item.title)}"
-                                     style="width: 60px; height: 60px; object-fit: contain; border-radius: 4px; background: white; padding: 2px;"
-                                     onerror="this.style.display='none'">
-                            </div>
-                        ` : ''}
+                        ${imageHtml}
                         <div style="flex: 1; min-width: 0;">
                             <div style="font-size: 0.9rem; margin-bottom: 0.25rem;">
                                 ${titleHtml}
@@ -441,13 +593,9 @@ function displayAmazonOrders(orders) {
                             </div>
                             <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                                 ${categoryBadge}
-                                ${createCategoryDropdown({
-                                    id: `item-category-${item.id}`,
-                                    categories: userCategories || [],
-                                    placeholder: 'Change category...',
-                                    onchange: `updateItemCategory(${item.id}, this.value)`,
-                                    size: 'small'
-                                })}
+                                <button id="category-trigger-${item.id}" onclick="showItemCategorySelector(event, ${item.id}, this)" style="padding: 0.2rem 0.5rem; background: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 4px; font-size: 0.75rem; cursor: pointer; color: #374151;">
+                                    ${item.user_category ? 'Change' : 'Select'} Category
+                                </button>
                                 ${item.user_category ? `
                                     ${isVerified ?
                                         `<button onclick="unverifyItemCategory(${item.id}, ${confidence})" style="padding: 0.2rem 0.5rem; background: #F59E0B; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Unverify</button>` :
@@ -516,10 +664,10 @@ function displayAmazonOrders(orders) {
                             ${matchBadge}
                             ${order.account_name ? `<span style="background: var(--bg-primary); padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">👤 ${escapeHtml(order.account_name)}</span>` : ''}
                         </div>
-                        <div style="color: var(--text-secondary); font-size: 0.9rem;">
-                            <div style="margin-bottom: 0.25rem;">📅 ${formatDate(order.order_date)}</div>
-                            ${order.payment_method ? `<div style="margin-bottom: 0.25rem;">💳 ${escapeHtml(order.payment_method)}</div>` : ''}
-                            ${order.order_status ? `<div>📦 ${escapeHtml(order.order_status)}</div>` : ''}
+                        <div style="color: var(--text-secondary); font-size: 0.85rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                            <span>📅 ${formatDate(order.order_date)}</span>
+                            ${order.payment_method ? `<span style="color: var(--border-color);">•</span><span>💳 ${escapeHtml(order.payment_method)}</span>` : ''}
+                            ${order.order_status ? `<span style="color: var(--border-color);">•</span><span>📦 ${escapeHtml(order.order_status)}</span>` : ''}
                         </div>
                         ${itemsHtml}
                         ${matchedTransactionHtml}
@@ -539,9 +687,6 @@ function displayAmazonOrders(orders) {
 
     html += '</div>';
     container.innerHTML = html;
-
-    // Populate category dropdowns for all items
-    populateItemCategoryDropdowns();
 }
 
 export async function handleAmazonFileUpload(event) {
@@ -740,62 +885,71 @@ function clearAmazonFilters() {
 
 function searchAmazonOrders() {
     const searchTerm = document.getElementById('amazonSearchInput').value.toLowerCase();
-    const minConfidence = parseInt(document.getElementById('amazonFilterConfidence').value) || 0;
     const accountFilter = document.getElementById('amazonFilterAccount').value;
+
+    // Item-level filters
     const itemCategorizedFilter = document.getElementById('amazonFilterItemCategorized')?.value || '';
     const itemVerifiedFilter = document.getElementById('amazonFilterItemVerified')?.value || '';
+    const minItemConfidence = parseInt(document.getElementById('amazonFilterItemConfidence')?.value) || 0;
 
     // Start with all orders
     let filtered = amazonOrders;
+
+    // =====================================================================
+    // STEP 1: Apply ORDER-level filters (filter which orders to show)
+    // =====================================================================
 
     // Apply account filter
     if (accountFilter) {
         filtered = filtered.filter(order => order.account_name === accountFilter);
     }
 
-    // Apply confidence filter
-    if (minConfidence > 0) {
-        filtered = filtered.filter(order => {
-            // If order is matched, check confidence
-            if (order.matched_transaction_id) {
-                return (order.match_confidence || 0) >= minConfidence;
-            }
-            // Unmatched orders have 0 confidence, so they're excluded if minConfidence > 0
+    // =====================================================================
+    // STEP 2: Apply ITEM-level filters (filter which items within orders to show)
+    // =====================================================================
+
+    // Function to check if an item should be visible based on filters
+    const isItemVisible = (item) => {
+        // Categorization filter
+        if (itemCategorizedFilter === 'categorized' && !item.user_category) {
             return false;
-        });
-    }
+        }
+        if (itemCategorizedFilter === 'uncategorized' && item.user_category) {
+            return false;
+        }
 
-    // Apply item categorization filter
-    if (itemCategorizedFilter) {
-        filtered = filtered.filter(order => {
-            if (!order.items || order.items.length === 0) return false;
+        // Verification filter
+        if (itemVerifiedFilter === 'verified' && item.verified !== 'Yes') {
+            return false;
+        }
+        if (itemVerifiedFilter === 'unverified' && item.verified === 'Yes') {
+            return false;
+        }
 
-            if (itemCategorizedFilter === 'categorized') {
-                // At least one item must be categorized
-                return order.items.some(item => item.user_category);
-            } else if (itemCategorizedFilter === 'uncategorized') {
-                // At least one item must be uncategorized
-                return order.items.some(item => !item.user_category);
+        // Confidence filter (only applies to categorized items)
+        if (minItemConfidence > 0 && item.user_category) {
+            if ((item.confidence || 0) < minItemConfidence) {
+                return false;
             }
-            return true;
-        });
-    }
+        }
 
-    // Apply item verified filter
-    if (itemVerifiedFilter) {
-        filtered = filtered.filter(order => {
-            if (!order.items || order.items.length === 0) return false;
+        return true;
+    };
 
-            if (itemVerifiedFilter === 'verified') {
-                // At least one item must be verified
-                return order.items.some(item => item.verified === 'Yes');
-            } else if (itemVerifiedFilter === 'unverified') {
-                // At least one item must be unverified
-                return order.items.some(item => item.verified !== 'Yes');
-            }
-            return true;
-        });
-    }
+    // Mark items as visible/hidden and filter out orders with no visible items
+    filtered = filtered.map(order => {
+        if (!order.items || order.items.length === 0) {
+            return { ...order, _hasVisibleItems: false };
+        }
+
+        const visibleItems = order.items.filter(isItemVisible);
+
+        return {
+            ...order,
+            _hasVisibleItems: visibleItems.length > 0,
+            _visibleItemIds: new Set(visibleItems.map(i => i.id))
+        };
+    }).filter(order => order._hasVisibleItems);
 
     // Apply search term filter if present
     if (searchTerm) {
@@ -1000,22 +1154,34 @@ async function loadCategories() {
     }
 }
 
-// Populate category dropdowns for all items
-function populateItemCategoryDropdowns() {
-    // Get all item category dropdowns
-    const dropdowns = document.querySelectorAll('[id^="item-category-"]');
+// Show category selector for an Amazon item
+function showItemCategorySelector(event, itemId, triggerElement) {
+    // Stop event propagation to prevent immediate closing
+    event.stopPropagation();
+    event.preventDefault();
 
-    dropdowns.forEach(select => {
-        // Clear and repopulate
-        select.innerHTML = '<option value="">Change category...</option>';
-
-        userCategories.forEach(cat => {
-            const option = document.createElement('option');
-            option.value = cat.name;
-            option.textContent = cat.parent_category ? `${cat.parent_category} > ${cat.name}` : cat.name;
-            select.appendChild(option);
-        });
+    console.log('showItemCategorySelector called', {
+        itemId,
+        triggerElement,
+        categoriesCount: (userCategories || []).length
     });
+
+    if (!userCategories || userCategories.length === 0) {
+        console.error('No categories loaded!');
+        showToast('Categories not loaded. Please refresh the page.', 'error');
+        return;
+    }
+
+    try {
+        showCategorySelector({
+            triggerElement: triggerElement,
+            categories: userCategories,
+            onSelect: (categoryName) => updateItemCategory(itemId, categoryName)
+        });
+    } catch (error) {
+        console.error('Error showing category selector:', error);
+        showToast('Failed to show category selector', 'error');
+    }
 }
 
 // Categorize a single item
@@ -1051,7 +1217,7 @@ async function updateItemCategory(itemId, category) {
             body: JSON.stringify({ category })
         });
 
-        showToast(`✓ Item categorized as: ${category}`, 'success');
+        showToast(`✓ Item categorized as: ${category} (verified)`, 'success');
 
         if (result.learnResult && result.learnResult.success) {
             if (result.learnResult.action === 'created') {
@@ -1106,12 +1272,12 @@ async function unverifyItemCategory(itemId, originalConfidence) {
 
 // Categorize all Amazon items (background job)
 async function categorizeAllAmazonItems() {
-    if (!confirm('This will categorize ALL Amazon items. This may take a while. You can navigate to other pages while this runs. Continue?')) {
+    if (!confirm('This will categorize uncategorized Amazon items (verified items will be skipped). This may take a while. You can navigate to other pages while this runs. Continue?')) {
         return;
     }
 
     try {
-        // Start background job
+        // Start background job (skipVerified defaults to true on backend)
         const result = await fetchAPI('/api/amazon/items/categorize-background', {
             method: 'POST',
             body: JSON.stringify({ categorizedOnly: false })
@@ -1357,6 +1523,81 @@ async function pollJobProgress(jobId, totalItems) {
 
     // Start polling
     poll();
+}
+
+// Handle image loading errors - try fallback URLs before showing placeholder
+window.handleImageError = function(imageId) {
+    const img = document.getElementById(imageId);
+    if (!img) return;
+
+    tryNextFallback(imageId, img);
+};
+
+// Handle image load success - check if image is valid (not tiny/broken)
+window.handleImageLoad = function(imageId) {
+    const img = document.getElementById(imageId);
+    if (!img) return;
+
+    // Check if image is too small (likely a broken/missing image placeholder)
+    // Amazon CDN sometimes returns 1x1 or very small images for missing products
+    if (img.naturalWidth < 50 || img.naturalHeight < 50) {
+        tryNextFallback(imageId, img);
+    }
+    // Removed verbose success logging to reduce console spam
+};
+
+async function tryNextFallback(imageId, img) {
+    try {
+        const fallbackUrls = JSON.parse(img.getAttribute('data-fallback-urls') || '[]');
+        const currentIndex = parseInt(img.getAttribute('data-fallback-index') || '0');
+        const nextIndex = currentIndex + 1;
+
+        if (nextIndex < fallbackUrls.length) {
+            // Try next URL in fallback cascade (silent - no console spam)
+            img.setAttribute('data-fallback-index', nextIndex.toString());
+            img.src = fallbackUrls[nextIndex];
+        } else {
+            // All static fallbacks exhausted - try fetching real image URL from backend as last resort
+            const asin = fallbackUrls[0]?.match(/\/([A-Z0-9]{10})/)?.[1];
+
+            if (asin && !img.getAttribute('data-backend-tried')) {
+                // Mark that we're trying backend to avoid infinite loops
+                img.setAttribute('data-backend-tried', 'true');
+
+                try {
+                    // Silently try backend scraper (no console spam)
+                    const response = await fetch(`/api/amazon/product-image/${asin}`);
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.imageUrl) {
+                            img.src = data.imageUrl;
+                            return; // Don't show placeholder yet, wait for this to load
+                        }
+                    }
+                } catch (backendError) {
+                    // Silent failure - placeholder will show below
+                }
+            }
+
+            // Show placeholder as absolute last resort (silently)
+            showPlaceholder(imageId);
+        }
+    } catch (error) {
+        console.error(`[Amazon Images] Error in fallback logic:`, error);
+        showPlaceholder(imageId);
+    }
+}
+
+function showPlaceholder(imageId) {
+    const container = document.getElementById(`container-${imageId}`);
+    if (container) {
+        container.innerHTML = `
+            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#f3f4f6;color:#9ca3af;font-size:1.5rem;">
+                📦
+            </div>
+        `;
+    }
 }
 
 export default {

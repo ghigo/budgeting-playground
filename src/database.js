@@ -33,6 +33,7 @@ export function initializeDatabase() {
     return true;
   } catch (error) {
     console.error('Failed to initialize database:', error.message);
+    console.error('Stack trace:', error.stack);
     throw error;
   }
 }
@@ -172,7 +173,14 @@ function createTables() {
     CREATE INDEX IF NOT EXISTS idx_amazon_orders_matched ON amazon_orders(matched_transaction_id);
     CREATE INDEX IF NOT EXISTS idx_amazon_items_order ON amazon_items(order_id);
     CREATE INDEX IF NOT EXISTS idx_amazon_items_category ON amazon_items(category);
-    CREATE INDEX IF NOT EXISTS idx_amazon_items_user_category ON amazon_items(user_category);
+    -- Note: idx_amazon_items_user_category is created later in migrations after column is added
+    -- Additional performance indexes
+    CREATE INDEX IF NOT EXISTS idx_transactions_merchant ON transactions(merchant_name);
+    CREATE INDEX IF NOT EXISTS idx_amazon_items_asin ON amazon_items(asin);
+    CREATE INDEX IF NOT EXISTS idx_transactions_confidence ON transactions(confidence);
+    -- Compound index for common transaction queries
+    CREATE INDEX IF NOT EXISTS idx_transactions_date_desc ON transactions(date DESC);
+    CREATE INDEX IF NOT EXISTS idx_accounts_name_lookup ON accounts(name);
   `);
 
   // Run migrations to add new columns to existing tables
@@ -510,6 +518,8 @@ function runMigrations() {
 
     if (!hasUserCategory) {
       db.exec("ALTER TABLE amazon_items ADD COLUMN user_category TEXT");
+      // Create index for user_category now that column exists
+      db.exec("CREATE INDEX IF NOT EXISTS idx_amazon_items_user_category ON amazon_items(user_category)");
     }
     if (!hasItemConfidence) {
       db.exec("ALTER TABLE amazon_items ADD COLUMN confidence INTEGER DEFAULT 0");
@@ -591,6 +601,492 @@ function runMigrations() {
 
     transaction();
   }
+
+  // Create AI categorization tracking tables
+  db.exec(`
+    -- AI Categorizations (track all categorization attempts with detailed metadata)
+    CREATE TABLE IF NOT EXISTS ai_categorizations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_id TEXT NOT NULL,
+      item_type TEXT NOT NULL,
+      category TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      method TEXT NOT NULL,
+      alternatives TEXT,
+      reasoning TEXT,
+      user_confirmed TEXT DEFAULT 'No',
+      created_at TEXT NOT NULL,
+      UNIQUE(item_id, item_type, created_at)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_categorizations_item ON ai_categorizations(item_id, item_type);
+    CREATE INDEX IF NOT EXISTS idx_ai_categorizations_method ON ai_categorizations(method);
+    CREATE INDEX IF NOT EXISTS idx_ai_categorizations_confidence ON ai_categorizations(confidence);
+
+    -- AI Feedback (track user corrections for learning)
+    CREATE TABLE IF NOT EXISTS ai_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_id TEXT NOT NULL,
+      item_type TEXT NOT NULL,
+      suggested_category TEXT NOT NULL,
+      actual_category TEXT NOT NULL,
+      suggestion_method TEXT,
+      suggestion_confidence REAL,
+      processed TEXT DEFAULT 'No',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_feedback_item ON ai_feedback(item_id, item_type);
+    CREATE INDEX IF NOT EXISTS idx_ai_feedback_processed ON ai_feedback(processed);
+    CREATE INDEX IF NOT EXISTS idx_ai_feedback_created ON ai_feedback(created_at);
+
+    -- AI Training History (track retraining runs)
+    CREATE TABLE IF NOT EXISTS ai_training_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,
+      feedback_count INTEGER NOT NULL,
+      rules_generated INTEGER DEFAULT 0,
+      embeddings_updated INTEGER DEFAULT 0,
+      duration_ms INTEGER,
+      trigger_type TEXT,
+      notes TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_training_timestamp ON ai_training_history(timestamp);
+
+    -- AI Embeddings (store embeddings for semantic similarity search)
+    CREATE TABLE IF NOT EXISTS ai_embeddings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_id TEXT NOT NULL,
+      item_type TEXT NOT NULL,
+      embedding_text TEXT NOT NULL,
+      embedding_vector TEXT NOT NULL,
+      category TEXT NOT NULL,
+      user_confirmed TEXT DEFAULT 'No',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(item_id, item_type)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_item ON ai_embeddings(item_id, item_type);
+    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_category ON ai_embeddings(category);
+    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_confirmed ON ai_embeddings(user_confirmed);
+
+    -- AI Metrics (track categorization performance over time)
+    CREATE TABLE IF NOT EXISTS ai_metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      item_type TEXT NOT NULL,
+      total_categorizations INTEGER DEFAULT 0,
+      correct_categorizations INTEGER DEFAULT 0,
+      accuracy_rate REAL DEFAULT 0.0,
+      avg_confidence REAL DEFAULT 0.0,
+      method_breakdown TEXT,
+      confidence_breakdown TEXT,
+      UNIQUE(date, item_type)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_metrics_date ON ai_metrics(date);
+  `);
+
+  // Enhance category_rules table with additional AI learning fields
+  const aiCategoryRulesInfo = db.prepare("PRAGMA table_info(category_rules)").all();
+  const hasConfidenceOverride = aiCategoryRulesInfo.some(col => col.name === 'confidence_override');
+  const hasAutoGenerated = aiCategoryRulesInfo.some(col => col.name === 'auto_generated');
+  const hasRuleSource = aiCategoryRulesInfo.some(col => col.name === 'rule_source');
+  const hasCreatedAt = aiCategoryRulesInfo.some(col => col.name === 'created_at');
+  const hasUpdatedAt = aiCategoryRulesInfo.some(col => col.name === 'updated_at');
+
+  if (!hasConfidenceOverride) {
+    console.log('Adding AI learning fields to category_rules table...');
+    db.exec("ALTER TABLE category_rules ADD COLUMN confidence_override REAL");
+  }
+  if (!hasAutoGenerated) {
+    db.exec("ALTER TABLE category_rules ADD COLUMN auto_generated TEXT DEFAULT 'No'");
+  }
+  if (!hasRuleSource) {
+    db.exec("ALTER TABLE category_rules ADD COLUMN rule_source TEXT DEFAULT 'user'");
+  }
+  if (!hasCreatedAt) {
+    db.exec("ALTER TABLE category_rules ADD COLUMN created_at TEXT");
+    db.exec("UPDATE category_rules SET created_at = datetime('now') WHERE created_at IS NULL");
+  }
+  if (!hasUpdatedAt) {
+    db.exec("ALTER TABLE category_rules ADD COLUMN updated_at TEXT");
+    db.exec("UPDATE category_rules SET updated_at = datetime('now') WHERE updated_at IS NULL");
+  }
+
+  // ====================================================================
+  // CATEGORY NORMALIZATION MIGRATION
+  // Migrate from storing category names (TEXT) to category IDs (INTEGER FK)
+  // This ensures category renames propagate to all items
+  // ====================================================================
+
+  console.log('Checking category normalization migration...');
+
+  // Helper function to get or create category by name
+  const getOrCreateCategoryId = (categoryName) => {
+    if (!categoryName || categoryName.trim() === '') {
+      return null;
+    }
+
+    const trimmedName = categoryName.trim();
+
+    // Try to find existing category
+    let category = db.prepare('SELECT id FROM categories WHERE name = ?').get(trimmedName);
+
+    if (!category) {
+      // Create missing category with default icon/color
+      console.log(`  Creating missing category: "${trimmedName}"`);
+      const icon = suggestIconForCategory(trimmedName);
+      const color = getNextCategoryColor();
+
+      const result = db.prepare(
+        'INSERT INTO categories (name, icon, color) VALUES (?, ?, ?)'
+      ).run(trimmedName, icon, color);
+
+      return result.lastInsertRowid;
+    }
+
+    return category.id;
+  };
+
+  // 1. TRANSACTIONS TABLE
+  const transactionsHasCategoryId = transactionsInfo.some(col => col.name === 'category_id');
+  if (!transactionsHasCategoryId) {
+    console.log('Migrating transactions.category to category_id...');
+    db.exec("ALTER TABLE transactions ADD COLUMN category_id INTEGER REFERENCES categories(id)");
+
+    // Migrate existing data
+    const transactionsToMigrate = db.prepare(
+      'SELECT transaction_id, category FROM transactions WHERE category IS NOT NULL'
+    ).all();
+
+    const updateStmt = db.prepare('UPDATE transactions SET category_id = ? WHERE transaction_id = ?');
+    const migrateTransaction = db.transaction(() => {
+      for (const row of transactionsToMigrate) {
+        const categoryId = getOrCreateCategoryId(row.category);
+        if (categoryId) {
+          updateStmt.run(categoryId, row.transaction_id);
+        }
+      }
+    });
+    migrateTransaction();
+
+    console.log(`  ✓ Migrated ${transactionsToMigrate.length} transactions`);
+  }
+
+  // 2. AMAZON_ITEMS TABLE
+  const amazonItemsHasCategoryId = amazonItemsInfo.some(col => col.name === 'category_id');
+  const amazonItemsHasUserCategory = amazonItemsInfo.some(col => col.name === 'user_category');
+
+  if (!amazonItemsHasCategoryId) {
+    console.log('Migrating amazon_items.user_category to category_id...');
+    db.exec("ALTER TABLE amazon_items ADD COLUMN category_id INTEGER REFERENCES categories(id)");
+
+    // Only migrate existing data if user_category column exists
+    if (amazonItemsHasUserCategory) {
+      const itemsToMigrate = db.prepare(
+        'SELECT id, user_category FROM amazon_items WHERE user_category IS NOT NULL'
+      ).all();
+
+      const updateStmt = db.prepare('UPDATE amazon_items SET category_id = ? WHERE id = ?');
+      const migrateItems = db.transaction(() => {
+        for (const row of itemsToMigrate) {
+          const categoryId = getOrCreateCategoryId(row.user_category);
+          if (categoryId) {
+            updateStmt.run(categoryId, row.id);
+          }
+        }
+      });
+      migrateItems();
+
+      console.log(`  ✓ Migrated ${itemsToMigrate.length} Amazon items`);
+    } else {
+      console.log(`  ✓ No Amazon items to migrate (user_category column doesn't exist yet)`);
+    }
+  }
+
+  // 3. TRANSACTION_SPLITS TABLE
+  const splitsInfo = db.prepare("PRAGMA table_info(transaction_splits)").all();
+  const splitsHasCategoryId = splitsInfo.some(col => col.name === 'category_id');
+  const splitsHasCategory = splitsInfo.some(col => col.name === 'category');
+
+  if (!splitsHasCategoryId) {
+    console.log('Migrating transaction_splits.category to category_id...');
+    db.exec("ALTER TABLE transaction_splits ADD COLUMN category_id INTEGER REFERENCES categories(id)");
+
+    // Only migrate if category column exists (table might not even exist yet)
+    if (splitsHasCategory && splitsInfo.length > 0) {
+      const splitsToMigrate = db.prepare(
+        'SELECT id, category FROM transaction_splits WHERE category IS NOT NULL'
+      ).all();
+
+      const updateStmt = db.prepare('UPDATE transaction_splits SET category_id = ? WHERE id = ?');
+      const migrateSplits = db.transaction(() => {
+        for (const row of splitsToMigrate) {
+          const categoryId = getOrCreateCategoryId(row.category);
+          if (categoryId) {
+            updateStmt.run(categoryId, row.id);
+          }
+        }
+      });
+      migrateSplits();
+
+      console.log(`  ✓ Migrated ${splitsToMigrate.length} transaction splits`);
+    } else {
+      console.log(`  ✓ No transaction splits to migrate`);
+    }
+  }
+
+  // 4. MERCHANT_MAPPINGS TABLE
+  const merchantMappingsHasCategoryId = merchantMappingsInfo.some(col => col.name === 'category_id');
+  if (!merchantMappingsHasCategoryId) {
+    console.log('Migrating merchant_mappings.category to category_id...');
+    db.exec("ALTER TABLE merchant_mappings ADD COLUMN category_id INTEGER REFERENCES categories(id)");
+
+    const mappingsToMigrate = db.prepare(
+      'SELECT merchant_name, category FROM merchant_mappings WHERE category IS NOT NULL'
+    ).all();
+
+    const updateStmt = db.prepare('UPDATE merchant_mappings SET category_id = ? WHERE merchant_name = ?');
+    const migrateMappings = db.transaction(() => {
+      for (const row of mappingsToMigrate) {
+        const categoryId = getOrCreateCategoryId(row.category);
+        if (categoryId) {
+          updateStmt.run(categoryId, row.merchant_name);
+        }
+      }
+    });
+    migrateMappings();
+
+    console.log(`  ✓ Migrated ${mappingsToMigrate.length} merchant mappings`);
+  }
+
+  // 5. CATEGORY_RULES TABLE
+  const categoryRulesHasCategoryId = categoryRulesInfo.some(col => col.name === 'category_id');
+  if (!categoryRulesHasCategoryId) {
+    console.log('Migrating category_rules.category to category_id...');
+    db.exec("ALTER TABLE category_rules ADD COLUMN category_id INTEGER REFERENCES categories(id)");
+
+    const rulesToMigrate = db.prepare(
+      'SELECT id, category FROM category_rules WHERE category IS NOT NULL'
+    ).all();
+
+    const updateStmt = db.prepare('UPDATE category_rules SET category_id = ? WHERE id = ?');
+    const migrateRules = db.transaction(() => {
+      for (const row of rulesToMigrate) {
+        const categoryId = getOrCreateCategoryId(row.category);
+        if (categoryId) {
+          updateStmt.run(categoryId, row.id);
+        }
+      }
+    });
+    migrateRules();
+
+    console.log(`  ✓ Migrated ${rulesToMigrate.length} category rules`);
+  }
+
+  // 6. PLAID_CATEGORY_MAPPINGS TABLE
+  const plaidMappingsInfo = db.prepare("PRAGMA table_info(plaid_category_mappings)").all();
+  const plaidMappingsHasCategoryId = plaidMappingsInfo.some(col => col.name === 'category_id');
+  if (!plaidMappingsHasCategoryId) {
+    console.log('Migrating plaid_category_mappings.user_category to category_id...');
+    db.exec("ALTER TABLE plaid_category_mappings ADD COLUMN category_id INTEGER REFERENCES categories(id)");
+
+    const mappingsToMigrate = db.prepare(
+      'SELECT plaid_category, user_category FROM plaid_category_mappings WHERE user_category IS NOT NULL'
+    ).all();
+
+    const updateStmt = db.prepare('UPDATE plaid_category_mappings SET category_id = ? WHERE plaid_category = ?');
+    const migrateMappings = db.transaction(() => {
+      for (const row of mappingsToMigrate) {
+        const categoryId = getOrCreateCategoryId(row.user_category);
+        if (categoryId) {
+          updateStmt.run(categoryId, row.plaid_category);
+        }
+      }
+    });
+    migrateMappings();
+
+    console.log(`  ✓ Migrated ${mappingsToMigrate.length} Plaid category mappings`);
+  }
+
+  // 7. EXTERNAL_CATEGORY_MAPPINGS TABLE
+  const externalMappingsInfo = db.prepare("PRAGMA table_info(external_category_mappings)").all();
+  const externalMappingsHasCategoryId = externalMappingsInfo.some(col => col.name === 'category_id');
+  if (!externalMappingsHasCategoryId) {
+    console.log('Migrating external_category_mappings.user_category to category_id...');
+    db.exec("ALTER TABLE external_category_mappings ADD COLUMN category_id INTEGER REFERENCES categories(id)");
+
+    const mappingsToMigrate = db.prepare(
+      'SELECT id, user_category FROM external_category_mappings WHERE user_category IS NOT NULL'
+    ).all();
+
+    const updateStmt = db.prepare('UPDATE external_category_mappings SET category_id = ? WHERE id = ?');
+    const migrateMappings = db.transaction(() => {
+      for (const row of mappingsToMigrate) {
+        const categoryId = getOrCreateCategoryId(row.user_category);
+        if (categoryId) {
+          updateStmt.run(categoryId, row.id);
+        }
+      }
+    });
+    migrateMappings();
+
+    console.log(`  ✓ Migrated ${mappingsToMigrate.length} external category mappings`);
+  }
+
+  // 8. AMAZON_ITEM_RULES TABLE
+  const amazonRulesInfo = db.prepare("PRAGMA table_info(amazon_item_rules)").all();
+  const amazonRulesHasCategoryId = amazonRulesInfo.some(col => col.name === 'category_id');
+  if (!amazonRulesHasCategoryId) {
+    console.log('Migrating amazon_item_rules.category to category_id...');
+    db.exec("ALTER TABLE amazon_item_rules ADD COLUMN category_id INTEGER REFERENCES categories(id)");
+
+    const rulesToMigrate = db.prepare(
+      'SELECT id, category FROM amazon_item_rules WHERE category IS NOT NULL'
+    ).all();
+
+    const updateStmt = db.prepare('UPDATE amazon_item_rules SET category_id = ? WHERE id = ?');
+    const migrateRules = db.transaction(() => {
+      for (const row of rulesToMigrate) {
+        const categoryId = getOrCreateCategoryId(row.category);
+        if (categoryId) {
+          updateStmt.run(categoryId, row.id);
+        }
+      }
+    });
+    migrateRules();
+
+    console.log(`  ✓ Migrated ${rulesToMigrate.length} Amazon item rules`);
+  }
+
+  // 9. CATEGORIES.PARENT_CATEGORY
+  const categoriesInfo = db.prepare("PRAGMA table_info(categories)").all();
+  const categoriesHasParentCategoryId = categoriesInfo.some(col => col.name === 'parent_category_id');
+  if (!categoriesHasParentCategoryId) {
+    console.log('Migrating categories.parent_category to parent_category_id...');
+    db.exec("ALTER TABLE categories ADD COLUMN parent_category_id INTEGER REFERENCES categories(id)");
+
+    const categoriesToMigrate = db.prepare(
+      "SELECT id, parent_category FROM categories WHERE parent_category IS NOT NULL AND parent_category != ''"
+    ).all();
+
+    const updateStmt = db.prepare('UPDATE categories SET parent_category_id = ? WHERE id = ?');
+    const migrateCategories = db.transaction(() => {
+      for (const row of categoriesToMigrate) {
+        const parentId = getOrCreateCategoryId(row.parent_category);
+        if (parentId) {
+          updateStmt.run(parentId, row.id);
+        }
+      }
+    });
+    migrateCategories();
+
+    console.log(`  ✓ Migrated ${categoriesToMigrate.length} parent categories`);
+  }
+
+  // 10. AI_CATEGORIZATIONS TABLE
+  const aiCategorizationsInfo = db.prepare("PRAGMA table_info(ai_categorizations)").all();
+  const aiCategorizationsHasCategoryId = aiCategorizationsInfo.some(col => col.name === 'category_id');
+  if (!aiCategorizationsHasCategoryId) {
+    console.log('Migrating ai_categorizations.category to category_id...');
+    db.exec("ALTER TABLE ai_categorizations ADD COLUMN category_id INTEGER REFERENCES categories(id)");
+
+    const categorizationsToMigrate = db.prepare(
+      'SELECT id, category FROM ai_categorizations WHERE category IS NOT NULL'
+    ).all();
+
+    const updateStmt = db.prepare('UPDATE ai_categorizations SET category_id = ? WHERE id = ?');
+    const migrateCategorizations = db.transaction(() => {
+      for (const row of categorizationsToMigrate) {
+        const categoryId = getOrCreateCategoryId(row.category);
+        if (categoryId) {
+          updateStmt.run(categoryId, row.id);
+        }
+      }
+    });
+    migrateCategorizations();
+
+    console.log(`  ✓ Migrated ${categorizationsToMigrate.length} AI categorizations`);
+  }
+
+  // 11. AI_EMBEDDINGS TABLE
+  const aiEmbeddingsInfo = db.prepare("PRAGMA table_info(ai_embeddings)").all();
+  const aiEmbeddingsHasCategoryId = aiEmbeddingsInfo.some(col => col.name === 'category_id');
+  if (!aiEmbeddingsHasCategoryId) {
+    console.log('Migrating ai_embeddings.category to category_id...');
+    db.exec("ALTER TABLE ai_embeddings ADD COLUMN category_id INTEGER REFERENCES categories(id)");
+
+    const embeddingsToMigrate = db.prepare(
+      'SELECT id, category FROM ai_embeddings WHERE category IS NOT NULL'
+    ).all();
+
+    const updateStmt = db.prepare('UPDATE ai_embeddings SET category_id = ? WHERE id = ?');
+    const migrateEmbeddings = db.transaction(() => {
+      for (const row of embeddingsToMigrate) {
+        const categoryId = getOrCreateCategoryId(row.category);
+        if (categoryId) {
+          updateStmt.run(categoryId, row.id);
+        }
+      }
+    });
+    migrateEmbeddings();
+
+    console.log(`  ✓ Migrated ${embeddingsToMigrate.length} AI embeddings`);
+  }
+
+  // 12. AI_FEEDBACK TABLE
+  const aiFeedbackInfo = db.prepare("PRAGMA table_info(ai_feedback)").all();
+  const aiFeedbackHasSuggestedCategoryId = aiFeedbackInfo.some(col => col.name === 'suggested_category_id');
+  const aiFeedbackHasActualCategoryId = aiFeedbackInfo.some(col => col.name === 'actual_category_id');
+
+  if (!aiFeedbackHasSuggestedCategoryId) {
+    console.log('Migrating ai_feedback.suggested_category to suggested_category_id...');
+    db.exec("ALTER TABLE ai_feedback ADD COLUMN suggested_category_id INTEGER REFERENCES categories(id)");
+
+    const feedbackToMigrate = db.prepare(
+      'SELECT id, suggested_category FROM ai_feedback WHERE suggested_category IS NOT NULL'
+    ).all();
+
+    const updateStmt = db.prepare('UPDATE ai_feedback SET suggested_category_id = ? WHERE id = ?');
+    const migrateFeedback = db.transaction(() => {
+      for (const row of feedbackToMigrate) {
+        const categoryId = getOrCreateCategoryId(row.suggested_category);
+        if (categoryId) {
+          updateStmt.run(categoryId, row.id);
+        }
+      }
+    });
+    migrateFeedback();
+
+    console.log(`  ✓ Migrated ${feedbackToMigrate.length} suggested categories in AI feedback`);
+  }
+
+  if (!aiFeedbackHasActualCategoryId) {
+    console.log('Migrating ai_feedback.actual_category to actual_category_id...');
+    db.exec("ALTER TABLE ai_feedback ADD COLUMN actual_category_id INTEGER REFERENCES categories(id)");
+
+    const feedbackToMigrate = db.prepare(
+      'SELECT id, actual_category FROM ai_feedback WHERE actual_category IS NOT NULL'
+    ).all();
+
+    const updateStmt = db.prepare('UPDATE ai_feedback SET actual_category_id = ? WHERE id = ?');
+    const migrateFeedback = db.transaction(() => {
+      for (const row of feedbackToMigrate) {
+        const categoryId = getOrCreateCategoryId(row.actual_category);
+        if (categoryId) {
+          updateStmt.run(categoryId, row.id);
+        }
+      }
+    });
+    migrateFeedback();
+
+    console.log(`  ✓ Migrated ${feedbackToMigrate.length} actual categories in AI feedback`);
+  }
+
+  console.log('✓ Category normalization migration complete');
 }
 
 /**
@@ -784,6 +1280,65 @@ export function closeDatabase() {
 }
 
 // ============================================================================
+// CATEGORY HELPERS
+// ============================================================================
+
+/**
+ * Get category ID from category name
+ * Returns null if category doesn't exist
+ */
+export function getCategoryIdByName(categoryName) {
+  if (!categoryName || categoryName.trim() === '') {
+    return null;
+  }
+
+  const category = db.prepare('SELECT id FROM categories WHERE name = ?').get(categoryName.trim());
+  return category ? category.id : null;
+}
+
+/**
+ * Get category name from category ID
+ * Returns null if category doesn't exist
+ */
+export function getCategoryNameById(categoryId) {
+  if (!categoryId) {
+    return null;
+  }
+
+  const category = db.prepare('SELECT name FROM categories WHERE id = ?').get(categoryId);
+  return category ? category.name : null;
+}
+
+/**
+ * Get or create category by name, returning the category ID
+ * This is useful during data imports/migrations
+ */
+function getOrCreateCategoryIdByName(categoryName) {
+  if (!categoryName || categoryName.trim() === '') {
+    return null;
+  }
+
+  const trimmedName = categoryName.trim();
+
+  // Try to find existing category
+  let categoryId = getCategoryIdByName(trimmedName);
+
+  if (!categoryId) {
+    // Create missing category with default icon/color
+    const icon = suggestIconForCategory(trimmedName);
+    const color = getNextCategoryColor();
+
+    const result = db.prepare(
+      'INSERT INTO categories (name, icon, color) VALUES (?, ?, ?)'
+    ).run(trimmedName, icon, color);
+
+    categoryId = result.lastInsertRowid;
+  }
+
+  return categoryId;
+}
+
+// ============================================================================
 // PLAID ITEMS
 // ============================================================================
 
@@ -890,25 +1445,30 @@ export function renameAccount(accountId, newName) {
 // ============================================================================
 
 export function getTransactions(limit = 50, filters = {}) {
-  // Join with amazon_orders to include matching information and accounts for institution name
+  const startTime = Date.now();
+
+  // Join with amazon_orders to include matching information
+  // Join with categories to get current category name (handles renames automatically)
   let sql = `
     SELECT
       t.*,
+      COALESCE(c.name, t.category) as category,
+      c.icon as category_icon,
+      c.color as category_color,
       ao.order_id as amazon_order_id,
       ao.total_amount as amazon_total,
       ao.order_date as amazon_order_date,
       ao.match_confidence as amazon_match_confidence,
-      ao.order_status as amazon_order_status,
-      acc.institution_name
+      ao.order_status as amazon_order_status
     FROM transactions t
+    LEFT JOIN categories c ON t.category_id = c.id
     LEFT JOIN amazon_orders ao ON t.transaction_id = ao.matched_transaction_id
-    LEFT JOIN accounts acc ON t.account_name = acc.name
     WHERE 1=1
   `;
   const params = [];
 
   if (filters.category) {
-    sql += ' AND t.category = ?';
+    sql += ' AND c.name = ?';
     params.push(filters.category);
   }
 
@@ -1011,6 +1571,11 @@ export function getTransactions(limit = 50, filters = {}) {
     }
   }
 
+  const elapsed = Date.now() - startTime;
+  if (elapsed > 100) {
+    console.log(`⚠️  getTransactions took ${elapsed}ms (limit: ${limit}, filters: ${JSON.stringify(filters)})`);
+  }
+
   return processedTransactions;
 }
 
@@ -1048,12 +1613,12 @@ export function saveTransactions(transactions, categorizationData) {
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO transactions (
       transaction_id, date, description, merchant_name, account_name,
-      amount, category, confidence, verified, pending, payment_channel, notes, created_at,
+      amount, category, category_id, confidence, verified, pending, payment_channel, notes, created_at,
       plaid_primary_category, plaid_detailed_category, plaid_confidence_level,
       location_city, location_region, location_address,
       transaction_type, authorized_datetime, merchant_entity_id,
       external_category, category_source
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let inserted = 0;
@@ -1094,6 +1659,9 @@ export function saveTransactions(transactions, categorizationData) {
         confidence = result.confidence;
       }
 
+      // Get category ID from category name
+      const categoryId = category ? getOrCreateCategoryIdByName(category) : null;
+
       // Extract location data
       const location = tx.location || {};
       const locationCity = location.city || null;
@@ -1113,6 +1681,7 @@ export function saveTransactions(transactions, categorizationData) {
         tx.account_name,
         tx.amount,
         category,
+        categoryId,
         confidence,
         'No',
         tx.pending ? 'Yes' : 'No',
@@ -1461,13 +2030,16 @@ export function updateTransactionCategory(transactionId, category) {
   // Get the transaction to extract merchant name
   const transaction = db.prepare('SELECT * FROM transactions WHERE transaction_id = ?').get(transactionId);
 
-  // Update the transaction
+  // Get category ID from name
+  const categoryId = getOrCreateCategoryIdByName(category);
+
+  // Update the transaction (both category name and ID for backward compatibility)
   const stmt = db.prepare(`
     UPDATE transactions
-    SET category = ?, confidence = 100, verified = 'Yes'
+    SET category = ?, category_id = ?, confidence = 100, verified = 'Yes'
     WHERE transaction_id = ?
   `);
-  stmt.run(category, transactionId);
+  stmt.run(category, categoryId, transactionId);
 
   // Save merchant mapping so future transactions from this merchant auto-categorize
   if (transaction) {
@@ -1562,18 +2134,21 @@ export function updateMultipleTransactionCategories(transactionIds, category) {
     return 0;
   }
 
+  // Get category ID from name
+  const categoryId = getOrCreateCategoryIdByName(category);
+
   const placeholders = transactionIds.map(() => '?').join(',');
   console.log('SQL placeholders:', placeholders);
 
   const sql = `
     UPDATE transactions
-    SET category = ?, confidence = 95, verified = 'No'
+    SET category = ?, category_id = ?, confidence = 95, verified = 'No'
     WHERE transaction_id IN (${placeholders})
   `;
   console.log('SQL query:', sql);
 
   const stmt = db.prepare(sql);
-  const params = [category, ...transactionIds];
+  const params = [category, categoryId, ...transactionIds];
   console.log('SQL params:', params);
 
   const result = stmt.run(...params);
@@ -1901,15 +2476,18 @@ export function updateCategory(oldName, newName, newParentCategory = null, icon 
   const categoryDescription = description !== null ? description : existingCategory.description || '';
   const categoryUseForAmazon = useForAmazon !== null ? (useForAmazon ? 1 : 0) : existingCategory.use_for_amazon;
 
-  // Use transaction to update both category and all related transactions
+  // Use transaction to update both category and all related tables
   const transaction = db.transaction(() => {
-    // Update category
+    // Get parent category ID if specified
+    const parentCategoryId = newParentCategory ? getCategoryIdByName(newParentCategory) : null;
+
+    // Update category (this is the key change - name is updated in one place)
     const updateCategoryStmt = db.prepare(`
       UPDATE categories
-      SET name = ?, parent_category = ?, icon = ?, color = ?, description = ?, use_for_amazon = ?
+      SET name = ?, parent_category = ?, parent_category_id = ?, icon = ?, color = ?, description = ?, use_for_amazon = ?
       WHERE name = ?
     `);
-    updateCategoryStmt.run(newName, newParentCategory || '', categoryIcon, categoryColor, categoryDescription, categoryUseForAmazon, oldName);
+    updateCategoryStmt.run(newName, newParentCategory || '', parentCategoryId, categoryIcon, categoryColor, categoryDescription, categoryUseForAmazon, oldName);
 
     // Handle parent/child cascade for use_for_amazon changes
     if (useForAmazon !== null && categoryUseForAmazon !== existingCategory.use_for_amazon) {
@@ -1955,23 +2533,57 @@ export function deleteCategory(name) {
     throw new Error('Category not found');
   }
 
-  // Use transaction to delete category and uncategorize related transactions
-  const transaction = db.transaction(() => {
-    // Delete category
-    const deleteCategoryStmt = db.prepare('DELETE FROM categories WHERE name = ?');
-    deleteCategoryStmt.run(name);
+  const categoryId = existingCategory.id;
 
-    // Move all transactions in this category to uncategorized and unverify them
+  // Use transaction to delete category and uncategorize related records
+  const transaction = db.transaction(() => {
+    // FIRST: Clean up all foreign key references before deleting the category
+
+    // 1. Move all transactions in this category to uncategorized and unverify them
     const updateTransactionsStmt = db.prepare(`
       UPDATE transactions
-      SET category = '', verified = 'No', confidence = 0
-      WHERE category = ?
+      SET category = '', category_id = NULL, verified = 'No', confidence = 0
+      WHERE category_id = ?
     `);
-    const result = updateTransactionsStmt.run(name);
+    const result = updateTransactionsStmt.run(categoryId);
 
-    // Delete all merchant mappings for this category
-    const deleteMappingsStmt = db.prepare('DELETE FROM merchant_mappings WHERE category = ?');
-    deleteMappingsStmt.run(name);
+    // 2. Update Amazon items
+    db.prepare('UPDATE amazon_items SET user_category = NULL, category_id = NULL WHERE category_id = ?').run(categoryId);
+
+    // 3. Update transaction splits
+    db.prepare('UPDATE transaction_splits SET category = NULL, category_id = NULL WHERE category_id = ?').run(categoryId);
+
+    // 4. Delete merchant mappings
+    db.prepare('DELETE FROM merchant_mappings WHERE category_id = ?').run(categoryId);
+
+    // 5. Delete category rules (rules without a category don't make sense)
+    db.prepare('DELETE FROM category_rules WHERE category_id = ?').run(categoryId);
+
+    // 6. Update plaid category mappings
+    db.prepare('UPDATE plaid_category_mappings SET user_category = NULL, category_id = NULL WHERE category_id = ?').run(categoryId);
+
+    // 7. Update external category mappings
+    db.prepare('UPDATE external_category_mappings SET user_category = NULL, category_id = NULL WHERE category_id = ?').run(categoryId);
+
+    // 8. Delete amazon item rules (can't set category to NULL due to NOT NULL constraint)
+    db.prepare('DELETE FROM amazon_item_rules WHERE category_id = ?').run(categoryId);
+
+    // 9. Update child categories (set parent to null)
+    db.prepare('UPDATE categories SET parent_category = NULL, parent_category_id = NULL WHERE parent_category_id = ?').run(categoryId);
+
+    // 10. Delete AI categorizations (historical data - category is NOT NULL)
+    db.prepare('DELETE FROM ai_categorizations WHERE category_id = ?').run(categoryId);
+
+    // 11. Delete AI embeddings (training data - category is NOT NULL)
+    db.prepare('DELETE FROM ai_embeddings WHERE category_id = ?').run(categoryId);
+
+    // 12. Delete AI feedback (training data - categories are NOT NULL)
+    db.prepare('DELETE FROM ai_feedback WHERE suggested_category_id = ?').run(categoryId);
+    db.prepare('DELETE FROM ai_feedback WHERE actual_category_id = ?').run(categoryId);
+
+    // LAST: Now delete the category itself (all foreign keys are cleaned up)
+    const deleteCategoryStmt = db.prepare('DELETE FROM categories WHERE id = ?');
+    deleteCategoryStmt.run(categoryId);
 
     return { success: true, transactionsAffected: result.changes };
   });
@@ -1987,7 +2599,7 @@ export function getCategorySpending(startDate = null, endDate = null) {
       COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END), 0) as total,
       COUNT(CASE WHEN t.amount > 0 THEN 1 END) as count
     FROM categories c
-    LEFT JOIN transactions t ON c.name = t.category
+    LEFT JOIN transactions t ON c.id = t.category_id
   `;
   const params = [];
 
@@ -2003,7 +2615,7 @@ export function getCategorySpending(startDate = null, endDate = null) {
     }
   }
 
-  sql += ' GROUP BY c.name, c.parent_category ORDER BY total DESC';
+  sql += ' GROUP BY c.id, c.name, c.parent_category ORDER BY total DESC';
 
   const results = db.prepare(sql).all(...params);
   const categories = results.map(r => ({
@@ -2059,23 +2671,28 @@ export function getEnabledCategoryRules() {
 }
 
 export function saveMerchantMapping(merchantName, category) {
+  const categoryId = getOrCreateCategoryIdByName(category);
+
   const stmt = db.prepare(`
-    INSERT INTO merchant_mappings (merchant_name, category, match_count, last_used)
-    VALUES (?, ?, 1, datetime('now'))
+    INSERT INTO merchant_mappings (merchant_name, category, category_id, match_count, last_used)
+    VALUES (?, ?, ?, 1, datetime('now'))
     ON CONFLICT(merchant_name) DO UPDATE SET
       category = excluded.category,
+      category_id = excluded.category_id,
       match_count = match_count + 1,
       last_used = datetime('now')
   `);
-  stmt.run(merchantName, category);
+  stmt.run(merchantName, category, categoryId);
 }
 
 export function savePlaidCategoryMapping(plaidCategory, userCategory) {
+  const categoryId = getOrCreateCategoryIdByName(userCategory);
+
   const stmt = db.prepare(`
-    INSERT OR REPLACE INTO plaid_category_mappings (plaid_category, user_category, auto_created)
-    VALUES (?, ?, 'Yes')
+    INSERT OR REPLACE INTO plaid_category_mappings (plaid_category, user_category, category_id, auto_created)
+    VALUES (?, ?, ?, 'Yes')
   `);
-  stmt.run(plaidCategory, userCategory);
+  stmt.run(plaidCategory, userCategory, categoryId);
 }
 
 export function createCategoryRule(name, pattern, category, matchType = 'regex', userCreated = 'Yes') {
@@ -2092,11 +2709,13 @@ export function createCategoryRule(name, pattern, category, matchType = 'regex',
     counter++;
   }
 
+  const categoryId = getOrCreateCategoryIdByName(category);
+
   const stmt = db.prepare(`
-    INSERT INTO category_rules (name, pattern, category, match_type, user_created, enabled)
-    VALUES (?, ?, ?, ?, ?, 'Yes')
+    INSERT INTO category_rules (name, pattern, category, category_id, match_type, user_created, enabled)
+    VALUES (?, ?, ?, ?, ?, ?, 'Yes')
   `);
-  const result = stmt.run(uniqueName, pattern, category, matchType, userCreated);
+  const result = stmt.run(uniqueName, pattern, category, categoryId, matchType, userCreated);
   return {
     id: result.lastInsertRowid,
     name: uniqueName
@@ -2104,12 +2723,14 @@ export function createCategoryRule(name, pattern, category, matchType = 'regex',
 }
 
 export function updateCategoryRule(id, name, pattern, category, matchType, enabled = 'Yes') {
+  const categoryId = getOrCreateCategoryIdByName(category);
+
   const stmt = db.prepare(`
     UPDATE category_rules
-    SET name = ?, pattern = ?, category = ?, match_type = ?, enabled = ?
+    SET name = ?, pattern = ?, category = ?, category_id = ?, match_type = ?, enabled = ?
     WHERE id = ?
   `);
-  stmt.run(name, pattern, category, matchType, enabled, id);
+  stmt.run(name, pattern, category, categoryId, matchType, enabled, id);
 }
 
 export function deleteCategoryRule(id) {
@@ -2338,14 +2959,41 @@ export function getAmazonOrders(filters = {}) {
 
   sql += ' ORDER BY order_date DESC';
 
+  // Add pagination support
+  if (filters.limit) {
+    sql += ' LIMIT ?';
+    params.push(filters.limit);
+
+    if (filters.offset) {
+      sql += ' OFFSET ?';
+      params.push(filters.offset);
+    }
+  }
+
   const orders = db.prepare(sql).all(...params);
 
-  // Fetch items for each order
-  const itemsStmt = db.prepare('SELECT * FROM amazon_items WHERE order_id = ?');
+  // Fetch all items for these orders in a single query (fix N+1 problem)
+  if (orders.length === 0) {
+    return [];
+  }
 
+  const orderIds = orders.map(o => o.order_id);
+  const placeholders = orderIds.map(() => '?').join(',');
+  const allItems = db.prepare(`SELECT * FROM amazon_items WHERE order_id IN (${placeholders})`).all(...orderIds);
+
+  // Group items by order_id
+  const itemsByOrderId = {};
+  for (const item of allItems) {
+    if (!itemsByOrderId[item.order_id]) {
+      itemsByOrderId[item.order_id] = [];
+    }
+    itemsByOrderId[item.order_id].push(item);
+  }
+
+  // Attach items to each order
   return orders.map(order => ({
     ...order,
-    items: itemsStmt.all(order.order_id)
+    items: itemsByOrderId[order.order_id] || []
   }));
 }
 
@@ -3116,37 +3764,70 @@ export function deleteExternalMapping(id) {
  * @returns {Array} Amazon items
  */
 export function getAmazonItems(filters = {}) {
+  let whereClause = 'WHERE 1=1';
+  const params = [];
+
+  if (filters.itemId) {
+    whereClause += ' AND ai.id = ?';
+    params.push(filters.itemId);
+  }
+
+  if (filters.itemIds && Array.isArray(filters.itemIds) && filters.itemIds.length > 0) {
+    const placeholders = filters.itemIds.map(() => '?').join(',');
+    whereClause += ` AND ai.id IN (${placeholders})`;
+    params.push(...filters.itemIds);
+  }
+
+  if (filters.orderId) {
+    whereClause += ' AND ai.order_id = ?';
+    params.push(filters.orderId);
+  }
+
+  if (filters.asin) {
+    whereClause += ' AND ai.asin = ?';
+    params.push(filters.asin);
+  }
+
+  if (filters.categorized === 'yes') {
+    whereClause += ' AND ai.user_category IS NOT NULL';
+  } else if (filters.categorized === 'no') {
+    whereClause += ' AND ai.user_category IS NULL';
+  }
+
+  if (filters.verified === 'yes') {
+    whereClause += ' AND ai.verified = \'Yes\'';
+  } else if (filters.verified === 'no') {
+    whereClause += ' AND ai.verified = \'No\'';
+  }
+
+  // Build data query with pagination
+  // JOIN with categories to get current category name (handles renames automatically)
   let query = `
     SELECT
       ai.*,
+      COALESCE(c.name, ai.user_category) as user_category,
+      c.icon as category_icon,
+      c.color as category_color,
       ao.order_date,
       ao.order_id,
       ao.account_name
     FROM amazon_items ai
     JOIN amazon_orders ao ON ai.order_id = ao.order_id
-    WHERE 1=1
+    LEFT JOIN categories c ON ai.category_id = c.id
+    ${whereClause}
+    ORDER BY ao.order_date DESC, ai.id DESC
   `;
 
-  const params = [];
+  // Add pagination if limit is specified
+  if (filters.limit) {
+    query += ' LIMIT ?';
+    params.push(filters.limit);
 
-  if (filters.orderId) {
-    query += ' AND ai.order_id = ?';
-    params.push(filters.orderId);
+    if (filters.offset) {
+      query += ' OFFSET ?';
+      params.push(filters.offset);
+    }
   }
-
-  if (filters.categorized === 'yes') {
-    query += ' AND ai.user_category IS NOT NULL';
-  } else if (filters.categorized === 'no') {
-    query += ' AND ai.user_category IS NULL';
-  }
-
-  if (filters.verified === 'yes') {
-    query += ' AND ai.verified = "Yes"';
-  } else if (filters.verified === 'no') {
-    query += ' AND ai.verified = "No"';
-  }
-
-  query += ' ORDER BY ao.order_date DESC, ai.id DESC';
 
   return db.prepare(query).all(...params);
 }
@@ -3159,11 +3840,13 @@ export function getAmazonItems(filters = {}) {
  * @param {string} reasoning - Categorization reasoning
  */
 export function updateAmazonItemCategory(itemId, category, confidence = 0, reasoning = null) {
+  const categoryId = category ? getOrCreateCategoryIdByName(category) : null;
+
   db.prepare(`
     UPDATE amazon_items
-    SET user_category = ?, confidence = ?, categorization_reasoning = ?
+    SET user_category = ?, category_id = ?, confidence = ?, categorization_reasoning = ?
     WHERE id = ?
-  `).run(category, confidence, reasoning, itemId);
+  `).run(category, categoryId, confidence, reasoning, itemId);
 
   return { success: true };
 }
@@ -3193,6 +3876,21 @@ export function unverifyAmazonItemCategory(itemId, originalConfidence = 0) {
     SET verified = 'No', confidence = ?
     WHERE id = ?
   `).run(originalConfidence, itemId);
+
+  return { success: true };
+}
+
+/**
+ * Update Amazon item image URL (cache scraped image URL)
+ * @param {string} asin - Product ASIN
+ * @param {string} imageUrl - Scraped image URL
+ */
+export function updateAmazonItemImageUrl(asin, imageUrl) {
+  db.prepare(`
+    UPDATE amazon_items
+    SET image_url = ?
+    WHERE asin = ?
+  `).run(imageUrl, asin);
 
   return { success: true };
 }
@@ -3361,4 +4059,388 @@ export function getAmazonItemStats() {
     avg_confidence: stats.avg_confidence || 0,
     uncategorized_items: (stats.total_items || 0) - (stats.categorized_items || 0)
   };
+}
+
+// ============================================================================
+// AI CATEGORIZATION FUNCTIONS
+// ============================================================================
+
+/**
+ * Save AI categorization result
+ */
+export function saveAICategorization(itemId, itemType, category, confidence, method, alternatives = null, reasoning = null, userConfirmed = 'No') {
+  const stmt = db.prepare(`
+    INSERT INTO ai_categorizations (
+      item_id, item_type, category, confidence, method,
+      alternatives, reasoning, user_confirmed, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `);
+
+  const alternativesJson = alternatives ? JSON.stringify(alternatives) : null;
+
+  return stmt.run(itemId, itemType, category, confidence, method, alternativesJson, reasoning, userConfirmed);
+}
+
+/**
+ * Get AI categorization for an item
+ */
+export function getAICategorization(itemId, itemType) {
+  const result = db.prepare(`
+    SELECT * FROM ai_categorizations
+    WHERE item_id = ? AND item_type = ?
+    ORDER BY created_at DESC
+    LIMIT 1
+  `).get(itemId, itemType);
+
+  if (result && result.alternatives) {
+    try {
+      result.alternatives = JSON.parse(result.alternatives);
+    } catch (e) {
+      result.alternatives = [];
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Save AI feedback (user correction)
+ */
+export function saveAIFeedback(itemId, itemType, suggestedCategory, actualCategory, suggestionMethod = null, suggestionConfidence = null) {
+  const stmt = db.prepare(`
+    INSERT INTO ai_feedback (
+      item_id, item_type, suggested_category, actual_category,
+      suggestion_method, suggestion_confidence, processed, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'No', datetime('now'))
+  `);
+
+  return stmt.run(itemId, itemType, suggestedCategory, actualCategory, suggestionMethod, suggestionConfidence);
+}
+
+/**
+ * Get unprocessed AI feedback for learning
+ */
+export function getUnprocessedFeedback(limit = 100) {
+  return db.prepare(`
+    SELECT * FROM ai_feedback
+    WHERE processed = 'No'
+    ORDER BY created_at ASC
+    LIMIT ?
+  `).all(limit);
+}
+
+/**
+ * Get feedback count since last training
+ */
+export function getFeedbackCountSinceLastTraining() {
+  const lastTraining = db.prepare(`
+    SELECT timestamp FROM ai_training_history
+    ORDER BY timestamp DESC
+    LIMIT 1
+  `).get();
+
+  if (!lastTraining) {
+    return db.prepare(`SELECT COUNT(*) as count FROM ai_feedback WHERE processed = 'No'`).get().count;
+  }
+
+  return db.prepare(`
+    SELECT COUNT(*) as count FROM ai_feedback
+    WHERE created_at > ? AND processed = 'No'
+  `).get(lastTraining.timestamp).count;
+}
+
+/**
+ * Mark feedback as processed
+ */
+export function markFeedbackAsProcessed(feedbackIds) {
+  if (!Array.isArray(feedbackIds) || feedbackIds.length === 0) return;
+
+  const placeholders = feedbackIds.map(() => '?').join(',');
+  const stmt = db.prepare(`
+    UPDATE ai_feedback
+    SET processed = 'Yes'
+    WHERE id IN (${placeholders})
+  `);
+
+  return stmt.run(...feedbackIds);
+}
+
+/**
+ * Save AI training history
+ */
+export function saveAITrainingHistory(feedbackCount, rulesGenerated = 0, embeddingsUpdated = 0, durationMs = null, triggerType = 'manual', notes = null) {
+  const stmt = db.prepare(`
+    INSERT INTO ai_training_history (
+      timestamp, feedback_count, rules_generated, embeddings_updated,
+      duration_ms, trigger_type, notes
+    ) VALUES (datetime('now'), ?, ?, ?, ?, ?, ?)
+  `);
+
+  return stmt.run(feedbackCount, rulesGenerated, embeddingsUpdated, durationMs, triggerType, notes);
+}
+
+/**
+ * Get AI training history
+ */
+export function getAITrainingHistory(limit = 10) {
+  return db.prepare(`
+    SELECT * FROM ai_training_history
+    ORDER BY timestamp DESC
+    LIMIT ?
+  `).all(limit);
+}
+
+/**
+ * Get last training timestamp
+ */
+export function getLastTrainingTimestamp() {
+  const result = db.prepare(`
+    SELECT timestamp FROM ai_training_history
+    ORDER BY timestamp DESC
+    LIMIT 1
+  `).get();
+
+  return result ? result.timestamp : null;
+}
+
+/**
+ * Save or update embedding for an item
+ */
+export function saveEmbedding(itemId, itemType, embeddingText, embeddingVector, category, userConfirmed = 'No') {
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO ai_embeddings (
+      item_id, item_type, embedding_text, embedding_vector, category,
+      user_confirmed, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?,
+      COALESCE((SELECT created_at FROM ai_embeddings WHERE item_id = ? AND item_type = ?), datetime('now')),
+      datetime('now')
+    )
+  `);
+
+  const vectorJson = JSON.stringify(embeddingVector);
+  return stmt.run(itemId, itemType, embeddingText, vectorJson, category, userConfirmed, itemId, itemType);
+}
+
+/**
+ * Get embedding for an item
+ */
+export function getEmbedding(itemId, itemType) {
+  const result = db.prepare(`
+    SELECT * FROM ai_embeddings
+    WHERE item_id = ? AND item_type = ?
+  `).get(itemId, itemType);
+
+  if (result && result.embedding_vector) {
+    try {
+      result.embedding_vector = JSON.parse(result.embedding_vector);
+    } catch (e) {
+      result.embedding_vector = [];
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Get all confirmed embeddings for similarity search
+ */
+export function getConfirmedEmbeddings(itemType = null, limit = 1000) {
+  let query = `
+    SELECT * FROM ai_embeddings
+    WHERE user_confirmed = 'Yes'
+  `;
+
+  if (itemType) {
+    query += ` AND item_type = ?`;
+  }
+
+  query += ` ORDER BY updated_at DESC LIMIT ?`;
+
+  const results = itemType
+    ? db.prepare(query).all(itemType, limit)
+    : db.prepare(query).all(limit);
+
+  // Parse embedding vectors
+  return results.map(r => {
+    try {
+      r.embedding_vector = JSON.parse(r.embedding_vector);
+    } catch (e) {
+      r.embedding_vector = [];
+    }
+    return r;
+  });
+}
+
+/**
+ * Delete embeddings for an item
+ */
+export function deleteEmbedding(itemId, itemType) {
+  return db.prepare(`
+    DELETE FROM ai_embeddings
+    WHERE item_id = ? AND item_type = ?
+  `).run(itemId, itemType);
+}
+
+/**
+ * Save or update AI metrics for a date
+ */
+export function saveAIMetrics(date, itemType, totalCategorizations, correctCategorizations, avgConfidence, methodBreakdown, confidenceBreakdown) {
+  const accuracyRate = totalCategorizations > 0 ? correctCategorizations / totalCategorizations : 0;
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO ai_metrics (
+      date, item_type, total_categorizations, correct_categorizations,
+      accuracy_rate, avg_confidence, method_breakdown, confidence_breakdown
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  return stmt.run(
+    date,
+    itemType,
+    totalCategorizations,
+    correctCategorizations,
+    accuracyRate,
+    avgConfidence,
+    JSON.stringify(methodBreakdown),
+    JSON.stringify(confidenceBreakdown)
+  );
+}
+
+/**
+ * Get AI metrics for a date range
+ */
+export function getAIMetrics(itemType = null, startDate = null, endDate = null) {
+  let query = `SELECT * FROM ai_metrics WHERE 1=1`;
+  const params = [];
+
+  if (itemType) {
+    query += ` AND item_type = ?`;
+    params.push(itemType);
+  }
+
+  if (startDate) {
+    query += ` AND date >= ?`;
+    params.push(startDate);
+  }
+
+  if (endDate) {
+    query += ` AND date <= ?`;
+    params.push(endDate);
+  }
+
+  query += ` ORDER BY date DESC`;
+
+  const results = db.prepare(query).all(...params);
+
+  // Parse JSON fields
+  return results.map(r => {
+    try {
+      r.method_breakdown = JSON.parse(r.method_breakdown);
+      r.confidence_breakdown = JSON.parse(r.confidence_breakdown);
+    } catch (e) {
+      r.method_breakdown = {};
+      r.confidence_breakdown = {};
+    }
+    return r;
+  });
+}
+
+/**
+ * Get AI categorization accuracy by method
+ */
+export function getCategorizationAccuracyByMethod(itemType = null, days = 30) {
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+  const startDateStr = startDate.toISOString().split('T')[0];
+
+  let query = `
+    SELECT
+      c.method,
+      COUNT(*) as total,
+      SUM(CASE WHEN c.user_confirmed = 'Yes' THEN 1 ELSE 0 END) as confirmed,
+      AVG(c.confidence) as avg_confidence
+    FROM ai_categorizations c
+    WHERE c.created_at >= ?
+  `;
+
+  const params = [startDateStr];
+
+  if (itemType) {
+    query += ` AND c.item_type = ?`;
+    params.push(itemType);
+  }
+
+  query += `
+    GROUP BY c.method
+    ORDER BY total DESC
+  `;
+
+  const results = db.prepare(query).all(...params);
+
+  return results.map(r => ({
+    ...r,
+    accuracy: r.total > 0 ? r.confirmed / r.total : 0
+  }));
+}
+
+/**
+ * Create auto-generated categorization rule
+ */
+export function createAutoGeneratedRule(name, pattern, category, matchType = 'regex', confidenceOverride = null, ruleSource = 'ai_learning') {
+  const stmt = db.prepare(`
+    INSERT INTO category_rules (
+      name, pattern, category, match_type, enabled,
+      auto_generated, confidence_override, rule_source,
+      user_created, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'Yes', 'Yes', ?, ?, 'No', datetime('now'), datetime('now'))
+  `);
+
+  return stmt.run(name, pattern, category, matchType, confidenceOverride, ruleSource);
+}
+
+/**
+ * Get patterns from feedback for rule generation
+ */
+export function getFeedbackPatternsForRuleGeneration() {
+  // Get item patterns that have been corrected multiple times to the same category
+  const itemPatterns = db.prepare(`
+    SELECT
+      f.item_id,
+      f.item_type,
+      f.actual_category,
+      COUNT(*) as correction_count,
+      GROUP_CONCAT(f.suggested_category) as suggested_categories
+    FROM ai_feedback f
+    WHERE f.processed = 'No'
+    GROUP BY f.item_id, f.item_type, f.actual_category
+    HAVING correction_count >= 2
+    ORDER BY correction_count DESC
+  `).all();
+
+  return itemPatterns;
+}
+
+/**
+ * Get Amazon item by ID
+ */
+export function getAmazonItemById(itemId) {
+  return db.prepare('SELECT * FROM amazon_items WHERE id = ?').get(itemId);
+}
+
+/**
+ * Get transaction by ID
+ */
+export function getTransactionById(transactionId) {
+  return db.prepare('SELECT * FROM transactions WHERE transaction_id = ?').get(transactionId);
+}
+
+/**
+ * Get multiple transactions by their IDs (optimized for bulk lookups)
+ */
+export function getTransactionsByIds(transactionIds) {
+  if (!transactionIds || transactionIds.length === 0) {
+    return [];
+  }
+  const placeholders = transactionIds.map(() => '?').join(',');
+  return db.prepare(`SELECT * FROM transactions WHERE transaction_id IN (${placeholders})`).all(...transactionIds);
 }
