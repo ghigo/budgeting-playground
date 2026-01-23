@@ -1136,11 +1136,28 @@ async function loadCategories() {
 
 // Show category selector for an Amazon item
 function showItemCategorySelector(itemId, triggerElement) {
-    showCategorySelector({
-        triggerElement: triggerElement,
-        categories: userCategories || [],
-        onSelect: (categoryName) => updateItemCategory(itemId, categoryName)
+    console.log('showItemCategorySelector called', {
+        itemId,
+        triggerElement,
+        categoriesCount: (userCategories || []).length
     });
+
+    if (!userCategories || userCategories.length === 0) {
+        console.error('No categories loaded!');
+        showToast('Categories not loaded. Please refresh the page.', 'error');
+        return;
+    }
+
+    try {
+        showCategorySelector({
+            triggerElement: triggerElement,
+            categories: userCategories,
+            onSelect: (categoryName) => updateItemCategory(itemId, categoryName)
+        });
+    } catch (error) {
+        console.error('Error showing category selector:', error);
+        showToast('Failed to show category selector', 'error');
+    }
 }
 
 // Categorize a single item

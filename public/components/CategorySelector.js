@@ -18,12 +18,23 @@ let currentCallback = null;
  * @param {string} options.currentCategory - Currently selected category (optional)
  */
 export function showCategorySelector(options) {
+    console.log('[CategorySelector] showCategorySelector called', options);
+
     const {
         triggerElement,
         categories,
         onSelect,
         currentCategory = null
     } = options;
+
+    if (!triggerElement) {
+        console.error('[CategorySelector] No trigger element provided');
+        return;
+    }
+
+    if (!categories || categories.length === 0) {
+        console.warn('[CategorySelector] No categories provided');
+    }
 
     // Close any existing dropdown
     closeCategorySelector();
@@ -84,6 +95,20 @@ export function closeCategorySelector() {
 }
 
 /**
+ * Escape string for use in JavaScript string literal (inside onclick, etc.)
+ * @param {string} str - String to escape
+ * @returns {string} Escaped string
+ */
+function escapeForJS(str) {
+    if (!str) return '';
+    return str.replace(/\\/g, '\\\\')
+              .replace(/'/g, "\\'")
+              .replace(/"/g, '\\"')
+              .replace(/\n/g, '\\n')
+              .replace(/\r/g, '\\r');
+}
+
+/**
  * Build the category list HTML
  * @param {Array} categories - Array of category objects
  * @param {string} searchTerm - Search filter term
@@ -110,7 +135,7 @@ function buildCategoryList(categories, searchTerm = '') {
     // Render top-level categories
     topLevel.forEach(cat => {
         html.push(`
-            <div class="category-dropdown-item" onclick="window.selectCategoryFromSelector('${escapeHtml(cat.name)}')">
+            <div class="category-dropdown-item" onclick="window.selectCategoryFromSelector('${escapeForJS(cat.name)}')">
                 <span class="category-name" style="display: flex; align-items: center; gap: 0.5rem;">
                     <span style="font-size: 1.1rem;">${cat.icon || '📁'}</span>
                     <span>${escapeHtml(cat.name)}</span>
@@ -133,7 +158,7 @@ function buildCategoryList(categories, searchTerm = '') {
         html.push(`<div class="category-dropdown-group-label">${escapeHtml(parent)}</div>`);
         parentGroups[parent].forEach(cat => {
             html.push(`
-                <div class="category-dropdown-item indented" onclick="window.selectCategoryFromSelector('${escapeHtml(cat.name)}')">
+                <div class="category-dropdown-item indented" onclick="window.selectCategoryFromSelector('${escapeForJS(cat.name)}')">
                     <span class="category-name" style="display: flex; align-items: center; gap: 0.5rem;">
                         <span style="font-size: 1.1rem;">${cat.icon || '📁'}</span>
                         <span>${escapeHtml(cat.name)}</span>
@@ -199,6 +224,12 @@ function handleOutsideClick(event) {
 }
 
 // Expose functions globally for onclick handlers
+console.log('[CategorySelector] Initializing global functions');
 window.filterCategorySelector = filterCategoryList;
 window.selectCategoryFromSelector = selectCategory;
 window.closeCategorySelector = closeCategorySelector;
+console.log('[CategorySelector] Global functions initialized:', {
+    filterCategorySelector: typeof window.filterCategorySelector,
+    selectCategoryFromSelector: typeof window.selectCategoryFromSelector,
+    closeCategorySelector: typeof window.closeCategorySelector
+});
