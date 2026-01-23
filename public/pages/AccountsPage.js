@@ -236,11 +236,14 @@ function getTimeAgo(dateString) {
     const diffMonths = Math.floor(diffDays / 30);
     const diffYears = Math.floor(diffDays / 365);
 
-    if (diffYears > 0) return `${diffYears} year${diffYears > 1 ? 's' : ''} ago`;
-    if (diffMonths > 0) return `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`;
-    if (diffDays > 0) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    if (diffHours > 0) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    if (diffMins > 0) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+    // Helper function to format time with proper pluralization
+    const formatTime = (value, unit) => `${value} ${unit}${value > 1 ? 's' : ''} ago`;
+
+    if (diffYears > 0) return formatTime(diffYears, 'year');
+    if (diffMonths > 0) return formatTime(diffMonths, 'month');
+    if (diffDays > 0) return formatTime(diffDays, 'day');
+    if (diffHours > 0) return formatTime(diffHours, 'hour');
+    if (diffMins > 0) return formatTime(diffMins, 'minute');
     return 'Just now';
 }
 

@@ -1141,10 +1141,17 @@ app.post('/api/amazon/upload', express.text({ limit: '10mb' }), async (req, res)
 // Get all Amazon orders
 app.get('/api/amazon/orders', (req, res) => {
   try {
+    // Helper to parse boolean query parameters
+    const parseQueryBoolean = (value) => {
+      if (value === 'true') return true;
+      if (value === 'false') return false;
+      return undefined;
+    };
+
     const filters = {
       startDate: req.query.startDate,
       endDate: req.query.endDate,
-      matched: req.query.matched === 'true' ? true : req.query.matched === 'false' ? false : undefined,
+      matched: parseQueryBoolean(req.query.matched),
       accountName: req.query.accountName,
       limit: req.query.limit ? parseInt(req.query.limit) : 100,  // Default limit to prevent slow loads
       offset: req.query.offset ? parseInt(req.query.offset) : 0

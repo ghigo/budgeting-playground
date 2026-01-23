@@ -183,14 +183,25 @@ function renderSettingControl(setting) {
         `;
     }
 
+    // Helper to format default value display
+    const formatDefaultValue = (type, value) => {
+        if (type === 'boolean') {
+            return value ? 'Enabled' : 'Disabled';
+        }
+        return value;
+    };
+
+    const backgroundColor = isDefault ? 'white' : '#fffbeb';
+    const defaultValueText = formatDefaultValue(type, defaultValue);
+
     return `
-        <div style="padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px; background: ${isDefault ? 'white' : '#fffbeb'};">
+        <div style="padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px; background: ${backgroundColor};">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
                 <div style="flex: 1; min-width: 0;">
                     <div style="font-weight: 600; margin-bottom: 0.25rem;">${escapeHtml(description)}</div>
                     <div style="font-size: 0.85rem; color: #666; font-family: monospace;">${escapeHtml(key)}</div>
                     <div style="font-size: 0.85rem; color: #666; margin-top: 0.25rem;">
-                        Default: ${type === 'boolean' ? (defaultValue ? 'Enabled' : 'Disabled') : defaultValue}
+                        Default: ${defaultValueText}
                         ${!isDefault ? '<span style="color: #f59e0b; margin-left: 0.5rem;">● Modified</span>' : ''}
                     </div>
                 </div>

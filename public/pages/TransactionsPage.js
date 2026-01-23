@@ -26,6 +26,101 @@ let navigateTo = null;
 // Current dropdown state
 let currentDropdownInput = null;
 
+// ============================================================================
+// HELPER FUNCTIONS FOR UI GENERATION
+// ============================================================================
+
+/**
+ * Get confidence styling colors based on confidence score
+ */
+function getConfidenceStyle(confidence) {
+    if (confidence === 100) {
+        return { color: '#fff', background: '#2563eb' }; // blue
+    }
+
+    if (confidence >= 85) {
+        return { color: '#fff', background: '#16a34a' }; // green
+    }
+
+    if (confidence >= 70) {
+        return { color: '#fff', background: '#ca8a04' }; // amber
+    }
+
+    if (confidence >= 50) {
+        return { color: '#fff', background: '#ea580c' }; // orange
+    }
+
+    if (confidence > 0) {
+        return { color: '#fff', background: '#dc2626' }; // red
+    }
+
+    return { color: '#666', background: '#eee' }; // gray (default)
+}
+
+/**
+ * Build confidence badge HTML
+ */
+function buildConfidenceBadge(hasCategory, confidence) {
+    if (!hasCategory || confidence === 0) {
+        return '';
+    }
+
+    const style = getConfidenceStyle(confidence);
+
+    return `<span style="
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: ${style.color};
+        background: ${style.background};
+        white-space: nowrap;
+    " title="Confidence: ${confidence}%">${confidence}%</span>`;
+}
+
+/**
+ * Build verification button HTML
+ */
+function buildVerifyButton(isVerified, hasCategory, transactionId) {
+    if (isVerified) {
+        return `<button class="verify-btn verified" onclick="unverifyCategory('${transactionId}')" title="Click to unverify">✓</button>`;
+    }
+
+    if (hasCategory) {
+        return `<button class="verify-btn" onclick="verifyCategory('${transactionId}')" title="Verify auto-assigned category">✓</button>`;
+    }
+
+    return '';
+}
+
+/**
+ * Clear multiple filter input values
+ */
+function clearFilterInputs(filterIds) {
+    filterIds.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.value = '';
+        }
+    });
+}
+
+/**
+ * Set active/inactive state for buttons
+ */
+function setActiveButton(activeBtn, inactiveBtn) {
+    if (activeBtn) {
+        activeBtn.classList.remove('btn-secondary');
+        activeBtn.classList.add('btn-primary');
+    }
+
+    if (inactiveBtn) {
+        inactiveBtn.classList.remove('btn-primary');
+        inactiveBtn.classList.add('btn-secondary');
+    }
+}
+
 export function initializeTransactionsPage(deps) {
     fetchAPI = deps.fetchAPI;
     navigateTo = deps.navigateTo;
@@ -283,25 +378,6 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
         const confidence = tx.confidence || 0;
         const isSelected = selectedTransactions.has(tx.transaction_id);
 
-        let confidenceColor = '#666';
-        let confidenceBg = '#eee';
-        if (confidence === 100) {
-            confidenceColor = '#fff';
-            confidenceBg = '#2563eb';
-        } else if (confidence >= 85) {
-            confidenceColor = '#fff';
-            confidenceBg = '#16a34a';
-        } else if (confidence >= 70) {
-            confidenceColor = '#fff';
-            confidenceBg = '#ca8a04';
-        } else if (confidence >= 50) {
-            confidenceColor = '#fff';
-            confidenceBg = '#ea580c';
-        } else if (confidence > 0) {
-            confidenceColor = '#fff';
-            confidenceBg = '#dc2626';
-        }
-
         return `
         <tr>
             <td>
@@ -358,25 +434,8 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
                                onclick="showCategoryDropdown(this)"
                                autocomplete="off">
                     </div>`}
-                    ${hasCategory && confidence > 0 ?
-                        `<span style="
-                            display: inline-block;
-                            padding: 2px 6px;
-                            border-radius: 4px;
-                            font-size: 0.75rem;
-                            font-weight: 600;
-                            color: ${confidenceColor};
-                            background: ${confidenceBg};
-                            white-space: nowrap;
-                        " title="Confidence: ${confidence}%">${confidence}%</span>` :
-                        ''
-                    }
-                    ${isVerified ?
-                        `<button class="verify-btn verified" onclick="unverifyCategory('${tx.transaction_id}')" title="Click to unverify">✓</button>` :
-                        (hasCategory ?
-                            `<button class="verify-btn" onclick="verifyCategory('${tx.transaction_id}')" title="Verify auto-assigned category">✓</button>` :
-                            '')
-                    }
+                    ${buildConfidenceBadge(hasCategory, confidence)}
+                    ${buildVerifyButton(isVerified, hasCategory, tx.transaction_id)}
                 </div>
             </td>
             <td>
@@ -457,28 +516,25 @@ export function applyTransactionFilters() {
 }
 
 function clearTransactionFilters() {
-    const searchInput = document.getElementById('transactionSearch');
-    if (searchInput) searchInput.value = '';
-    if (document.getElementById('filterCategory')) document.getElementById('filterCategory').value = '';
-    if (document.getElementById('filterAccount')) document.getElementById('filterAccount').value = '';
-    if (document.getElementById('filterAmazonMatch')) document.getElementById('filterAmazonMatch').value = '';
-    if (document.getElementById('filterStartDate')) document.getElementById('filterStartDate').value = '';
-    if (document.getElementById('filterEndDate')) document.getElementById('filterEndDate').value = '';
+    // Clear all filter inputs
+    clearFilterInputs([
+        'transactionSearch',
+        'filterCategory',
+        'filterAccount',
+        'filterAmazonMatch',
+        'filterStartDate',
+        'filterEndDate'
+    ]);
 
+    // Hide newly categorized banner
     const banner = document.getElementById('newlyCategorizedBanner');
     if (banner) banner.style.display = 'none';
     newlyCategorizedTransactionIds.clear();
 
+    // Reset button states
     const showAllBtn = document.getElementById('showAllBtn');
     const showUnverifiedBtn = document.getElementById('showUnverifiedBtn');
-    if (showAllBtn) {
-        showAllBtn.classList.remove('btn-secondary');
-        showAllBtn.classList.add('btn-primary');
-    }
-    if (showUnverifiedBtn) {
-        showUnverifiedBtn.classList.remove('btn-primary');
-        showUnverifiedBtn.classList.add('btn-secondary');
-    }
+    setActiveButton(showAllBtn, showUnverifiedBtn);
 
     loadTransactions();
 }
@@ -498,11 +554,7 @@ function showAllTransactions() {
     const btn = document.getElementById('showAllBtn');
     const unverifiedBtn = document.getElementById('showUnverifiedBtn');
 
-    btn.classList.remove('btn-secondary');
-    btn.classList.add('btn-primary');
-    unverifiedBtn.classList.remove('btn-primary');
-    unverifiedBtn.classList.add('btn-secondary');
-
+    setActiveButton(btn, unverifiedBtn);
     displayTransactionsTable(allTransactions);
 }
 
@@ -510,10 +562,7 @@ function applyUnverifiedFilter() {
     const btn = document.getElementById('showUnverifiedBtn');
     const allBtn = document.getElementById('showAllBtn');
 
-    btn.classList.remove('btn-secondary');
-    btn.classList.add('btn-primary');
-    allBtn.classList.remove('btn-primary');
-    allBtn.classList.add('btn-secondary');
+    setActiveButton(btn, allBtn);
 
     const unverified = allTransactions.filter(tx => !tx.verified);
     displayTransactionsTable(unverified, true);
