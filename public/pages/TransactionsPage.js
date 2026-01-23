@@ -51,7 +51,6 @@ export function initializeTransactionsPage(deps) {
     window.applyUnverifiedFilter = applyUnverifiedFilter;
     window.showNewlyCategorizedTransactions = showNewlyCategorizedTransactions;
     window.autoCategorizeTransactions = autoCategorizeTransactions;
-    window.filterCategoryDropdown = filterCategoryDropdown;
     window.closeAllDropdowns = closeAllDropdowns;
     window.closeSimilarTransactionsModal = closeSimilarTransactionsModal;
     window.toggleAllSimilarTransactions = toggleAllSimilarTransactions;
