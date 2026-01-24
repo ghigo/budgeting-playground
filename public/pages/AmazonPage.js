@@ -16,6 +16,7 @@ let amazonMonthlyChart = null;
 let amazonYearlyChart = null;
 let amazonCurrentTimeRange = 'all';
 let newlyMatchedAmazonOrderIds = new Set();
+let allCategories = [];
 
 // Pagination state
 let currentOffset = 0;
@@ -1159,12 +1160,10 @@ async function deleteAllAmazonData() {
 // ITEM CATEGORIZATION FUNCTIONS
 // ============================================================================
 
-let userCategories = [];
-
 // Load categories for dropdowns
 async function loadCategories() {
     try {
-        userCategories = await fetchAPI('/api/categories');
+        allCategories = await fetchAPI('/api/categories');
     } catch (error) {
         console.error('Error loading categories:', error);
     }
@@ -1179,10 +1178,10 @@ function showItemCategorySelector(event, itemId, triggerElement) {
     console.log('showItemCategorySelector called', {
         itemId,
         triggerElement,
-        categoriesCount: (userCategories || []).length
+        categoriesCount: (allCategories || []).length
     });
 
-    if (!userCategories || userCategories.length === 0) {
+    if (!allCategories || allCategories.length === 0) {
         console.error('No categories loaded!');
         showToast('Categories not loaded. Please refresh the page.', 'error');
         return;
@@ -1191,7 +1190,7 @@ function showItemCategorySelector(event, itemId, triggerElement) {
     try {
         showCategorySelector({
             triggerElement: triggerElement,
-            categories: userCategories,
+            categories: allCategories,
             onSelect: (categoryName) => updateItemCategory(itemId, categoryName)
         });
     } catch (error) {
