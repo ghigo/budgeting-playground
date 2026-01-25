@@ -292,7 +292,14 @@ export class FilterEngine {
             if (typeof aValue === 'string' && typeof bValue === 'string') {
                 comparison = aValue.localeCompare(bValue);
             } else {
-                comparison = aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+                // Numeric or mixed type comparison
+                if (aValue < bValue) {
+                    comparison = -1;
+                } else if (aValue > bValue) {
+                    comparison = 1;
+                } else {
+                    comparison = 0;
+                }
             }
 
             return sortDirection === 'asc' ? comparison : -comparison;

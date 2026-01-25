@@ -3,9 +3,9 @@
  * Handles all Amazon purchases page functionality including order display, matching, and charts
  */
 
-import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
+import { formatCurrency, formatDate, escapeHtml, renderCategoryControl, createBadge, createConfidenceBadge, createButton, createStatusBadge, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
-import { debounce } from '../utils/helpers.js';
+import { debounce, withLoadingState, setupInfiniteScroll } from '../utils/helpers.js';
 import { progressNotification } from '../services/progressNotification.js';
 import { showCategorySelector } from '../components/CategorySelector.js';
 
@@ -16,6 +16,7 @@ let amazonMonthlyChart = null;
 let amazonYearlyChart = null;
 let amazonCurrentTimeRange = 'all';
 let newlyMatchedAmazonOrderIds = new Set();
+let allCategories = [];
 
 // Pagination state
 let currentOffset = 0;
@@ -27,6 +28,56 @@ let currentFilters = {};
 // Dependencies (injected)
 let fetchAPI = null;
 let navigateTo = null;
+
+// ============================================================================
+// HELPER FUNCTIONS FOR UI GENERATION
+// ============================================================================
+
+/**
+ * Build match status badge for an order (unified with TransactionsPage)
+ */
+function buildOrderMatchBadge(isMatched, matchConfidence, isNewlyMatched) {
+    if (!isMatched) {
+        return createBadge('⚠ Unmatched', {
+            background: '#f59e0b',
+            color: 'white',
+            size: 'medium'
+        });
+    }
+
+    let badges = createBadge(`✓ Matched (${matchConfidence}%)`, {
+        background: '#10b981',
+        color: 'white',
+        size: 'medium'
+    });
+
+    if (isNewlyMatched) {
+        badges += ' ' + createBadge('🆕 NEW', {
+            background: '#3b82f6',
+            color: 'white',
+            size: 'medium'
+        });
+    }
+
+    return badges;
+}
+
+/**
+ * Build verification button for a matched order (unified with TransactionsPage)
+ */
+function buildMatchVerificationButton(orderId, isVerified) {
+    if (isVerified) {
+        return createButton('Unverify', `unverifyAmazonMatch('${escapeHtml(orderId)}')`, {
+            variant: 'warning',
+            size: 'small'
+        });
+    }
+
+    return createButton('Approve', `verifyAmazonMatch('${escapeHtml(orderId)}')`, {
+        variant: 'success',
+        size: 'small'
+    });
+}
 
 export function initializeAmazonPage(deps) {
     fetchAPI = deps.fetchAPI;
@@ -55,36 +106,17 @@ export function initializeAmazonPage(deps) {
     window.unverifyItemCategory = unverifyItemCategory;
     window.categorizeAllAmazonItems = categorizeAllAmazonItems;
     window.categorizeFirst20Items = categorizeFirst20Items;
-
-    // Setup infinite scroll
-    setupInfiniteScroll();
 }
 
 // Setup infinite scroll listener
-function setupInfiniteScroll() {
-    let scrollTimeout;
-
-    window.addEventListener('scroll', () => {
-        // Debounce scroll events
-        clearTimeout(scrollTimeout);
-        scrollTimeout = setTimeout(() => {
-            // Check if user is near bottom of page (within 500px)
-            const scrollPosition = window.innerHeight + window.scrollY;
-            const pageHeight = document.documentElement.scrollHeight;
-
-            if (scrollPosition >= pageHeight - 500) {
-                // Auto-load more if we have more orders
-                if (hasMoreOrders && !isLoadingMore) {
-                    loadMoreOrders();
-                }
-            }
-        }, 100);
-    });
-}
+// Setup infinite scroll for auto-loading orders
+setupInfiniteScroll(
+    () => hasMoreOrders && !isLoadingMore,
+    () => loadMoreOrders()
+);
 
 export async function loadAmazonPage() {
-    showLoading();
-    try {
+    return withLoadingState(async () => {
         // Load categories first so they're available for dropdowns
         await loadCategories();
 
@@ -93,12 +125,7 @@ export async function loadAmazonPage() {
             loadAmazonStats(),
             loadAmazonOrders()
         ]);
-    } catch (error) {
-        console.error('Error loading Amazon page:', error);
-        showToast('Failed to load Amazon data', 'error');
-    } finally {
-        hideLoading();
-    }
+    }, 'Failed to load Amazon data');
 }
 
 async function loadAmazonStats() {
@@ -465,9 +492,7 @@ function displayAmazonOrders(orders) {
     validOrders.forEach(order => {
         const isMatched = order.matched_transaction_id !== null;
         const isNewlyMatched = newlyMatchedAmazonOrderIds.has(order.order_id);
-        const matchBadge = isMatched
-            ? `<span style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">✓ Matched (${order.match_confidence}%)</span>${isNewlyMatched ? ` <span style="background: #3b82f6; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">🆕 NEW</span>` : ''}`
-            : `<span style="background: #f59e0b; color: white; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">⚠ Unmatched</span>`;
+        const matchBadge = buildOrderMatchBadge(isMatched, order.match_confidence, isNewlyMatched);
 
         // Add highlight border for newly matched orders
         const cardStyle = isNewlyMatched ? 'border: 3px solid #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);' : '';
@@ -546,36 +571,14 @@ function displayAmazonOrders(orders) {
                     `;
                 }
 
-                // Build category badge with confidence color coding
+                // Category control data
                 const confidence = item.confidence || 0;
                 const isVerified = item.verified === 'Yes';
-                let categoryBadge = '';
-                let categoryColor = '#6B7280'; // gray for uncategorized
 
-                if (item.user_category) {
-                    if (isVerified || confidence === 100) {
-                        categoryColor = '#3B82F6'; // blue for verified
-                    } else if (confidence >= 85) {
-                        categoryColor = '#10B981'; // green for high confidence
-                    } else if (confidence >= 70) {
-                        categoryColor = '#F59E0B'; // amber for medium confidence
-                    } else if (confidence >= 50) {
-                        categoryColor = '#F97316'; // orange for low confidence
-                    } else {
-                        categoryColor = '#EF4444'; // red for very low confidence
-                    }
-
-                    categoryBadge = `
-                        <span style="background: ${categoryColor}; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;">
-                            ${escapeHtml(item.user_category)} ${isVerified ? '✓' : ''} ${confidence}%
-                        </span>
-                    `;
-                } else {
-                    categoryBadge = `
-                        <span style="background: #6B7280; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; white-space: nowrap;">
-                            Uncategorized
-                        </span>
-                    `;
+                // Build price display with quantity info
+                let priceDisplay = formatCurrency(item.price);
+                if (item.quantity > 1) {
+                    priceDisplay = `Qty: ${item.quantity} × ${priceDisplay} = ${formatCurrency(item.price * item.quantity)}`;
                 }
 
                 itemsHtml += `
@@ -587,24 +590,21 @@ function displayAmazonOrders(orders) {
                                 ${itemUrl ? ' <span style="font-size: 0.75rem;">🔗</span>' : ''}
                             </div>
                             <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
-                                ${item.quantity > 1 ? `Qty: ${item.quantity} × ` : ''}${formatCurrency(item.price)}${item.quantity > 1 ? ` = ${formatCurrency(item.price * item.quantity)}` : ''}
+                                ${priceDisplay}
                                 ${item.category ? ` • Amazon: ${escapeHtml(item.category)}` : ''}
                                 ${item.seller ? ` • Sold by: ${escapeHtml(item.seller)}` : ''}
                             </div>
-                            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                                ${categoryBadge}
-                                <button id="category-trigger-${item.id}" onclick="showItemCategorySelector(event, ${item.id}, this)" style="padding: 0.2rem 0.5rem; background: #F3F4F6; border: 1px solid #D1D5DB; border-radius: 4px; font-size: 0.75rem; cursor: pointer; color: #374151;">
-                                    ${item.user_category ? 'Change' : 'Select'} Category
-                                </button>
-                                ${item.user_category ? `
-                                    ${isVerified ?
-                                        `<button onclick="unverifyItemCategory(${item.id}, ${confidence})" style="padding: 0.2rem 0.5rem; background: #F59E0B; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Unverify</button>` :
-                                        `<button onclick="verifyItemCategory(${item.id})" style="padding: 0.2rem 0.5rem; background: #10B981; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Verify</button>`
-                                    }
-                                ` : `
-                                    <button onclick="categorizeItem(${item.id})" style="padding: 0.2rem 0.5rem; background: #3B82F6; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Categorize</button>
-                                `}
-                            </div>
+                            ${renderCategoryControl({
+                                itemId: item.id,
+                                category: item.user_category,
+                                confidence,
+                                isVerified,
+                                allCategories,
+                                onCategoryClick: `showItemCategorySelector(event, ${item.id}, this)`,
+                                onVerify: `verifyItemCategory(${item.id})`,
+                                onUnverify: `unverifyItemCategory(${item.id}, ${confidence})`,
+                                itemType: 'amazon-item'
+                            })}
                             ${item.categorization_reasoning ? `
                                 <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem; font-style: italic;">
                                     ${escapeHtml(item.categorization_reasoning)}
@@ -631,11 +631,11 @@ function displayAmazonOrders(orders) {
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                         <div style="font-weight: 600; font-size: 0.9rem; color: var(--success);">✓ Matched Transaction ${isVerified ? '(Verified)' : ''}</div>
                         <div style="display: flex; gap: 0.5rem;">
-                            ${isVerified ?
-                                `<button onclick="unverifyAmazonMatch('${escapeHtml(order.order_id)}')" class="btn-small" style="background: #f59e0b; color: white; padding: 0.25rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">Unverify</button>` :
-                                `<button onclick="verifyAmazonMatch('${escapeHtml(order.order_id)}')" class="btn-small" style="background: #10b981; color: white; padding: 0.25rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">Approve</button>`
-                            }
-                            <button onclick="unmatchAmazonOrder('${escapeHtml(order.order_id)}')" class="btn-small" style="background: #dc2626; color: white; padding: 0.25rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">Unmatch</button>
+                            ${buildMatchVerificationButton(order.order_id, isVerified)}
+                            ${createButton('Unmatch', `unmatchAmazonOrder('${escapeHtml(order.order_id)}')`, {
+                                variant: 'danger',
+                                size: 'small'
+                            })}
                         </div>
                     </div>
                     <div style="display: flex; justify-content: space-between; padding: 0.75rem; background: rgba(16, 185, 129, 0.05); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);">
@@ -662,7 +662,12 @@ function displayAmazonOrders(orders) {
                         <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
                             <h4 style="margin: 0; font-size: 1rem;">Order #${escapeHtml(order.order_id)}</h4>
                             ${matchBadge}
-                            ${order.account_name ? `<span style="background: var(--bg-primary); padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">👤 ${escapeHtml(order.account_name)}</span>` : ''}
+                            ${order.account_name ? createBadge(`👤 ${order.account_name}`, {
+                                background: 'var(--bg-primary)',
+                                color: 'var(--text-secondary)',
+                                size: 'medium',
+                                style: { 'font-weight': '500' }
+                            }) : ''}
                         </div>
                         <div style="color: var(--text-secondary); font-size: 0.85rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                             <span>📅 ${formatDate(order.order_date)}</span>
@@ -1143,12 +1148,10 @@ async function deleteAllAmazonData() {
 // ITEM CATEGORIZATION FUNCTIONS
 // ============================================================================
 
-let userCategories = [];
-
 // Load categories for dropdowns
 async function loadCategories() {
     try {
-        userCategories = await fetchAPI('/api/categories');
+        allCategories = await fetchAPI('/api/categories');
     } catch (error) {
         console.error('Error loading categories:', error);
     }
@@ -1163,10 +1166,10 @@ function showItemCategorySelector(event, itemId, triggerElement) {
     console.log('showItemCategorySelector called', {
         itemId,
         triggerElement,
-        categoriesCount: (userCategories || []).length
+        categoriesCount: (allCategories || []).length
     });
 
-    if (!userCategories || userCategories.length === 0) {
+    if (!allCategories || allCategories.length === 0) {
         console.error('No categories loaded!');
         showToast('Categories not loaded. Please refresh the page.', 'error');
         return;
@@ -1175,7 +1178,7 @@ function showItemCategorySelector(event, itemId, triggerElement) {
     try {
         showCategorySelector({
             triggerElement: triggerElement,
-            categories: userCategories,
+            categories: allCategories,
             onSelect: (categoryName) => updateItemCategory(itemId, categoryName)
         });
     } catch (error) {
@@ -1360,56 +1363,25 @@ function updateItemInUI(itemId, update) {
             console.warn(`[Amazon Item UI] Item ${itemId} not found in amazonOrders array`);
         }
 
-        // Calculate category color
+        // Build UI using renderCategoryControl component
         const confidence = update.confidence || 0;
         const isVerified = update.verified === 'Yes';
-        let categoryColor = '#6B7280';
 
-        if (update.category) {
-            if (isVerified || confidence === 100) {
-                categoryColor = '#3B82F6'; // blue for verified
-            } else if (confidence >= 85) {
-                categoryColor = '#10B981'; // green for high confidence
-            } else if (confidence >= 70) {
-                categoryColor = '#F59E0B'; // amber for medium confidence
-            } else if (confidence >= 50) {
-                categoryColor = '#F97316'; // orange for low confidence
-            } else {
-                categoryColor = '#EF4444'; // red for very low confidence
-            }
-        }
-
-        // Build new category badge
-        const categoryBadge = update.category
-            ? `<span style="background: ${categoryColor}; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; font-weight: 600; white-space: nowrap;">
-                   ${escapeHtml(update.category)} ${isVerified ? '✓' : ''} ${confidence}%
-               </span>`
-            : `<span style="background: #6B7280; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.75rem; white-space: nowrap;">
-                   Uncategorized
-               </span>`;
-
-        // Build action buttons
-        const actionButtons = update.category
-            ? (isVerified
-                ? `<button onclick="unverifyItemCategory(${itemId}, ${confidence})" style="padding: 0.2rem 0.5rem; background: #F59E0B; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Unverify</button>`
-                : `<button onclick="verifyItemCategory(${itemId})" style="padding: 0.2rem 0.5rem; background: #10B981; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Verify</button>`)
-            : `<button onclick="categorizeItem(${itemId})" style="padding: 0.2rem 0.5rem; background: #3B82F6; color: white; border: none; border-radius: 4px; font-size: 0.75rem; cursor: pointer;">Categorize</button>`;
-
-        // Find the controls container (has the badge, dropdown, and buttons)
-        const controlsContainer = itemElement.querySelector('div[style*="display: flex"][style*="gap: 0.5rem"]');
+        // Find the controls container
+        const controlsContainer = itemElement.querySelector('div[style*="display: flex"][style*="align-items: center"]');
         if (controlsContainer) {
-            // Update the controls HTML
-            controlsContainer.innerHTML = `
-                ${categoryBadge}
-                ${createCategoryDropdown({
-                    id: `item-category-${itemId}`,
-                    categories: userCategories || [],
-                    placeholder: 'Change category...',
-                    onchange: `updateItemCategory(${itemId}, this.value)`,
-                    size: 'small'
-                })}
-                ${actionButtons}
-            `;
+            // Update with unified category control
+            controlsContainer.outerHTML = renderCategoryControl({
+                itemId,
+                category: update.category,
+                confidence,
+                isVerified,
+                allCategories,
+                onCategoryClick: `showItemCategorySelector(event, ${itemId}, this)`,
+                onVerify: `verifyItemCategory(${itemId})`,
+                onUnverify: `unverifyItemCategory(${itemId}, ${confidence})`,
+                itemType: 'amazon-item'
+            });
         }
 
         // Update reasoning text

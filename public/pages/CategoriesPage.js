@@ -6,6 +6,7 @@
 import { formatCurrency, escapeHtml, renderCategoryBadge, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
+import { withLoadingState, groupBy, emitUpdateEvents } from '../utils/helpers.js';
 
 // Module state
 let categorySpendingChartInstance = null;
@@ -16,6 +17,28 @@ let currentEditingCategory = null;
 let fetchAPI = null;
 let navigateTo = null;
 let applyTransactionFilters = null;
+
+// ============================================================================
+// HELPER FUNCTIONS FOR UI GENERATION
+// ============================================================================
+
+/**
+ * Build action buttons for a category
+ */
+function buildCategoryActionButtons(category) {
+    const name = escapeHtml(category.name);
+    const parent = escapeHtml(category.parent_category || '');
+    const icon = escapeHtml(category.icon || '📁');
+    const color = escapeHtml(category.color || '#6B7280');
+
+    return `
+        <div style="display: flex; gap: 0.5rem;">
+            <button class="btn-icon btn-primary" onclick="viewCategoryTransactions('${name}')" title="View transactions">👁️</button>
+            <button class="btn-icon btn-secondary" onclick="editCategory('${name}', '${parent}', '${icon}', '${color}')" title="Edit category">✏️</button>
+            <button class="btn-icon btn-danger" onclick="deleteCategory('${name}')" title="Delete category">🗑️</button>
+        </div>
+    `;
+}
 
 export function initializeCategoriesPage(deps) {
     fetchAPI = deps.fetchAPI;
@@ -45,8 +68,7 @@ export function initializeCategoriesPage(deps) {
 }
 
 export async function loadCategories() {
-    showLoading();
-    try {
+    return withLoadingState(async () => {
         const [categories, spending] = await Promise.all([
             fetchAPI('/api/categories'),
             fetchAPI('/api/categories/spending')
@@ -58,12 +80,7 @@ export async function loadCategories() {
         populateCategoryParentDropdown(categories);
         displayCategories(categories, spending);
         displayCategorySpendingChart(spending);
-    } catch (error) {
-        showToast('Failed to load categories', 'error');
-        console.error(error);
-    } finally {
-        hideLoading();
-    }
+    }, 'Failed to load categories');
 }
 
 function populateCategoryParentDropdown(categories) {
@@ -108,11 +125,7 @@ function displayCategories(categories, spending) {
                             <span class="category-stats">${catSpending.count} transactions · ${formatCurrency(catSpending.total)}</span>
                         </div>
                     </div>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <button class="btn-icon btn-primary" onclick="viewCategoryTransactions('${escapeHtml(cat.name)}')" title="View transactions">👁️</button>
-                        <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(cat.name)}', '${escapeHtml(cat.parent_category || '')}', '${escapeHtml(cat.icon || '📁')}', '${escapeHtml(cat.color || '#6B7280')}')" title="Edit category">✏️</button>
-                        <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(cat.name)}')" title="Delete category">🗑️</button>
-                    </div>
+                    ${buildCategoryActionButtons(cat)}
                 </div>
         `;
 
@@ -130,11 +143,7 @@ function displayCategories(categories, spending) {
                                     <span class="category-stats">${childSpending.count} transactions · ${formatCurrency(childSpending.total)}</span>
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 0.5rem;">
-                                <button class="btn-icon btn-primary" onclick="viewCategoryTransactions('${escapeHtml(child.name)}')" title="View transactions">👁️</button>
-                                <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(child.name)}', '${escapeHtml(child.parent_category || '')}', '${escapeHtml(child.icon || '📁')}', '${escapeHtml(child.color || '#6B7280')}')" title="Edit category">✏️</button>
-                                <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(child.name)}')" title="Delete category">🗑️</button>
-                            </div>
+                            ${buildCategoryActionButtons(child)}
                         </div>
                     </div>
                 `;
@@ -160,11 +169,7 @@ function displayCategories(categories, spending) {
                                 <span class="category-stats">${orphanSpending.count} transactions · ${formatCurrency(orphanSpending.total)}</span>
                             </div>
                         </div>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <button class="btn-icon btn-primary" onclick="viewCategoryTransactions('${escapeHtml(orphan.name)}')" title="View transactions">👁️</button>
-                            <button class="btn-icon btn-secondary" onclick="editCategory('${escapeHtml(orphan.name)}', '${escapeHtml(orphan.parent_category || '')}', '${escapeHtml(orphan.icon || '📁')}', '${escapeHtml(orphan.color || '#6B7280')}')" title="Edit category">✏️</button>
-                            <button class="btn-icon btn-danger" onclick="deleteCategory('${escapeHtml(orphan.name)}')" title="Delete category">🗑️</button>
-                        </div>
+                        ${buildCategoryActionButtons(orphan)}
                     </div>
                 </div>
             `;
@@ -364,8 +369,7 @@ async function saveEditCategory() {
         closeEditCategoryModal();
 
         // Emit events to update all views
-        eventBus.emit('categoriesUpdated');
-        eventBus.emit('transactionsUpdated');
+        emitUpdateEvents(eventBus, 'categoriesUpdated', 'transactionsUpdated');
     } catch (error) {
         showToast('Failed to update category: ' + error.message, 'error');
         console.error(error);
@@ -474,8 +478,7 @@ async function deleteCategory(categoryName) {
         showToast(`Category deleted. ${result.transactionsAffected} transaction(s) moved to uncategorized.`, 'success');
 
         // Emit events to update all views
-        eventBus.emit('categoriesUpdated');
-        eventBus.emit('transactionsUpdated');
+        emitUpdateEvents(eventBus, 'categoriesUpdated', 'transactionsUpdated');
     } catch (error) {
         showToast('Failed to delete category: ' + error.message, 'error');
         console.error(error);

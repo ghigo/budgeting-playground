@@ -162,6 +162,218 @@ export async function retry(fn, maxRetries = 3, baseDelay = 1000) {
     throw lastError;
 }
 
+/**
+ * Wrap async function with loading state and error handling
+ * Eliminates need for repetitive try/catch/finally blocks
+ * @param {Function} asyncFn - Async function to execute
+ * @param {string} errorMessage - Base error message (default: 'Operation failed')
+ * @param {Object} options - Options { showLoading: true, showToast: true }
+ * @returns {Promise} Result of asyncFn
+ */
+export async function withLoadingState(asyncFn, errorMessage = 'Operation failed', options = {}) {
+    const { showLoading: shouldShowLoading = true, showToast: shouldShowToast = true } = options;
+
+    // Import utilities dynamically to avoid circular dependencies
+    const { showLoading, hideLoading } = await import('./formatters.js');
+    const { showToast } = await import('../services/toast.js');
+
+    if (shouldShowLoading) showLoading();
+
+    try {
+        return await asyncFn();
+    } catch (error) {
+        if (shouldShowToast) {
+            showToast(`${errorMessage}: ${error.message}`, 'error');
+        }
+        console.error(errorMessage, error);
+        throw error;
+    } finally {
+        if (shouldShowLoading) hideLoading();
+    }
+}
+
+/**
+ * Render generic table from data
+ * @param {string} containerId - ID of container element
+ * @param {Array} data - Array of objects to display
+ * @param {Array} columns - Column definitions [{ key, label, render, align }]
+ * @param {Object} options - Options { sortKey, sortOrder, emptyMessage, rowClass }
+ * @returns {void}
+ */
+export function renderTable(containerId, data, columns, options = {}) {
+    const container = document.getElementById(containerId);
+    if (!container) {
+        console.warn(`Container #${containerId} not found`);
+        return;
+    }
+
+    const {
+        sortKey = null,
+        sortOrder = 'asc',
+        emptyMessage = 'No data available',
+        rowClass = null
+    } = options;
+
+    // Handle empty state
+    if (!data || data.length === 0) {
+        container.innerHTML = `<p style="color: var(--text-secondary); font-style: italic; padding: 1rem;">${emptyMessage}</p>`;
+        return;
+    }
+
+    // Sort data if sortKey provided
+    const sortedData = sortKey ? sortBy(data, sortKey, sortOrder) : data;
+
+    // Build table HTML
+    const html = `
+        <div class="table-container">
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--border);">
+                        ${columns.map(col => `
+                            <th style="text-align: ${col.align || 'left'}; padding: 0.75rem; font-weight: 600;">
+                                ${col.label}
+                            </th>
+                        `).join('')}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${sortedData.map((item, index) => {
+                        const rowClasses = typeof rowClass === 'function' ? rowClass(item, index) : rowClass || '';
+                        return `
+                            <tr class="${rowClasses}" style="border-bottom: 1px solid var(--border);">
+                                ${columns.map(col => {
+                                    const value = col.render ? col.render(item) : item[col.key];
+                                    return `
+                                        <td style="text-align: ${col.align || 'left'}; padding: 0.75rem;">
+                                            ${value !== null && value !== undefined ? value : '—'}
+                                        </td>
+                                    `;
+                                }).join('')}
+                            </tr>
+                        `;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
+
+/**
+ * Create empty state HTML
+ * @param {string} message - Message to display
+ * @param {Object} action - Optional action { label, onClick }
+ * @returns {string} HTML for empty state
+ */
+export function createEmptyState(message, action = null) {
+    const actionHtml = action
+        ? `<button onclick="${action.onClick}" class="btn btn-primary" style="margin-top: 1rem;">${action.label}</button>`
+        : '';
+
+    return `
+        <div style="text-align: center; padding: 3rem 1rem; color: var(--text-secondary);">
+            <p style="font-size: 1.1rem; margin-bottom: 0.5rem;">${message}</p>
+            ${actionHtml}
+        </div>
+    `;
+}
+
+/**
+ * Apply filters to data array
+ * @param {Array} items - Items to filter
+ * @param {Object} filters - Filter configuration { key: value|function }
+ * @returns {Array} Filtered items
+ */
+export function applyFilters(items, filters) {
+    if (!filters || Object.keys(filters).length === 0) {
+        return items;
+    }
+
+    return items.filter(item => {
+        return Object.entries(filters).every(([key, condition]) => {
+            // Skip if no condition
+            if (condition === null || condition === undefined || condition === '') {
+                return true;
+            }
+
+            const value = item[key];
+
+            // Function-based filter
+            if (typeof condition === 'function') {
+                return condition(value, item);
+            }
+
+            // String matching (case-insensitive)
+            if (typeof condition === 'string') {
+                const itemValue = value?.toString()?.toLowerCase() || '';
+                const filterValue = condition.toLowerCase();
+                return itemValue.includes(filterValue);
+            }
+
+            // Exact match for other types
+            return value === condition;
+        });
+    });
+}
+
+/**
+ * Sum values from array of objects by key
+ * @param {Array} array - Array to sum
+ * @param {string} key - Property to sum
+ * @param {Function} parseFunction - Optional function to parse values (default: parseFloat)
+ * @returns {number} Sum of all values
+ */
+export function sumBy(array, key, parseFunction = parseFloat) {
+    if (!array || array.length === 0) return 0;
+    return array.reduce((sum, item) => {
+        const value = parseFunction(item[key]) || 0;
+        return sum + value;
+    }, 0);
+}
+
+/**
+ * Emit multiple eventBus events with optional conditional emission
+ * @param {Object} eventBus - EventBus instance
+ * @param {string} primaryEvent - Primary event to always emit
+ * @param {string} conditionalEvent - Optional conditional event
+ * @param {boolean} condition - Condition for emitting conditional event
+ */
+export function emitUpdateEvents(eventBus, primaryEvent, conditionalEvent = null, condition = true) {
+    eventBus.emit(primaryEvent);
+    if (conditionalEvent && condition) {
+        eventBus.emit(conditionalEvent);
+    }
+}
+
+/**
+ * Setup infinite scroll with auto-loading when near bottom of page
+ * @param {Function} shouldLoadMore - Function that returns true if more items should be loaded
+ * @param {Function} loadMoreCallback - Function to call when loading more items
+ * @param {number} threshold - Distance from bottom in pixels to trigger load (default: 500)
+ * @param {number} debounceMs - Debounce delay in milliseconds (default: 100)
+ */
+export function setupInfiniteScroll(shouldLoadMore, loadMoreCallback, threshold = 500, debounceMs = 100) {
+    let scrollTimeout;
+
+    window.addEventListener('scroll', () => {
+        // Debounce scroll events
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+            // Check if user is near bottom of page
+            const scrollPosition = window.innerHeight + window.scrollY;
+            const pageHeight = document.documentElement.scrollHeight;
+
+            if (scrollPosition >= pageHeight - threshold) {
+                // Auto-load more if callback returns true
+                if (shouldLoadMore()) {
+                    loadMoreCallback();
+                }
+            }
+        }, debounceMs);
+    });
+}
+
 export default {
     debounce,
     throttle,
@@ -172,5 +384,12 @@ export default {
     uniqueId,
     safeParse,
     sleep,
-    retry
+    retry,
+    withLoadingState,
+    renderTable,
+    createEmptyState,
+    applyFilters,
+    sumBy,
+    emitUpdateEvents,
+    setupInfiniteScroll
 };

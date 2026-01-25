@@ -192,8 +192,15 @@ class AICategorization {
 
             // Update modal with result
             const confidencePercent = Math.round(result.confidence * 100);
-            const methodIcon = result.method === 'ai' ? '🤖' : '📋';
-            const methodLabel = result.method === 'ai' ? 'AI Model' : result.method === 'merchant-mapping' ? 'Merchant Pattern' : 'Rule-based';
+
+            // Method metadata mapping
+            const METHOD_INFO = {
+                'ai': { icon: '🤖', label: 'AI Model' },
+                'merchant-mapping': { icon: '📋', label: 'Merchant Pattern' }
+            };
+            const methodInfo = METHOD_INFO[result.method] || { icon: '📋', label: 'Rule-based' };
+            const methodIcon = methodInfo.icon;
+            const methodLabel = methodInfo.label;
 
             modal.setContent(`
                 <div class="ai-suggestion-result">

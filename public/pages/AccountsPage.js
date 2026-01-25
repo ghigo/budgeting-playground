@@ -3,9 +3,10 @@
  * Handles accounts and institutions display and management
  */
 
-import { formatCurrency, formatDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
+import { formatCurrency, formatDate, formatRelativeDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
+import { groupBy, sumBy, emitUpdateEvents, withLoadingState } from '../utils/helpers.js';
 
 // Dependencies that will be passed in
 let fetchAPI = null;
@@ -124,7 +125,7 @@ function displayAccounts(accounts) {
     typeOrder.forEach(type => {
         if (accountsByType[type] && accountsByType[type].length > 0) {
             const typeAccounts = accountsByType[type];
-            const totalBalance = typeAccounts.reduce((sum, acc) => sum + (parseFloat(acc.current_balance) || 0), 0);
+            const totalBalance = sumBy(typeAccounts, 'current_balance');
 
             html += `
                 <div style="margin-bottom: 1.5rem;">
@@ -147,7 +148,7 @@ function displayAccounts(accounts) {
                         ${typeAccounts.map(acc => {
                             const balance = parseFloat(acc.current_balance) || 0;
                             const updatedAt = acc.updated_at;
-                            const timeAgo = getTimeAgo(updatedAt);
+                            const timeAgo = formatRelativeDate(updatedAt) || 'Unknown';
 
                             return `
                                 <div
@@ -223,27 +224,6 @@ function displayAccounts(accounts) {
     container.innerHTML = html;
 }
 
-function getTimeAgo(dateString) {
-    if (!dateString) return 'Unknown';
-
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffSecs = Math.floor(diffMs / 1000);
-    const diffMins = Math.floor(diffSecs / 60);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-    const diffMonths = Math.floor(diffDays / 30);
-    const diffYears = Math.floor(diffDays / 365);
-
-    if (diffYears > 0) return `${diffYears} year${diffYears > 1 ? 's' : ''} ago`;
-    if (diffMonths > 0) return `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`;
-    if (diffDays > 0) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    if (diffHours > 0) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    if (diffMins > 0) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
-    return 'Just now';
-}
-
 function viewAccountTransactions(accountName) {
     // Navigate to transactions page
     navigateTo('transactions');
@@ -270,10 +250,7 @@ async function syncInstitution(itemId, institutionName) {
             showToast(`${result.institution} synced successfully! ${result.transactionsSynced} new transaction(s) added.`, 'success');
 
             // Emit events to update all views
-            eventBus.emit('accountsUpdated');
-            if (result.transactionsSynced > 0) {
-                eventBus.emit('transactionsUpdated');
-            }
+            emitUpdateEvents(eventBus, 'accountsUpdated', 'transactionsUpdated', result.transactionsSynced > 0);
         } else {
             showToast(`Failed to sync ${institutionName}: ${result.error}`, 'error');
         }
@@ -301,10 +278,7 @@ async function backfillInstitution(itemId, institutionName) {
             showToast(message, 'success');
 
             // Emit events to update all views
-            eventBus.emit('accountsUpdated');
-            if (result.transactionsAdded > 0) {
-                eventBus.emit('transactionsUpdated');
-            }
+            emitUpdateEvents(eventBus, 'accountsUpdated', 'transactionsUpdated', result.transactionsAdded > 0);
         } else {
             showToast(`Failed to backfill ${institutionName}: ${result.error}`, 'error');
         }
@@ -327,8 +301,7 @@ async function removeInstitution(itemId, institutionName) {
         showToast(`${result.institution} removed! Deleted ${result.accountsRemoved} account(s) and ${result.transactionsRemoved} transaction(s). You can re-link your account anytime.`, 'success');
 
         // Emit events to update all views
-        eventBus.emit('accountsUpdated');
-        eventBus.emit('transactionsUpdated');
+        emitUpdateEvents(eventBus, 'accountsUpdated', 'transactionsUpdated');
     } catch (error) {
         showToast('Failed to remove institution: ' + error.message, 'error');
         console.error(error);
@@ -406,8 +379,7 @@ async function renameAccount(accountId, currentName) {
             showToast(`Account renamed from "${result.oldName}" to "${result.newName}". Updated ${result.transactionsUpdated} transaction(s).`, 'success');
 
             // Emit events to update all views
-            eventBus.emit('accountsUpdated');
-            eventBus.emit('transactionsUpdated');
+            emitUpdateEvents(eventBus, 'accountsUpdated', 'transactionsUpdated');
         } catch (error) {
             showToast('Failed to rename account: ' + error.message, 'error');
             console.error(error);

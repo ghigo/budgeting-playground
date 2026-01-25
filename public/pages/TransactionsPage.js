@@ -4,10 +4,10 @@
  * selection, bulk operations, and category management
  */
 
-import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, showLoading, hideLoading } from '../utils/formatters.js';
+import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, renderCategoryControl, createConfidenceBadge, createButton, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
-import { debounce } from '../utils/helpers.js';
+import { debounce, sumBy, setupInfiniteScroll } from '../utils/helpers.js';
 import { aiCategorization } from '../services/aiCategorizationClient.js';
 import { showConfirmModal } from '../components/Modal.js';
 import { showCategorySelector, closeCategorySelector } from '../components/CategorySelector.js';
@@ -25,6 +25,37 @@ let navigateTo = null;
 
 // Current dropdown state
 let currentDropdownInput = null;
+
+// ============================================================================
+// HELPER FUNCTIONS FOR UI GENERATION
+// ============================================================================
+
+/**
+ * Clear multiple filter input values
+ */
+function clearFilterInputs(filterIds) {
+    filterIds.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.value = '';
+        }
+    });
+}
+
+/**
+ * Set active/inactive state for buttons
+ */
+function setActiveButton(activeBtn, inactiveBtn) {
+    if (activeBtn) {
+        activeBtn.classList.remove('btn-secondary');
+        activeBtn.classList.add('btn-primary');
+    }
+
+    if (inactiveBtn) {
+        inactiveBtn.classList.remove('btn-primary');
+        inactiveBtn.classList.add('btn-secondary');
+    }
+}
 
 export function initializeTransactionsPage(deps) {
     fetchAPI = deps.fetchAPI;
@@ -58,32 +89,14 @@ export function initializeTransactionsPage(deps) {
 
     // Initialize AI status badge
     updateAIStatusBadge();
-
-    // Setup infinite scroll
-    setupInfiniteScroll();
 }
 
 // Setup infinite scroll listener
-function setupInfiniteScroll() {
-    let scrollTimeout;
-
-    window.addEventListener('scroll', () => {
-        // Debounce scroll events
-        clearTimeout(scrollTimeout);
-        scrollTimeout = setTimeout(() => {
-            // Check if user is near bottom of page (within 500px)
-            const scrollPosition = window.innerHeight + window.scrollY;
-            const pageHeight = document.documentElement.scrollHeight;
-
-            if (scrollPosition >= pageHeight - 500) {
-                // Auto-load more if we have more transactions
-                if (hasMoreTransactions && !isLoadingMore) {
-                    loadTransactions(currentFilters, false);
-                }
-            }
-        }, 100);
-    });
-}
+// Setup infinite scroll for auto-loading transactions
+setupInfiniteScroll(
+    () => hasMoreTransactions && !isLoadingMore,
+    () => loadTransactions(currentFilters, false)
+);
 
 // ============================================================================
 // Core Loading and Display
@@ -283,25 +296,6 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
         const confidence = tx.confidence || 0;
         const isSelected = selectedTransactions.has(tx.transaction_id);
 
-        let confidenceColor = '#666';
-        let confidenceBg = '#eee';
-        if (confidence === 100) {
-            confidenceColor = '#fff';
-            confidenceBg = '#2563eb';
-        } else if (confidence >= 85) {
-            confidenceColor = '#fff';
-            confidenceBg = '#16a34a';
-        } else if (confidence >= 70) {
-            confidenceColor = '#fff';
-            confidenceBg = '#ca8a04';
-        } else if (confidence >= 50) {
-            confidenceColor = '#fff';
-            confidenceBg = '#ea580c';
-        } else if (confidence > 0) {
-            confidenceColor = '#fff';
-            confidenceBg = '#dc2626';
-        }
-
         return `
         <tr>
             <td>
@@ -338,46 +332,17 @@ function displayTransactionsTable(transactions, sortByConfidence = false) {
                 </div>
             </td>
             <td>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    ${hasCategory ? (() => {
-                        const categoryObj = allCategories.find(c => c.name === tx.category);
-                        const badgeHtml = categoryObj
-                            ? renderCategoryBadge(categoryObj, { inline: true })
-                            : `<span class="category-badge" style="display: inline-flex; align-items: center; gap: 0.25rem;">
-                                <span>📁</span>
-                                <span>${escapeHtml(tx.category)}</span>
-                            </span>`;
-                        return `<span onclick="showCategoryDropdown(event, '${tx.transaction_id}')" style="cursor: pointer;" title="Click to change category">${badgeHtml}</span>`;
-                    })() : `<div class="searchable-dropdown-container" style="position: relative; flex: 1;">
-                        <input type="text"
-                               class="category-input ${isVerified ? 'verified' : ''}"
-                               data-transaction-id="${tx.transaction_id}"
-                               value="${escapeHtml(tx.category || '')}"
-                               placeholder="Select category..."
-                               readonly
-                               onclick="showCategoryDropdown(this)"
-                               autocomplete="off">
-                    </div>`}
-                    ${hasCategory && confidence > 0 ?
-                        `<span style="
-                            display: inline-block;
-                            padding: 2px 6px;
-                            border-radius: 4px;
-                            font-size: 0.75rem;
-                            font-weight: 600;
-                            color: ${confidenceColor};
-                            background: ${confidenceBg};
-                            white-space: nowrap;
-                        " title="Confidence: ${confidence}%">${confidence}%</span>` :
-                        ''
-                    }
-                    ${isVerified ?
-                        `<button class="verify-btn verified" onclick="unverifyCategory('${tx.transaction_id}')" title="Click to unverify">✓</button>` :
-                        (hasCategory ?
-                            `<button class="verify-btn" onclick="verifyCategory('${tx.transaction_id}')" title="Verify auto-assigned category">✓</button>` :
-                            '')
-                    }
-                </div>
+                ${renderCategoryControl({
+                    itemId: tx.transaction_id,
+                    category: tx.category,
+                    confidence,
+                    isVerified,
+                    allCategories,
+                    onCategoryClick: hasCategory ? `showCategoryDropdown(event, '${tx.transaction_id}')` : `showCategoryDropdown(this)`,
+                    onVerify: `verifyCategory('${tx.transaction_id}')`,
+                    onUnverify: `unverifyCategory('${tx.transaction_id}')`,
+                    itemType: 'transaction'
+                })}
             </td>
             <td>
                 <div>${escapeHtml(tx.account_name || 'Unknown')}</div>
@@ -457,28 +422,25 @@ export function applyTransactionFilters() {
 }
 
 function clearTransactionFilters() {
-    const searchInput = document.getElementById('transactionSearch');
-    if (searchInput) searchInput.value = '';
-    if (document.getElementById('filterCategory')) document.getElementById('filterCategory').value = '';
-    if (document.getElementById('filterAccount')) document.getElementById('filterAccount').value = '';
-    if (document.getElementById('filterAmazonMatch')) document.getElementById('filterAmazonMatch').value = '';
-    if (document.getElementById('filterStartDate')) document.getElementById('filterStartDate').value = '';
-    if (document.getElementById('filterEndDate')) document.getElementById('filterEndDate').value = '';
+    // Clear all filter inputs
+    clearFilterInputs([
+        'transactionSearch',
+        'filterCategory',
+        'filterAccount',
+        'filterAmazonMatch',
+        'filterStartDate',
+        'filterEndDate'
+    ]);
 
+    // Hide newly categorized banner
     const banner = document.getElementById('newlyCategorizedBanner');
     if (banner) banner.style.display = 'none';
     newlyCategorizedTransactionIds.clear();
 
+    // Reset button states
     const showAllBtn = document.getElementById('showAllBtn');
     const showUnverifiedBtn = document.getElementById('showUnverifiedBtn');
-    if (showAllBtn) {
-        showAllBtn.classList.remove('btn-secondary');
-        showAllBtn.classList.add('btn-primary');
-    }
-    if (showUnverifiedBtn) {
-        showUnverifiedBtn.classList.remove('btn-primary');
-        showUnverifiedBtn.classList.add('btn-secondary');
-    }
+    setActiveButton(showAllBtn, showUnverifiedBtn);
 
     loadTransactions();
 }
@@ -498,11 +460,7 @@ function showAllTransactions() {
     const btn = document.getElementById('showAllBtn');
     const unverifiedBtn = document.getElementById('showUnverifiedBtn');
 
-    btn.classList.remove('btn-secondary');
-    btn.classList.add('btn-primary');
-    unverifiedBtn.classList.remove('btn-primary');
-    unverifiedBtn.classList.add('btn-secondary');
-
+    setActiveButton(btn, unverifiedBtn);
     displayTransactionsTable(allTransactions);
 }
 
@@ -510,10 +468,7 @@ function applyUnverifiedFilter() {
     const btn = document.getElementById('showUnverifiedBtn');
     const allBtn = document.getElementById('showAllBtn');
 
-    btn.classList.remove('btn-secondary');
-    btn.classList.add('btn-primary');
-    allBtn.classList.remove('btn-primary');
-    allBtn.classList.add('btn-secondary');
+    setActiveButton(btn, allBtn);
 
     const unverified = allTransactions.filter(tx => !tx.verified);
     displayTransactionsTable(unverified, true);
@@ -2469,7 +2424,7 @@ function updateSplitDescription(index, description) {
 
 function updateSplitTotals() {
     const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
-    const total = splitRows.reduce((sum, split) => sum + parseFloat(split.amount || 0), 0);
+    const total = sumBy(splitRows, 'amount');
     const difference = Math.abs(total - originalAmount);
 
     document.getElementById('splitTotalAmount').textContent = formatCurrency(total);
@@ -2501,7 +2456,7 @@ async function saveSplits() {
 
     // Validate splits
     const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
-    const total = splitRows.reduce((sum, split) => sum + parseFloat(split.amount || 0), 0);
+    const total = sumBy(splitRows, 'amount');
     const difference = Math.abs(total - originalAmount);
 
     if (difference >= 0.01) {
