@@ -593,6 +593,12 @@ function displayAmazonOrders(orders) {
                 const confidence = item.confidence || 0;
                 const isVerified = item.verified === 'Yes';
 
+                // Build price display with quantity info
+                let priceDisplay = formatCurrency(item.price);
+                if (item.quantity > 1) {
+                    priceDisplay = `Qty: ${item.quantity} × ${priceDisplay} = ${formatCurrency(item.price * item.quantity)}`;
+                }
+
                 itemsHtml += `
                     <div id="item-${item.id}" style="display: flex; gap: 1rem; padding: 0.5rem; background: var(--bg-secondary); border-radius: 6px;">
                         ${imageHtml}
@@ -602,7 +608,7 @@ function displayAmazonOrders(orders) {
                                 ${itemUrl ? ' <span style="font-size: 0.75rem;">🔗</span>' : ''}
                             </div>
                             <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
-                                ${item.quantity > 1 ? `Qty: ${item.quantity} × ` : ''}${formatCurrency(item.price)}${item.quantity > 1 ? ` = ${formatCurrency(item.price * item.quantity)}` : ''}
+                                ${priceDisplay}
                                 ${item.category ? ` • Amazon: ${escapeHtml(item.category)}` : ''}
                                 ${item.seller ? ` • Sold by: ${escapeHtml(item.seller)}` : ''}
                             </div>
