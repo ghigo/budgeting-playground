@@ -125,7 +125,7 @@ function displayAccounts(accounts) {
     typeOrder.forEach(type => {
         if (accountsByType[type] && accountsByType[type].length > 0) {
             const typeAccounts = accountsByType[type];
-            const totalBalance = typeAccounts.reduce((sum, acc) => sum + (parseFloat(acc.current_balance) || 0), 0);
+            const totalBalance = sumBy(typeAccounts, 'current_balance');
 
             html += `
                 <div style="margin-bottom: 1.5rem;">
@@ -301,8 +301,7 @@ async function removeInstitution(itemId, institutionName) {
         showToast(`${result.institution} removed! Deleted ${result.accountsRemoved} account(s) and ${result.transactionsRemoved} transaction(s). You can re-link your account anytime.`, 'success');
 
         // Emit events to update all views
-        eventBus.emit('accountsUpdated');
-        eventBus.emit('transactionsUpdated');
+        emitUpdateEvents(eventBus, 'accountsUpdated', 'transactionsUpdated');
     } catch (error) {
         showToast('Failed to remove institution: ' + error.message, 'error');
         console.error(error);
@@ -380,8 +379,7 @@ async function renameAccount(accountId, currentName) {
             showToast(`Account renamed from "${result.oldName}" to "${result.newName}". Updated ${result.transactionsUpdated} transaction(s).`, 'success');
 
             // Emit events to update all views
-            eventBus.emit('accountsUpdated');
-            eventBus.emit('transactionsUpdated');
+            emitUpdateEvents(eventBus, 'accountsUpdated', 'transactionsUpdated');
         } catch (error) {
             showToast('Failed to rename account: ' + error.message, 'error');
             console.error(error);

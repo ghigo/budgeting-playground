@@ -7,7 +7,7 @@
 import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, renderCategoryControl, createConfidenceBadge, createButton, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
-import { debounce } from '../utils/helpers.js';
+import { debounce, sumBy } from '../utils/helpers.js';
 import { aiCategorization } from '../services/aiCategorizationClient.js';
 import { showConfirmModal } from '../components/Modal.js';
 import { showCategorySelector, closeCategorySelector } from '../components/CategorySelector.js';
@@ -2442,7 +2442,7 @@ function updateSplitDescription(index, description) {
 
 function updateSplitTotals() {
     const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
-    const total = splitRows.reduce((sum, split) => sum + parseFloat(split.amount || 0), 0);
+    const total = sumBy(splitRows, 'amount');
     const difference = Math.abs(total - originalAmount);
 
     document.getElementById('splitTotalAmount').textContent = formatCurrency(total);
@@ -2474,7 +2474,7 @@ async function saveSplits() {
 
     // Validate splits
     const originalAmount = Math.abs(parseFloat(currentSplitTransaction.amount));
-    const total = splitRows.reduce((sum, split) => sum + parseFloat(split.amount || 0), 0);
+    const total = sumBy(splitRows, 'amount');
     const difference = Math.abs(total - originalAmount);
 
     if (difference >= 0.01) {

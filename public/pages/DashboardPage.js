@@ -6,7 +6,7 @@
 import { formatCurrency, formatDate, escapeHtml } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { createCategoryChart, createLineChart, createBarChart, currencyTooltipFormatter } from '../utils/charts.js';
-import { withLoadingState } from '../utils/helpers.js';
+import { withLoadingState, sumBy } from '../utils/helpers.js';
 
 // Chart instances
 let netWorthChartInstance = null;
@@ -46,10 +46,7 @@ export async function loadDashboard() {
 
 function updateDashboardStats(accounts, stats) {
     // Calculate total balance
-    const totalBalance = accounts.reduce((sum, acc) => {
-        const balance = parseFloat(acc.current_balance) || 0;
-        return sum + balance;
-    }, 0);
+    const totalBalance = sumBy(accounts, 'current_balance');
 
     document.getElementById('totalBalance').textContent = formatCurrency(totalBalance);
     document.getElementById('totalIncome').textContent = formatCurrency(stats.income || 0);

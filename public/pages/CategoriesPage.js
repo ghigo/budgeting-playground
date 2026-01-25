@@ -6,7 +6,7 @@
 import { formatCurrency, escapeHtml, renderCategoryBadge, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
-import { withLoadingState, groupBy } from '../utils/helpers.js';
+import { withLoadingState, groupBy, emitUpdateEvents } from '../utils/helpers.js';
 
 // Module state
 let categorySpendingChartInstance = null;
@@ -369,8 +369,7 @@ async function saveEditCategory() {
         closeEditCategoryModal();
 
         // Emit events to update all views
-        eventBus.emit('categoriesUpdated');
-        eventBus.emit('transactionsUpdated');
+        emitUpdateEvents(eventBus, 'categoriesUpdated', 'transactionsUpdated');
     } catch (error) {
         showToast('Failed to update category: ' + error.message, 'error');
         console.error(error);
@@ -479,8 +478,7 @@ async function deleteCategory(categoryName) {
         showToast(`Category deleted. ${result.transactionsAffected} transaction(s) moved to uncategorized.`, 'success');
 
         // Emit events to update all views
-        eventBus.emit('categoriesUpdated');
-        eventBus.emit('transactionsUpdated');
+        emitUpdateEvents(eventBus, 'categoriesUpdated', 'transactionsUpdated');
     } catch (error) {
         showToast('Failed to delete category: ' + error.message, 'error');
         console.error(error);
