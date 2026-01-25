@@ -6,6 +6,7 @@
 import { formatCurrency, escapeHtml, renderCategoryBadge, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
+import { withLoadingState, groupBy } from '../utils/helpers.js';
 
 // Module state
 let categorySpendingChartInstance = null;
@@ -67,8 +68,7 @@ export function initializeCategoriesPage(deps) {
 }
 
 export async function loadCategories() {
-    showLoading();
-    try {
+    return withLoadingState(async () => {
         const [categories, spending] = await Promise.all([
             fetchAPI('/api/categories'),
             fetchAPI('/api/categories/spending')
@@ -80,12 +80,7 @@ export async function loadCategories() {
         populateCategoryParentDropdown(categories);
         displayCategories(categories, spending);
         displayCategorySpendingChart(spending);
-    } catch (error) {
-        showToast('Failed to load categories', 'error');
-        console.error(error);
-    } finally {
-        hideLoading();
-    }
+    }, 'Failed to load categories');
 }
 
 function populateCategoryParentDropdown(categories) {

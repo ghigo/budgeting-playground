@@ -317,6 +317,35 @@ export function applyFilters(items, filters) {
     });
 }
 
+/**
+ * Sum values from array of objects by key
+ * @param {Array} array - Array to sum
+ * @param {string} key - Property to sum
+ * @param {Function} parseFunction - Optional function to parse values (default: parseFloat)
+ * @returns {number} Sum of all values
+ */
+export function sumBy(array, key, parseFunction = parseFloat) {
+    if (!array || array.length === 0) return 0;
+    return array.reduce((sum, item) => {
+        const value = parseFunction(item[key]) || 0;
+        return sum + value;
+    }, 0);
+}
+
+/**
+ * Emit multiple eventBus events with optional conditional emission
+ * @param {Object} eventBus - EventBus instance
+ * @param {string} primaryEvent - Primary event to always emit
+ * @param {string} conditionalEvent - Optional conditional event
+ * @param {boolean} condition - Condition for emitting conditional event
+ */
+export function emitUpdateEvents(eventBus, primaryEvent, conditionalEvent = null, condition = true) {
+    eventBus.emit(primaryEvent);
+    if (conditionalEvent && condition) {
+        eventBus.emit(conditionalEvent);
+    }
+}
+
 export default {
     debounce,
     throttle,
@@ -331,5 +360,7 @@ export default {
     withLoadingState,
     renderTable,
     createEmptyState,
-    applyFilters
+    applyFilters,
+    sumBy,
+    emitUpdateEvents
 };

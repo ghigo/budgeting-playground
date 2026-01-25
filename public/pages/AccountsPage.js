@@ -6,6 +6,7 @@
 import { formatCurrency, formatDate, formatRelativeDate, escapeHtml, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
+import { groupBy, sumBy, emitUpdateEvents, withLoadingState } from '../utils/helpers.js';
 
 // Dependencies that will be passed in
 let fetchAPI = null;
@@ -249,10 +250,7 @@ async function syncInstitution(itemId, institutionName) {
             showToast(`${result.institution} synced successfully! ${result.transactionsSynced} new transaction(s) added.`, 'success');
 
             // Emit events to update all views
-            eventBus.emit('accountsUpdated');
-            if (result.transactionsSynced > 0) {
-                eventBus.emit('transactionsUpdated');
-            }
+            emitUpdateEvents(eventBus, 'accountsUpdated', 'transactionsUpdated', result.transactionsSynced > 0);
         } else {
             showToast(`Failed to sync ${institutionName}: ${result.error}`, 'error');
         }
@@ -280,10 +278,7 @@ async function backfillInstitution(itemId, institutionName) {
             showToast(message, 'success');
 
             // Emit events to update all views
-            eventBus.emit('accountsUpdated');
-            if (result.transactionsAdded > 0) {
-                eventBus.emit('transactionsUpdated');
-            }
+            emitUpdateEvents(eventBus, 'accountsUpdated', 'transactionsUpdated', result.transactionsAdded > 0);
         } else {
             showToast(`Failed to backfill ${institutionName}: ${result.error}`, 'error');
         }
