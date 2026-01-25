@@ -89,9 +89,6 @@ export function initializeTransactionsPage(deps) {
 
     // Initialize AI status badge
     updateAIStatusBadge();
-
-    // Setup infinite scroll
-    setupInfiniteScroll();
 }
 
 // Setup infinite scroll listener

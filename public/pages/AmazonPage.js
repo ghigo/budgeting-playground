@@ -106,9 +106,6 @@ export function initializeAmazonPage(deps) {
     window.unverifyItemCategory = unverifyItemCategory;
     window.categorizeAllAmazonItems = categorizeAllAmazonItems;
     window.categorizeFirst20Items = categorizeFirst20Items;
-
-    // Setup infinite scroll
-    setupInfiniteScroll();
 }
 
 // Setup infinite scroll listener
