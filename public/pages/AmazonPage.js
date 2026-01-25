@@ -5,7 +5,7 @@
 
 import { formatCurrency, formatDate, escapeHtml, renderCategoryControl, createBadge, createConfidenceBadge, createButton, createStatusBadge, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
-import { debounce, withLoadingState } from '../utils/helpers.js';
+import { debounce, withLoadingState, setupInfiniteScroll } from '../utils/helpers.js';
 import { progressNotification } from '../services/progressNotification.js';
 import { showCategorySelector } from '../components/CategorySelector.js';
 
@@ -112,26 +112,11 @@ export function initializeAmazonPage(deps) {
 }
 
 // Setup infinite scroll listener
-function setupInfiniteScroll() {
-    let scrollTimeout;
-
-    window.addEventListener('scroll', () => {
-        // Debounce scroll events
-        clearTimeout(scrollTimeout);
-        scrollTimeout = setTimeout(() => {
-            // Check if user is near bottom of page (within 500px)
-            const scrollPosition = window.innerHeight + window.scrollY;
-            const pageHeight = document.documentElement.scrollHeight;
-
-            if (scrollPosition >= pageHeight - 500) {
-                // Auto-load more if we have more orders
-                if (hasMoreOrders && !isLoadingMore) {
-                    loadMoreOrders();
-                }
-            }
-        }, 100);
-    });
-}
+// Setup infinite scroll for auto-loading orders
+setupInfiniteScroll(
+    () => hasMoreOrders && !isLoadingMore,
+    () => loadMoreOrders()
+);
 
 export async function loadAmazonPage() {
     return withLoadingState(async () => {

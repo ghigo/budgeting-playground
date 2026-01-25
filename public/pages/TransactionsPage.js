@@ -7,7 +7,7 @@
 import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge, renderCategoryControl, createConfidenceBadge, createButton, showLoading, hideLoading } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { eventBus } from '../services/eventBus.js';
-import { debounce, sumBy } from '../utils/helpers.js';
+import { debounce, sumBy, setupInfiniteScroll } from '../utils/helpers.js';
 import { aiCategorization } from '../services/aiCategorizationClient.js';
 import { showConfirmModal } from '../components/Modal.js';
 import { showCategorySelector, closeCategorySelector } from '../components/CategorySelector.js';
@@ -95,26 +95,11 @@ export function initializeTransactionsPage(deps) {
 }
 
 // Setup infinite scroll listener
-function setupInfiniteScroll() {
-    let scrollTimeout;
-
-    window.addEventListener('scroll', () => {
-        // Debounce scroll events
-        clearTimeout(scrollTimeout);
-        scrollTimeout = setTimeout(() => {
-            // Check if user is near bottom of page (within 500px)
-            const scrollPosition = window.innerHeight + window.scrollY;
-            const pageHeight = document.documentElement.scrollHeight;
-
-            if (scrollPosition >= pageHeight - 500) {
-                // Auto-load more if we have more transactions
-                if (hasMoreTransactions && !isLoadingMore) {
-                    loadTransactions(currentFilters, false);
-                }
-            }
-        }, 100);
-    });
-}
+// Setup infinite scroll for auto-loading transactions
+setupInfiniteScroll(
+    () => hasMoreTransactions && !isLoadingMore,
+    () => loadTransactions(currentFilters, false)
+);
 
 // ============================================================================
 // Core Loading and Display

@@ -346,6 +346,34 @@ export function emitUpdateEvents(eventBus, primaryEvent, conditionalEvent = null
     }
 }
 
+/**
+ * Setup infinite scroll with auto-loading when near bottom of page
+ * @param {Function} shouldLoadMore - Function that returns true if more items should be loaded
+ * @param {Function} loadMoreCallback - Function to call when loading more items
+ * @param {number} threshold - Distance from bottom in pixels to trigger load (default: 500)
+ * @param {number} debounceMs - Debounce delay in milliseconds (default: 100)
+ */
+export function setupInfiniteScroll(shouldLoadMore, loadMoreCallback, threshold = 500, debounceMs = 100) {
+    let scrollTimeout;
+
+    window.addEventListener('scroll', () => {
+        // Debounce scroll events
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+            // Check if user is near bottom of page
+            const scrollPosition = window.innerHeight + window.scrollY;
+            const pageHeight = document.documentElement.scrollHeight;
+
+            if (scrollPosition >= pageHeight - threshold) {
+                // Auto-load more if callback returns true
+                if (shouldLoadMore()) {
+                    loadMoreCallback();
+                }
+            }
+        }, debounceMs);
+    });
+}
+
 export default {
     debounce,
     throttle,
@@ -362,5 +390,6 @@ export default {
     createEmptyState,
     applyFilters,
     sumBy,
-    emitUpdateEvents
+    emitUpdateEvents,
+    setupInfiniteScroll
 };
