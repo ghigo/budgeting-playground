@@ -15,6 +15,10 @@ import * as copilot from './copilot.js';
 import aiCategorization from '../services/aiCategorizationService.js';
 import { amazonItemCategorization } from '../services/amazonItemCategorizationService.js';
 import { backgroundJobService } from '../services/backgroundJobService.js';
+import * as budgetManager from './budgets/budgetManager.js';
+import * as budgetCalculations from './budgets/budgetCalculations.js';
+import * as incomeManager from './income/incomeManager.js';
+import * as projectionEngine from './projections/projectionEngine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -2288,6 +2292,368 @@ app.get('/api/metrics/categorization', async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting categorization metrics:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// BUDGETING & INCOME TRACKING
+// ============================================================================
+
+// Get all budgets for a year
+app.get('/api/budgets', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const budgets = budgetManager.getBudgetsByYear(year);
+    res.json(budgets);
+  } catch (error) {
+    console.error('Error fetching budgets:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create a new budget
+app.post('/api/budgets', (req, res) => {
+  try {
+    const { category_id, year, annual_amount, notes } = req.body;
+
+    if (!category_id || !year || annual_amount === undefined) {
+      return res.status(400).json({ error: 'category_id, year, and annual_amount are required' });
+    }
+
+    const budget = budgetManager.createBudget({
+      categoryId: category_id,
+      year: parseInt(year),
+      annualAmount: parseFloat(annual_amount),
+      notes
+    });
+
+    res.json(budget);
+  } catch (error) {
+    console.error('Error creating budget:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update a budget
+app.put('/api/budgets/:budgetId', (req, res) => {
+  try {
+    const { budgetId } = req.params;
+    const { annual_amount, notes, reason } = req.body;
+
+    const updates = {};
+    if (annual_amount !== undefined) updates.annualAmount = parseFloat(annual_amount);
+    if (notes !== undefined) updates.notes = notes;
+
+    const result = budgetManager.updateBudget(budgetId, updates, reason);
+    res.json(result);
+  } catch (error) {
+    console.error('Error updating budget:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a budget
+app.delete('/api/budgets/:budgetId', (req, res) => {
+  try {
+    const { budgetId } = req.params;
+    budgetManager.deleteBudget(budgetId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting budget:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Clone budgets from one year to another
+app.post('/api/budgets/clone', (req, res) => {
+  try {
+    const { source_year, target_year, adjustment_percent } = req.body;
+
+    if (!source_year || !target_year) {
+      return res.status(400).json({ error: 'source_year and target_year are required' });
+    }
+
+    const result = budgetManager.cloneBudgets(
+      parseInt(source_year),
+      parseInt(target_year),
+      parseFloat(adjustment_percent) || 0
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error cloning budgets:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get budget suggestions based on previous spending
+app.get('/api/budgets/suggest', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const suggestions = budgetManager.suggestBudgets(year);
+    res.json(suggestions);
+  } catch (error) {
+    console.error('Error getting budget suggestions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get budget history (adjustments)
+app.get('/api/budgets/:budgetId/history', (req, res) => {
+  try {
+    const { budgetId } = req.params;
+    const history = database.getBudgetAdjustments(budgetId);
+    res.json(history);
+  } catch (error) {
+    console.error('Error fetching budget history:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get budget compliance status
+app.get('/api/budgets/compliance', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const compliance = budgetCalculations.calculateFullCompliance(year);
+    res.json(compliance);
+  } catch (error) {
+    console.error('Error calculating budget compliance:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get monthly spending breakdown
+app.get('/api/budgets/monthly', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const categoryId = req.query.category_id ? parseInt(req.query.category_id) : null;
+    const breakdown = budgetCalculations.getMonthlyBreakdown(year, categoryId);
+    res.json(breakdown);
+  } catch (error) {
+    console.error('Error getting monthly breakdown:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get cumulative spending comparison
+app.get('/api/budgets/cumulative', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const data = budgetCalculations.getCumulativeComparison(year);
+    res.json(data);
+  } catch (error) {
+    console.error('Error getting cumulative comparison:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get categories needing attention
+app.get('/api/budgets/alerts', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const alerts = budgetCalculations.getCategoriesNeedingAttention(year);
+    res.json(alerts);
+  } catch (error) {
+    console.error('Error getting budget alerts:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get savings rate
+app.get('/api/budgets/savings', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const savings = budgetCalculations.calculateSavingsRate(year);
+    res.json(savings);
+  } catch (error) {
+    console.error('Error calculating savings rate:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// INCOME TRACKING
+// ============================================================================
+
+// Get income transactions
+app.get('/api/income', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const month = req.query.month ? parseInt(req.query.month) : null;
+    const transactions = incomeManager.getIncomeTransactions(year, month);
+    res.json(transactions);
+  } catch (error) {
+    console.error('Error fetching income transactions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add income transaction
+app.post('/api/income', (req, res) => {
+  try {
+    const { date, amount, source, type, description, account_id } = req.body;
+
+    if (!date || amount === undefined || !source || !type) {
+      return res.status(400).json({ error: 'date, amount, source, and type are required' });
+    }
+
+    const income = incomeManager.addIncome({
+      date,
+      amount: parseFloat(amount),
+      source,
+      type,
+      description,
+      accountId: account_id
+    });
+
+    res.json(income);
+  } catch (error) {
+    console.error('Error adding income:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update income transaction
+app.put('/api/income/:incomeId', (req, res) => {
+  try {
+    const { incomeId } = req.params;
+    const updates = {};
+
+    if (req.body.date) updates.date = req.body.date;
+    if (req.body.amount !== undefined) updates.amount = parseFloat(req.body.amount);
+    if (req.body.source) updates.source = req.body.source;
+    if (req.body.type) updates.type = req.body.type;
+    if (req.body.description !== undefined) updates.description = req.body.description;
+
+    const result = incomeManager.updateIncome(incomeId, updates);
+    res.json({ success: result });
+  } catch (error) {
+    console.error('Error updating income:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete income transaction
+app.delete('/api/income/:incomeId', (req, res) => {
+  try {
+    const { incomeId } = req.params;
+    incomeManager.deleteIncome(incomeId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting income:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get income analysis
+app.get('/api/income/analysis', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const analysis = incomeManager.getIncomeAnalysis(year);
+    res.json(analysis);
+  } catch (error) {
+    console.error('Error getting income analysis:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get income types
+app.get('/api/income/types', (req, res) => {
+  res.json(incomeManager.INCOME_TYPES);
+});
+
+// Get expected income budgets
+app.get('/api/income/budgets', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const budgets = incomeManager.getIncomeBudgets(year);
+    res.json(budgets);
+  } catch (error) {
+    console.error('Error fetching income budgets:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Set expected income
+app.post('/api/income/budgets', (req, res) => {
+  try {
+    const { source, type, year, annual_expected, notes } = req.body;
+
+    if (!source || !type || !year || annual_expected === undefined) {
+      return res.status(400).json({ error: 'source, type, year, and annual_expected are required' });
+    }
+
+    const result = incomeManager.setExpectedIncome({
+      source,
+      type,
+      year: parseInt(year),
+      annualExpected: parseFloat(annual_expected),
+      notes
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error setting expected income:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// PROJECTIONS
+// ============================================================================
+
+// Get spending projections
+app.get('/api/projections', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const categoryId = req.query.category_id ? parseInt(req.query.category_id) : null;
+    const projections = projectionEngine.projectYearEnd(year, categoryId);
+    res.json(projections);
+  } catch (error) {
+    console.error('Error getting projections:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Test a scenario
+app.post('/api/projections/scenario', (req, res) => {
+  try {
+    const { year, adjustments } = req.body;
+
+    if (!year) {
+      return res.status(400).json({ error: 'year is required' });
+    }
+
+    const result = projectionEngine.testScenario(parseInt(year), adjustments || {});
+    res.json(result);
+  } catch (error) {
+    console.error('Error testing scenario:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get zero-based budget suggestions
+app.get('/api/projections/zero-based', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const targetSavingsRate = parseFloat(req.query.savings_rate) || 0.2;
+    const suggestions = projectionEngine.zeroBudgetHelper(year, targetSavingsRate);
+    res.json(suggestions);
+  } catch (error) {
+    console.error('Error getting zero-based suggestions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Detect recurring expenses
+app.get('/api/projections/recurring', (req, res) => {
+  try {
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const recurring = projectionEngine.detectRecurringExpenses(year);
+    res.json(recurring);
+  } catch (error) {
+    console.error('Error detecting recurring expenses:', error);
     res.status(500).json({ error: error.message });
   }
 });

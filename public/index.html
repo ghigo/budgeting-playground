@@ -40,6 +40,10 @@
                     <span class="icon">📦</span>
                     Amazon Purchases
                 </a>
+                <a href="#" class="nav-item" data-page="budgeting">
+                    <span class="icon">💵</span>
+                    Budgeting
+                </a>
                 <a href="#" class="nav-item" data-page="link">
                     <span class="icon">🔗</span>
                     Link Account
@@ -625,6 +629,263 @@
                     <div id="amazonOrdersList"></div>
                 </div>
             </div>
+
+            <!-- Budgeting Page -->
+            <div class="page" id="budgeting-page">
+                <div class="page-header">
+                    <h2>Budgeting</h2>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <p>Manage budgets, track income, and monitor spending</p>
+                        <select id="budgetYearSelector" class="form-select" style="width: auto;">
+                            <!-- Years populated by JS -->
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Tab Navigation -->
+                <div class="budget-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">
+                    <button class="budget-tab active" data-tab="overview" style="padding: 0.5rem 1rem; border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent;">
+                        Overview
+                    </button>
+                    <button class="budget-tab" data-tab="budgets" style="padding: 0.5rem 1rem; border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent;">
+                        Budgets
+                    </button>
+                    <button class="budget-tab" data-tab="income" style="padding: 0.5rem 1rem; border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent;">
+                        Income
+                    </button>
+                    <button class="budget-tab" data-tab="projections" style="padding: 0.5rem 1rem; border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent;">
+                        Projections
+                    </button>
+                </div>
+
+                <!-- Overview Tab -->
+                <div class="budget-tab-content" id="budget-overview">
+                    <!-- Summary Stats -->
+                    <div class="stats-grid" style="margin-bottom: 1.5rem;">
+                        <div class="stat-card">
+                            <div class="stat-label">Total Budget</div>
+                            <div class="stat-value" id="totalBudget">$0.00</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Total Spent</div>
+                            <div class="stat-value" id="totalSpentBudget">$0.00</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Remaining</div>
+                            <div class="stat-value positive" id="remainingBudget">$0.00</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Savings Rate</div>
+                            <div class="stat-value" id="savingsRate">0%</div>
+                        </div>
+                    </div>
+
+                    <!-- Progress Bar -->
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <h3 style="margin-bottom: 1rem;">Budget Progress</h3>
+                        <div class="progress-container" style="height: 24px; background: #e5e7eb; border-radius: 12px; overflow: hidden;">
+                            <div id="budgetProgress" class="progress-bar" style="height: 100%; width: 0%; transition: width 0.5s;"></div>
+                        </div>
+                        <p id="budgetProgressText" style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;"></p>
+                    </div>
+
+                    <!-- Alerts -->
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <h3 style="margin-bottom: 1rem;">Budget Alerts</h3>
+                        <div id="budgetAlerts"></div>
+                    </div>
+
+                    <!-- Compliance Chart -->
+                    <div class="card">
+                        <h3 style="margin-bottom: 1rem;">Spending vs Budget by Category</h3>
+                        <canvas id="complianceChart" style="max-height: 400px;"></canvas>
+                    </div>
+                </div>
+
+                <!-- Budgets Tab -->
+                <div class="budget-tab-content" id="budget-budgets" style="display: none;">
+                    <!-- Add Budget Form -->
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <h3 style="margin-bottom: 1rem;">Add Budget</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 1rem; align-items: end;">
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Category</label>
+                                <select id="budgetCategorySelect" class="form-select" style="width: 100%;">
+                                    <option value="">Select a category...</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Annual Amount</label>
+                                <input type="number" id="budgetAmountInput" class="form-input" placeholder="0.00" style="width: 100%;">
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Notes</label>
+                                <input type="text" id="budgetNotesInput" class="form-input" placeholder="Optional notes" style="width: 100%;">
+                            </div>
+                            <button class="btn btn-primary" onclick="addBudget()">Add Budget</button>
+                        </div>
+                    </div>
+
+                    <!-- Clone Budgets -->
+                    <div class="card" style="margin-bottom: 1.5rem; background: #f0fdf4;">
+                        <h3 style="margin-bottom: 1rem;">Clone from Previous Year</h3>
+                        <div style="display: flex; gap: 1rem; align-items: end;">
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Source Year</label>
+                                <select id="cloneSourceYear" class="form-select">
+                                    <option value="">Select year...</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Adjustment %</label>
+                                <input type="number" id="cloneAdjustment" class="form-input" placeholder="0" style="width: 100px;">
+                            </div>
+                            <button class="btn btn-secondary" onclick="cloneBudgets()">Clone Budgets</button>
+                        </div>
+                    </div>
+
+                    <!-- Budget Suggestions -->
+                    <div id="budgetSuggestions" class="card" style="margin-bottom: 1.5rem; background: #fef3c7; display: none;"></div>
+
+                    <!-- Budgets List -->
+                    <div class="card">
+                        <h3 style="margin-bottom: 1rem;">Current Budgets</h3>
+                        <div id="budgetsList"></div>
+                    </div>
+                </div>
+
+                <!-- Income Tab -->
+                <div class="budget-tab-content" id="budget-income" style="display: none;">
+                    <!-- Income Stats -->
+                    <div class="stats-grid" style="margin-bottom: 1.5rem;">
+                        <div class="stat-card">
+                            <div class="stat-label">Actual Income</div>
+                            <div class="stat-value positive" id="actualIncome">$0.00</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Expected Income</div>
+                            <div class="stat-value" id="expectedIncome">$0.00</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">YTD Variance</div>
+                            <div class="stat-value" id="incomeVariance">$0.00</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Year-End Projection</div>
+                            <div class="stat-value" id="incomeProjection">$0.00</div>
+                        </div>
+                    </div>
+
+                    <!-- Add Income Form -->
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <h3 style="margin-bottom: 1rem;">Record Income</h3>
+                        <div style="display: grid; grid-template-columns: repeat(5, 1fr) auto; gap: 1rem; align-items: end;">
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Date</label>
+                                <input type="date" id="incomeDate" class="form-input" style="width: 100%;">
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Amount</label>
+                                <input type="number" id="incomeAmount" class="form-input" placeholder="0.00" style="width: 100%;">
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Source</label>
+                                <input type="text" id="incomeSource" class="form-input" placeholder="e.g., Employer" style="width: 100%;">
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Type</label>
+                                <select id="incomeType" class="form-select" style="width: 100%;">
+                                    <option value="">Select type...</option>
+                                    <option value="Salary">Salary</option>
+                                    <option value="Freelance">Freelance</option>
+                                    <option value="Investment">Investment</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Description</label>
+                                <input type="text" id="incomeDescription" class="form-input" placeholder="Optional" style="width: 100%;">
+                            </div>
+                            <button class="btn btn-primary" onclick="addIncome()">Add</button>
+                        </div>
+                    </div>
+
+                    <!-- Set Expected Income -->
+                    <div class="card" style="margin-bottom: 1.5rem; background: #f0fdf4;">
+                        <h3 style="margin-bottom: 1rem;">Set Expected Income</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 1rem; align-items: end;">
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Source</label>
+                                <input type="text" id="expectedSource" class="form-input" placeholder="e.g., Main Job" style="width: 100%;">
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Type</label>
+                                <select id="expectedType" class="form-select" style="width: 100%;">
+                                    <option value="">Select type...</option>
+                                    <option value="Salary">Salary</option>
+                                    <option value="Freelance">Freelance</option>
+                                    <option value="Investment">Investment</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Annual Expected</label>
+                                <input type="number" id="expectedAmount" class="form-input" placeholder="0.00" style="width: 100%;">
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem;">Notes</label>
+                                <input type="text" id="expectedNotes" class="form-input" placeholder="Optional" style="width: 100%;">
+                            </div>
+                            <button class="btn btn-secondary" onclick="setExpectedIncome()">Set</button>
+                        </div>
+                    </div>
+
+                    <!-- Expected Income Budgets -->
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <h3 style="margin-bottom: 1rem;">Expected Income</h3>
+                        <div id="expectedIncomeBudgets"></div>
+                    </div>
+
+                    <!-- Income Chart -->
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <h3 style="margin-bottom: 1rem;">Monthly Income</h3>
+                        <canvas id="incomeChart"></canvas>
+                    </div>
+
+                    <!-- Income Transactions -->
+                    <div class="card">
+                        <h3 style="margin-bottom: 1rem;">Income Transactions</h3>
+                        <div id="incomeTransactions"></div>
+                    </div>
+                </div>
+
+                <!-- Projections Tab -->
+                <div class="budget-tab-content" id="budget-projections" style="display: none;">
+                    <!-- Projections Table -->
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <h3 style="margin-bottom: 1rem;">Year-End Projections by Category</h3>
+                        <div id="projectionsTable"></div>
+                    </div>
+
+                    <!-- Recurring Expenses -->
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <h3 style="margin-bottom: 1rem;">Recurring Expenses</h3>
+                        <div id="recurringExpenses"></div>
+                    </div>
+
+                    <!-- Scenario Testing -->
+                    <div class="card">
+                        <h3 style="margin-bottom: 1rem;">Scenario Testing</h3>
+                        <p style="margin-bottom: 1rem; color: var(--text-secondary);">Test budget adjustments to see their impact on year-end projections.</p>
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem;">Adjustments (JSON)</label>
+                            <textarea id="scenarioAdjustments" class="form-input" rows="4" placeholder='{"category_id": percentage_adjustment}'></textarea>
+                        </div>
+                        <button class="btn btn-primary" onclick="runScenario()">Run Scenario</button>
+                        <div id="scenarioResults" style="margin-top: 1rem;"></div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -942,6 +1203,22 @@
                     <button onclick="closeSplitModal()" class="btn btn-secondary">Cancel</button>
                     <button onclick="saveSplits()" class="btn btn-primary" id="saveSplitsBtn">Split Transaction</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Budget History Modal -->
+    <div id="budgetHistoryModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3>📜 Budget History</h3>
+                <button class="modal-close" onclick="closeBudgetHistoryModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="budgetHistoryContent"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeBudgetHistoryModal()">Close</button>
             </div>
         </div>
     </div>

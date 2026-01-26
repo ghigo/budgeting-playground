@@ -13,6 +13,7 @@ import { initializeAmazonPage, loadAmazonPage, handleAmazonFileUpload } from './
 import { initializeCategoriesPage, loadCategories } from './pages/CategoriesPage.js';
 import { initializeMappingsPage, loadMappings } from './pages/MappingsPage.js';
 import { initializeSettingsPage, loadSettingsPage } from './pages/SettingsPage.js';
+import { initializeBudgetingPage, loadBudgetingPage } from './pages/BudgetingPage.js';
 
 // State
 let plaidHandler = null;
@@ -103,6 +104,9 @@ function setupReactiveUpdates() {
             case 'amazon':
                 loadAmazonPage();
                 break;
+            case 'budgeting':
+                loadBudgetingPage();
+                break;
         }
     });
 }
@@ -134,6 +138,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     initializeSettingsPage({
         fetchAPI
+    });
+    initializeBudgetingPage({
+        fetchAPI,
+        navigateTo
     });
 
     setupNavigation(); // This will handle initial page load via hash
@@ -167,7 +175,7 @@ function handleHashChange() {
     let page = window.location.hash.slice(1) || 'dashboard';
 
     // Validate page exists
-    const validPages = ['dashboard', 'accounts', 'transactions', 'categories', 'mappings', 'amazon', 'settings', 'link'];
+    const validPages = ['dashboard', 'accounts', 'transactions', 'categories', 'mappings', 'amazon', 'budgeting', 'settings', 'link'];
     if (!validPages.includes(page)) {
         page = 'dashboard';
         window.location.hash = page;
@@ -218,6 +226,9 @@ function navigateTo(page, updateHash = true) {
             break;
         case 'amazon':
             loadAmazonPage();
+            break;
+        case 'budgeting':
+            loadBudgetingPage();
             break;
         case 'settings':
             loadSettingsPage();

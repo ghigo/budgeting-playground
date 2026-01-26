@@ -1296,3 +1296,306 @@ body {
     cursor: not-allowed;
     opacity: 0.6;
 }
+
+/* ============================================================================
+   BUDGETING PAGE STYLES
+   ============================================================================ */
+
+/* Budget Tabs */
+.budget-tab {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: all 0.2s;
+}
+
+.budget-tab:hover {
+    color: var(--primary);
+}
+
+.budget-tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary) !important;
+}
+
+/* Progress Bar */
+.progress-container {
+    background: #e5e7eb;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    background: var(--primary);
+    transition: width 0.5s ease;
+}
+
+.progress-bar.status-under {
+    background: #22c55e;
+}
+
+.progress-bar.status-warning {
+    background: #f59e0b;
+}
+
+.progress-bar.status-critical {
+    background: #ef4444;
+}
+
+.progress-bar.status-over {
+    background: #dc2626;
+}
+
+/* Alert Items */
+.alert-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.alert-item:last-child {
+    margin-bottom: 0;
+}
+
+.alert-success {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.alert-warning {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.alert-critical {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.alert-over {
+    background: #fecaca;
+    color: #7f1d1d;
+}
+
+.alert-icon {
+    font-size: 1.25rem;
+}
+
+/* Budgets Table */
+.budgets-table,
+.income-table,
+.income-budgets-table,
+.projections-table,
+.history-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.budgets-table th,
+.budgets-table td,
+.income-table th,
+.income-table td,
+.income-budgets-table th,
+.income-budgets-table td,
+.projections-table th,
+.projections-table td,
+.history-table th,
+.history-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.budgets-table th,
+.income-table th,
+.income-budgets-table th,
+.projections-table th,
+.history-table th {
+    background: var(--bg-primary);
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+}
+
+.budget-amount-input,
+.budget-notes-input {
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.9rem;
+    width: 100%;
+}
+
+.budget-amount-input {
+    width: 120px;
+}
+
+.budget-amount-input:focus,
+.budget-notes-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+/* Badge Styles */
+.badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge-salary {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.badge-freelance {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.badge-investment {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.badge-other {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+/* Budget Suggestions */
+.suggestions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.suggestion-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    background: white;
+    border-radius: 0.5rem;
+}
+
+.suggestion-category {
+    font-weight: 500;
+}
+
+.suggestion-amount {
+    color: var(--text-secondary);
+}
+
+/* Recurring Expenses */
+.recurring-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.recurring-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    background: var(--bg-primary);
+    border-radius: 0.5rem;
+}
+
+.recurring-name {
+    font-weight: 500;
+}
+
+.recurring-amount {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.recurring-frequency {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.recurring-summary {
+    padding: 1rem;
+    background: #f0fdf4;
+    border-radius: 0.5rem;
+    margin-top: 1rem;
+}
+
+/* Confidence Bar */
+.confidence-bar {
+    width: 60px;
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.confidence-fill {
+    height: 100%;
+    background: var(--primary);
+    transition: width 0.3s;
+}
+
+.confidence-text {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-left: 0.5rem;
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-secondary);
+}
+
+.empty-state p {
+    margin-bottom: 0.5rem;
+}
+
+/* Scenario Results */
+.scenario-result {
+    padding: 1rem;
+    background: #f0fdf4;
+    border-radius: 0.5rem;
+    border: 1px solid #86efac;
+}
+
+.scenario-result h4 {
+    margin-bottom: 0.75rem;
+    color: #065f46;
+}
+
+/* Small Buttons */
+.btn-small {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+.btn-danger {
+    background: var(--danger);
+    color: white;
+    border: none;
+}
+
+.btn-danger:hover {
+    background: #d32f2f;
+}
+
+/* Text utilities */
+.text-muted {
+    color: var(--text-secondary);
+}
