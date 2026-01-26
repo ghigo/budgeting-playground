@@ -2607,9 +2607,28 @@ app.post('/api/income/budgets', (req, res) => {
 app.get('/api/projections', (req, res) => {
   try {
     const year = parseInt(req.query.year) || new Date().getFullYear();
-    const categoryId = req.query.category_id ? parseInt(req.query.category_id) : null;
-    const projections = projectionEngine.projectYearEnd(year, categoryId);
-    res.json(projections);
+    const projections = projectionEngine.generateAllProjections(year);
+
+    // Transform to match expected API response format
+    const response = {
+      year: projections.year,
+      yearProgress: projections.year_progress,
+      overall: projections.overall,
+      summary: projections.summary,
+      projections: projections.categories.map(cat => ({
+        category_id: cat.category_id,
+        category_name: cat.category_name,
+        annual_budget: cat.annual_budget,
+        ytd_spent: cat.current_spent,
+        linear_projection: cat.linear_projection.projected_year_end,
+        trend_projection: cat.trend_projection ? cat.trend_projection.projected_year_end : cat.linear_projection.projected_year_end,
+        confidence: cat.best_estimate.confidence?.score ? cat.best_estimate.confidence.score / 100 : cat.best_estimate.confidence / 100,
+        status: cat.status,
+        warning: cat.warning_message
+      }))
+    };
+
+    res.json(response);
   } catch (error) {
     console.error('Error getting projections:', error);
     res.status(500).json({ error: error.message });
@@ -2619,14 +2638,26 @@ app.get('/api/projections', (req, res) => {
 // Test a scenario
 app.post('/api/projections/scenario', (req, res) => {
   try {
-    const { year, adjustments } = req.body;
+    const { year, category_name, adjustment_percent } = req.body;
 
     if (!year) {
       return res.status(400).json({ error: 'year is required' });
     }
 
-    const result = projectionEngine.testScenario(parseInt(year), adjustments || {});
-    res.json(result);
+    if (category_name && adjustment_percent !== undefined) {
+      // Single category scenario
+      const result = projectionEngine.calculateScenario(parseInt(year), category_name, parseFloat(adjustment_percent));
+      res.json(result);
+    } else {
+      // Return current projections if no specific scenario
+      const projections = projectionEngine.generateAllProjections(parseInt(year));
+      res.json({
+        original: projections.overall,
+        adjusted: projections.overall,
+        savings: 0,
+        message: 'No adjustments specified'
+      });
+    }
   } catch (error) {
     console.error('Error testing scenario:', error);
     res.status(500).json({ error: error.message });
@@ -2637,8 +2668,8 @@ app.post('/api/projections/scenario', (req, res) => {
 app.get('/api/projections/zero-based', (req, res) => {
   try {
     const year = parseInt(req.query.year) || new Date().getFullYear();
-    const targetSavingsRate = parseFloat(req.query.savings_rate) || 0.2;
-    const suggestions = projectionEngine.zeroBudgetHelper(year, targetSavingsRate);
+    const expectedIncome = parseFloat(req.query.expected_income) || 100000;
+    const suggestions = projectionEngine.zeroBudgetHelper(expectedIncome, year);
     res.json(suggestions);
   } catch (error) {
     console.error('Error getting zero-based suggestions:', error);
@@ -2651,7 +2682,28 @@ app.get('/api/projections/recurring', (req, res) => {
   try {
     const year = parseInt(req.query.year) || new Date().getFullYear();
     const recurring = projectionEngine.detectRecurringExpenses(year);
-    res.json(recurring);
+
+    // Transform to match expected format
+    res.json({
+      year: recurring.year,
+      fixed: recurring.recurring.items.map(item => ({
+        merchant_name: item.merchant,
+        description: item.merchant,
+        avg_amount: item.average_amount,
+        occurrences: item.transaction_count,
+        frequency: item.frequency,
+        estimated_annual: item.estimated_annual,
+        category: item.category
+      })),
+      variable: recurring.variable.items.map(item => ({
+        merchant_name: item.merchant,
+        description: item.merchant,
+        total_spent: item.total_spent,
+        occurrences: item.transaction_count,
+        category: item.category
+      })),
+      summary: recurring.summary
+    });
   } catch (error) {
     console.error('Error detecting recurring expenses:', error);
     res.status(500).json({ error: error.message });
