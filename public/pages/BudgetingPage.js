@@ -329,16 +329,11 @@ async function loadBudgets() {
             fetchAPI(`/api/budgets/suggest?year=${currentYear}`)
         ]);
 
-        // Populate category dropdown
-        populateCategoryDropdown(categories, budgets);
+        // Populate clone year selector
+        populateCloneYearSelector();
 
-        // Display budgets
-        displayBudgets(budgets);
-
-        // Display suggestions if no budgets
-        if (budgets.length === 0 && suggestions.length > 0) {
-            displayBudgetSuggestions(suggestions);
-        }
+        // Merge categories with budgets for unified display
+        displayAllCategoriesWithBudgets(categories, budgets, suggestions);
 
     } catch (error) {
         console.error('Error loading budgets:', error);
@@ -347,165 +342,205 @@ async function loadBudgets() {
 }
 
 /**
- * Populate category dropdown
+ * Populate clone year selector
  */
-function populateCategoryDropdown(categories, existingBudgets) {
-    const select = document.getElementById('budgetCategorySelect');
+function populateCloneYearSelector() {
+    const select = document.getElementById('cloneSourceYear');
     if (!select) return;
 
-    // Get IDs of categories that already have budgets
-    const budgetedCategoryIds = new Set(existingBudgets.map(b => b.category_id));
-
-    // Filter to categories without budgets
-    const availableCategories = categories.filter(c => !budgetedCategoryIds.has(c.id));
+    const years = [];
+    for (let y = currentYear - 3; y < currentYear; y++) {
+        years.push(y);
+    }
 
     select.innerHTML = `
-        <option value="">Select a category...</option>
-        ${availableCategories.map(c =>
-            `<option value="${c.id}">${escapeHtml(c.name)}</option>`
-        ).join('')}
+        <option value="">Select year...</option>
+        ${years.map(y => `<option value="${y}">${y}</option>`).join('')}
     `;
 }
 
 /**
- * Display budgets list
+ * Display all categories with their budgets (or empty slots for unbudgeted)
  */
-function displayBudgets(budgets) {
+function displayAllCategoriesWithBudgets(categories, budgets, suggestions) {
     const container = document.getElementById('budgetsList');
     if (!container) return;
 
-    if (budgets.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <p>No budgets set for ${currentYear}.</p>
-                <p>Add budgets using the form above, or use suggestions based on last year's spending.</p>
-            </div>
-        `;
-        return;
+    // Create a map of category_id -> budget
+    const budgetByCategory = {};
+    for (const budget of budgets) {
+        budgetByCategory[budget.category_id] = budget;
     }
 
+    // Create a map of category_id -> suggestion
+    const suggestionByCategory = {};
+    for (const suggestion of suggestions) {
+        suggestionByCategory[suggestion.category_id] = suggestion;
+    }
+
+    // Build hierarchical category structure
+    const topLevelCategories = categories.filter(c => !c.parent_id);
+    const childCategories = categories.filter(c => c.parent_id);
+
+    // Group children by parent
+    const childrenByParent = {};
+    for (const child of childCategories) {
+        if (!childrenByParent[child.parent_id]) {
+            childrenByParent[child.parent_id] = [];
+        }
+        childrenByParent[child.parent_id].push(child);
+    }
+
+    // Calculate totals
+    const totalBudgeted = budgets.reduce((sum, b) => sum + b.annual_amount, 0);
+    const categoriesWithBudget = budgets.length;
+    const categoriesWithoutBudget = categories.length - budgets.length;
+
     container.innerHTML = `
+        <div class="budget-summary-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: 8px;">
+            <div>
+                <strong>Total Annual Budget:</strong> ${formatCurrency(totalBudgeted)}
+                <span class="text-muted" style="margin-left: 1rem;">(${formatCurrency(totalBudgeted / 12)}/month)</span>
+            </div>
+            <div class="text-muted">
+                ${categoriesWithBudget} categories budgeted, ${categoriesWithoutBudget} unbudgeted
+            </div>
+        </div>
+
         <table class="budgets-table">
             <thead>
                 <tr>
-                    <th>Category</th>
-                    <th>Annual Budget</th>
-                    <th>Monthly</th>
-                    <th>Notes</th>
-                    <th>Actions</th>
+                    <th style="width: 30%;">Category</th>
+                    <th style="width: 20%;">Annual Budget</th>
+                    <th style="width: 15%;">Monthly</th>
+                    <th style="width: 25%;">Notes</th>
+                    <th style="width: 10%;">Actions</th>
                 </tr>
             </thead>
             <tbody>
-                ${budgets.map(budget => `
-                    <tr>
-                        <td>${escapeHtml(budget.category_name)}</td>
-                        <td>
-                            <input type="number"
-                                   class="budget-amount-input"
-                                   value="${budget.annual_amount}"
-                                   data-budget-id="${budget.id}"
-                                   data-original="${budget.annual_amount}"
-                                   onchange="handleBudgetAmountChange(this)">
-                        </td>
-                        <td class="text-muted">${formatCurrency(budget.annual_amount / 12)}/mo</td>
-                        <td>
-                            <input type="text"
-                                   class="budget-notes-input"
-                                   value="${escapeHtml(budget.notes || '')}"
-                                   placeholder="Add notes..."
-                                   data-budget-id="${budget.id}"
-                                   onchange="handleBudgetNotesChange(this)">
-                        </td>
-                        <td>
-                            <button class="btn btn-small btn-secondary" onclick="showBudgetHistory('${budget.id}')">History</button>
-                            <button class="btn btn-small btn-danger" onclick="deleteBudget('${budget.id}')">Delete</button>
-                        </td>
-                    </tr>
-                `).join('')}
+                ${topLevelCategories.map(category => {
+                    const children = childrenByParent[category.id] || [];
+                    return renderCategoryRow(category, budgetByCategory, suggestionByCategory, 0) +
+                           children.map(child => renderCategoryRow(child, budgetByCategory, suggestionByCategory, 1)).join('');
+                }).join('')}
             </tbody>
         </table>
     `;
 }
 
 /**
- * Display budget suggestions
+ * Render a single category row
  */
-function displayBudgetSuggestions(suggestions) {
-    const container = document.getElementById('budgetSuggestions');
-    if (!container) return;
+function renderCategoryRow(category, budgetByCategory, suggestionByCategory, indentLevel) {
+    const budget = budgetByCategory[category.id];
+    const suggestion = suggestionByCategory[category.id];
+    const hasBudget = !!budget;
+    const indent = indentLevel * 24;
 
-    container.style.display = 'block';
-    container.innerHTML = `
-        <h4>Budget Suggestions Based on Last Year's Spending</h4>
-        <div class="suggestions-list">
-            ${suggestions.map(s => `
-                <div class="suggestion-item">
-                    <span class="suggestion-category">${escapeHtml(s.category_name)}</span>
-                    <span class="suggestion-amount">${formatCurrency(s.suggested_amount)}/year</span>
-                    <button class="btn btn-small btn-primary" onclick="applySuggestion(${s.category_id}, ${s.suggested_amount})">
-                        Add Budget
-                    </button>
+    const budgetAmount = hasBudget ? budget.annual_amount : 0;
+    const monthlyAmount = budgetAmount / 12;
+    const notes = hasBudget ? (budget.notes || '') : '';
+
+    // Style differently if no budget set
+    const rowClass = hasBudget ? '' : 'no-budget-row';
+    const amountClass = hasBudget ? '' : 'no-budget';
+
+    return `
+        <tr class="${rowClass}" data-category-id="${category.id}">
+            <td style="padding-left: ${indent + 12}px;">
+                <span class="category-icon">${category.icon || '📁'}</span>
+                <span class="category-name">${escapeHtml(category.name)}</span>
+                ${suggestion && !hasBudget ? `
+                    <span class="suggestion-hint" title="Suggested: ${formatCurrency(suggestion.suggested_amount)} based on last year">
+                        💡
+                    </span>
+                ` : ''}
+            </td>
+            <td>
+                <div class="budget-input-wrapper ${amountClass}">
+                    <span class="currency-symbol">$</span>
+                    <input type="number"
+                           class="budget-amount-input"
+                           value="${budgetAmount || ''}"
+                           placeholder="${suggestion ? suggestion.suggested_amount : '0'}"
+                           data-category-id="${category.id}"
+                           data-budget-id="${hasBudget ? budget.id : ''}"
+                           data-original="${budgetAmount}"
+                           data-has-budget="${hasBudget}"
+                           onchange="handleCategoryBudgetChange(this)"
+                           onfocus="this.select()">
                 </div>
-            `).join('')}
-        </div>
-        <button class="btn btn-primary" onclick="applyAllSuggestions()" style="margin-top: 1rem;">
-            Apply All Suggestions
-        </button>
+            </td>
+            <td class="text-muted monthly-amount">
+                ${budgetAmount > 0 ? formatCurrency(monthlyAmount) + '/mo' : '-'}
+            </td>
+            <td>
+                <input type="text"
+                       class="budget-notes-input"
+                       value="${escapeHtml(notes)}"
+                       placeholder="${hasBudget ? 'Add notes...' : ''}"
+                       data-category-id="${category.id}"
+                       data-budget-id="${hasBudget ? budget.id : ''}"
+                       data-has-budget="${hasBudget}"
+                       ${!hasBudget ? 'disabled' : ''}
+                       onchange="handleBudgetNotesChange(this)">
+            </td>
+            <td class="actions-cell">
+                ${hasBudget ? `
+                    <button class="btn btn-small btn-icon" onclick="showBudgetHistory('${budget.id}')" title="View history">
+                        📜
+                    </button>
+                    <button class="btn btn-small btn-icon btn-danger-icon" onclick="clearCategoryBudget('${budget.id}', '${escapeHtml(category.name)}')" title="Clear budget">
+                        ✕
+                    </button>
+                ` : `
+                    ${suggestion ? `
+                        <button class="btn btn-small btn-icon" onclick="applySuggestion(${category.id}, ${suggestion.suggested_amount})" title="Apply suggestion: ${formatCurrency(suggestion.suggested_amount)}">
+                            💡
+                        </button>
+                    ` : ''}
+                `}
+            </td>
+        </tr>
     `;
 }
 
 /**
- * Add a new budget
+ * Handle category budget change (create or update)
  */
-async function addBudget() {
-    const categoryId = document.getElementById('budgetCategorySelect').value;
-    const amount = parseFloat(document.getElementById('budgetAmountInput').value);
-    const notes = document.getElementById('budgetNotesInput').value;
+async function handleCategoryBudgetChange(input) {
+    const categoryId = parseInt(input.dataset.categoryId);
+    const hasBudget = input.dataset.hasBudget === 'true';
+    const budgetId = input.dataset.budgetId;
+    const newAmount = parseFloat(input.value) || 0;
+    const originalAmount = parseFloat(input.dataset.original) || 0;
 
-    if (!categoryId || !amount) {
-        showToast('Please select a category and enter an amount', 'error');
+    if (newAmount === originalAmount) return;
+
+    // If clearing the budget (setting to 0 or empty)
+    if (newAmount === 0 && hasBudget) {
+        if (confirm('Set budget to $0? This will keep the budget record with a zero amount.')) {
+            await updateExistingBudget(budgetId, newAmount, input);
+        } else {
+            input.value = originalAmount;
+        }
         return;
     }
 
-    try {
-        await fetchAPI('/api/budgets', {
-            method: 'POST',
-            body: JSON.stringify({
-                category_id: parseInt(categoryId),
-                year: currentYear,
-                annual_amount: amount,
-                notes
-            })
-        });
-
-        showToast('Budget added successfully', 'success');
-
-        // Clear form
-        document.getElementById('budgetCategorySelect').value = '';
-        document.getElementById('budgetAmountInput').value = '';
-        document.getElementById('budgetNotesInput').value = '';
-
-        // Reload budgets
-        await loadBudgets();
-
-    } catch (error) {
-        console.error('Error adding budget:', error);
-        showToast('Failed to add budget: ' + error.message, 'error');
+    if (hasBudget) {
+        // Update existing budget
+        const reason = prompt('Reason for budget change (optional):');
+        await updateExistingBudget(budgetId, newAmount, input, reason);
+    } else {
+        // Create new budget
+        await createNewBudget(categoryId, newAmount, input);
     }
 }
 
 /**
- * Handle budget amount change
+ * Update an existing budget
  */
-async function handleBudgetAmountChange(input) {
-    const budgetId = input.dataset.budgetId;
-    const newAmount = parseFloat(input.value);
-    const originalAmount = parseFloat(input.dataset.original);
-
-    if (newAmount === originalAmount) return;
-
-    const reason = prompt('Reason for budget change (optional):');
-
+async function updateExistingBudget(budgetId, newAmount, input, reason = null) {
     try {
         await fetchAPI(`/api/budgets/${budgetId}`, {
             method: 'PUT',
@@ -518,10 +553,64 @@ async function handleBudgetAmountChange(input) {
         input.dataset.original = newAmount;
         showToast('Budget updated', 'success');
 
+        // Update the monthly display
+        const row = input.closest('tr');
+        const monthlyCell = row.querySelector('.monthly-amount');
+        if (monthlyCell) {
+            monthlyCell.textContent = newAmount > 0 ? formatCurrency(newAmount / 12) + '/mo' : '-';
+        }
+
+        // Refresh to update totals
+        await loadBudgets();
+
     } catch (error) {
         console.error('Error updating budget:', error);
-        input.value = originalAmount;
+        input.value = input.dataset.original;
         showToast('Failed to update budget', 'error');
+    }
+}
+
+/**
+ * Create a new budget for a category
+ */
+async function createNewBudget(categoryId, amount, input) {
+    try {
+        const result = await fetchAPI('/api/budgets', {
+            method: 'POST',
+            body: JSON.stringify({
+                category_id: categoryId,
+                year: currentYear,
+                annual_amount: amount,
+                notes: ''
+            })
+        });
+
+        showToast('Budget created', 'success');
+
+        // Refresh to show the new budget with proper controls
+        await loadBudgets();
+
+    } catch (error) {
+        console.error('Error creating budget:', error);
+        input.value = '';
+        showToast('Failed to create budget: ' + error.message, 'error');
+    }
+}
+
+/**
+ * Clear a category's budget
+ */
+async function clearCategoryBudget(budgetId, categoryName) {
+    if (!confirm(`Remove budget for "${categoryName}"? This will delete the budget record.`)) return;
+
+    try {
+        await fetchAPI(`/api/budgets/${budgetId}`, { method: 'DELETE' });
+        showToast('Budget removed', 'success');
+        await loadBudgets();
+
+    } catch (error) {
+        console.error('Error removing budget:', error);
+        showToast('Failed to remove budget', 'error');
     }
 }
 
@@ -529,6 +618,9 @@ async function handleBudgetAmountChange(input) {
  * Handle budget notes change
  */
 async function handleBudgetNotesChange(input) {
+    const hasBudget = input.dataset.hasBudget === 'true';
+    if (!hasBudget) return; // Can't add notes without a budget
+
     const budgetId = input.dataset.budgetId;
     const notes = input.value;
 
@@ -543,23 +635,6 @@ async function handleBudgetNotesChange(input) {
     } catch (error) {
         console.error('Error updating notes:', error);
         showToast('Failed to update notes', 'error');
-    }
-}
-
-/**
- * Delete a budget
- */
-async function deleteBudget(budgetId) {
-    if (!confirm('Are you sure you want to delete this budget?')) return;
-
-    try {
-        await fetchAPI(`/api/budgets/${budgetId}`, { method: 'DELETE' });
-        showToast('Budget deleted', 'success');
-        await loadBudgets();
-
-    } catch (error) {
-        console.error('Error deleting budget:', error);
-        showToast('Failed to delete budget', 'error');
     }
 }
 
@@ -1147,10 +1222,9 @@ export default {
 };
 
 // Expose functions to window for onclick handlers
-window.addBudget = addBudget;
-window.handleBudgetAmountChange = handleBudgetAmountChange;
+window.handleCategoryBudgetChange = handleCategoryBudgetChange;
 window.handleBudgetNotesChange = handleBudgetNotesChange;
-window.deleteBudget = deleteBudget;
+window.clearCategoryBudget = clearCategoryBudget;
 window.showBudgetHistory = showBudgetHistory;
 window.closeBudgetHistoryModal = closeBudgetHistoryModal;
 window.applySuggestion = applySuggestion;

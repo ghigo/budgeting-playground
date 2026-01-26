@@ -1599,3 +1599,161 @@ body {
 .text-muted {
     color: var(--text-secondary);
 }
+
+/* ============================================================================
+   INLINE BUDGET EDITING STYLES
+   ============================================================================ */
+
+/* Category rows without budget */
+.no-budget-row {
+    background: #fafafa;
+}
+
+.no-budget-row:hover {
+    background: #f5f5f5;
+}
+
+/* Budget input wrapper */
+.budget-input-wrapper {
+    display: flex;
+    align-items: center;
+    position: relative;
+}
+
+.budget-input-wrapper .currency-symbol {
+    position: absolute;
+    left: 8px;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    pointer-events: none;
+}
+
+.budget-input-wrapper.no-budget .currency-symbol {
+    opacity: 0.4;
+}
+
+.budget-amount-input {
+    padding: 0.5rem 0.5rem 0.5rem 1.5rem;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-size: 0.95rem;
+    width: 120px;
+    background: transparent;
+    transition: all 0.2s;
+}
+
+.budget-amount-input:hover {
+    border-color: var(--border);
+    background: white;
+}
+
+.budget-amount-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: white;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.1);
+}
+
+.budget-amount-input::placeholder {
+    color: #ccc;
+    font-style: italic;
+}
+
+.no-budget .budget-amount-input {
+    color: #999;
+}
+
+.no-budget .budget-amount-input:focus {
+    color: var(--text-primary);
+}
+
+/* Category display */
+.category-icon {
+    margin-right: 0.5rem;
+    font-size: 1.1rem;
+}
+
+.category-name {
+    font-weight: 500;
+}
+
+.suggestion-hint {
+    margin-left: 0.5rem;
+    cursor: help;
+    opacity: 0.7;
+}
+
+.suggestion-hint:hover {
+    opacity: 1;
+}
+
+/* Monthly amount column */
+.monthly-amount {
+    font-size: 0.85rem;
+}
+
+/* Actions cell */
+.actions-cell {
+    white-space: nowrap;
+}
+
+.btn-icon {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.9rem;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-icon:hover {
+    background: var(--bg-primary);
+    border-color: var(--border);
+}
+
+.btn-danger-icon:hover {
+    background: #fee2e2;
+    border-color: #fecaca;
+}
+
+/* Budget summary bar */
+.budget-summary-bar {
+    font-size: 0.95rem;
+}
+
+/* Notes input styling */
+.budget-notes-input {
+    padding: 0.4rem 0.5rem;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    width: 100%;
+    background: transparent;
+    transition: all 0.2s;
+}
+
+.budget-notes-input:hover:not(:disabled) {
+    border-color: var(--border);
+    background: white;
+}
+
+.budget-notes-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: white;
+}
+
+.budget-notes-input:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* Table row hover effect */
+.budgets-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+.budgets-table tbody tr.no-budget-row:hover {
+    background: #f3f4f6;
+}

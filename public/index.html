@@ -704,52 +704,26 @@
 
                 <!-- Budgets Tab -->
                 <div class="budget-tab-content" id="budget-budgets" style="display: none;">
-                    <!-- Add Budget Form -->
-                    <div class="card" style="margin-bottom: 1.5rem;">
-                        <h3 style="margin-bottom: 1rem;">Add Budget</h3>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 1rem; align-items: end;">
+                    <!-- Quick Actions Bar -->
+                    <div class="card" style="margin-bottom: 1.5rem; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
                             <div>
-                                <label style="display: block; margin-bottom: 0.5rem;">Category</label>
-                                <select id="budgetCategorySelect" class="form-select" style="width: 100%;">
-                                    <option value="">Select a category...</option>
+                                <h3 style="margin: 0 0 0.25rem 0;">Category Budgets</h3>
+                                <p style="margin: 0; color: var(--text-secondary); font-size: 0.9rem;">Click on any amount to edit. Enter a value to create a budget for unbudgeted categories.</p>
+                            </div>
+                            <div style="display: flex; gap: 0.75rem; align-items: center;">
+                                <select id="cloneSourceYear" class="form-select" style="width: auto;">
+                                    <option value="">Clone from year...</option>
                                 </select>
+                                <input type="number" id="cloneAdjustment" class="form-input" placeholder="+/- %" style="width: 80px;" title="Adjustment percentage">
+                                <button class="btn btn-secondary" onclick="cloneBudgets()">Clone</button>
+                                <button class="btn btn-primary" onclick="applyAllSuggestions()" title="Apply all suggestions based on last year's spending">Apply Suggestions</button>
                             </div>
-                            <div>
-                                <label style="display: block; margin-bottom: 0.5rem;">Annual Amount</label>
-                                <input type="number" id="budgetAmountInput" class="form-input" placeholder="0.00" style="width: 100%;">
-                            </div>
-                            <div>
-                                <label style="display: block; margin-bottom: 0.5rem;">Notes</label>
-                                <input type="text" id="budgetNotesInput" class="form-input" placeholder="Optional notes" style="width: 100%;">
-                            </div>
-                            <button class="btn btn-primary" onclick="addBudget()">Add Budget</button>
                         </div>
                     </div>
 
-                    <!-- Clone Budgets -->
-                    <div class="card" style="margin-bottom: 1.5rem; background: #f0fdf4;">
-                        <h3 style="margin-bottom: 1rem;">Clone from Previous Year</h3>
-                        <div style="display: flex; gap: 1rem; align-items: end;">
-                            <div>
-                                <label style="display: block; margin-bottom: 0.5rem;">Source Year</label>
-                                <select id="cloneSourceYear" class="form-select">
-                                    <option value="">Select year...</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label style="display: block; margin-bottom: 0.5rem;">Adjustment %</label>
-                                <input type="number" id="cloneAdjustment" class="form-input" placeholder="0" style="width: 100px;">
-                            </div>
-                            <button class="btn btn-secondary" onclick="cloneBudgets()">Clone Budgets</button>
-                        </div>
-                    </div>
-
-                    <!-- Budget Suggestions -->
-                    <div id="budgetSuggestions" class="card" style="margin-bottom: 1.5rem; background: #fef3c7; display: none;"></div>
-
-                    <!-- Budgets List -->
+                    <!-- Budgets List (shows all categories) -->
                     <div class="card">
-                        <h3 style="margin-bottom: 1rem;">Current Budgets</h3>
                         <div id="budgetsList"></div>
                     </div>
                 </div>
