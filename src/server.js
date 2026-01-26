@@ -2321,12 +2321,19 @@ app.post('/api/budgets', (req, res) => {
       return res.status(400).json({ error: 'category_id, year, and annual_amount are required' });
     }
 
-    const budget = budgetManager.createBudget({
-      categoryId: category_id,
-      year: parseInt(year),
-      annualAmount: parseFloat(annual_amount),
+    // Look up category name by ID
+    const categories = database.getCategories();
+    const category = categories.find(c => c.id === parseInt(category_id));
+    if (!category) {
+      return res.status(400).json({ error: 'Category not found' });
+    }
+
+    const budget = budgetManager.createBudget(
+      category.name,
+      parseInt(year),
+      parseFloat(annual_amount),
       notes
-    });
+    );
 
     res.json(budget);
   } catch (error) {
