@@ -378,23 +378,32 @@ function displayAllCategoriesWithBudgets(categories, budgets, suggestions) {
         suggestionByCategory[suggestion.category_id] = suggestion;
     }
 
-    // Build hierarchical category structure
-    const topLevelCategories = categories.filter(c => !c.parent_id);
-    const childCategories = categories.filter(c => c.parent_id);
-
-    // Group children by parent
+    // Group children by parent for recursive rendering
     const childrenByParent = {};
-    for (const child of childCategories) {
-        if (!childrenByParent[child.parent_id]) {
-            childrenByParent[child.parent_id] = [];
+    for (const category of categories) {
+        const parentId = category.parent_id || 'root';
+        if (!childrenByParent[parentId]) {
+            childrenByParent[parentId] = [];
         }
-        childrenByParent[child.parent_id].push(child);
+        childrenByParent[parentId].push(category);
+    }
+
+    // Recursive function to render category and all its descendants
+    function renderCategoryTree(categoryId, indentLevel) {
+        const children = childrenByParent[categoryId] || [];
+        return children.map(category => {
+            return renderCategoryRow(category, budgetByCategory, suggestionByCategory, indentLevel, childrenByParent) +
+                   renderCategoryTree(category.id, indentLevel + 1);
+        }).join('');
     }
 
     // Calculate totals
     const totalBudgeted = budgets.reduce((sum, b) => sum + b.annual_amount, 0);
     const categoriesWithBudget = budgets.length;
     const categoriesWithoutBudget = categories.length - budgets.length;
+
+    // Get root level categories
+    const rootCategories = childrenByParent['root'] || [];
 
     container.innerHTML = `
         <div class="budget-summary-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: 8px;">
@@ -418,10 +427,9 @@ function displayAllCategoriesWithBudgets(categories, budgets, suggestions) {
                 </tr>
             </thead>
             <tbody>
-                ${topLevelCategories.map(category => {
-                    const children = childrenByParent[category.id] || [];
-                    return renderCategoryRow(category, budgetByCategory, suggestionByCategory, 0) +
-                           children.map(child => renderCategoryRow(child, budgetByCategory, suggestionByCategory, 1)).join('');
+                ${rootCategories.map(category => {
+                    return renderCategoryRow(category, budgetByCategory, suggestionByCategory, 0, childrenByParent) +
+                           renderCategoryTree(category.id, 1);
                 }).join('')}
             </tbody>
         </table>
@@ -431,25 +439,27 @@ function displayAllCategoriesWithBudgets(categories, budgets, suggestions) {
 /**
  * Render a single category row
  */
-function renderCategoryRow(category, budgetByCategory, suggestionByCategory, indentLevel) {
+function renderCategoryRow(category, budgetByCategory, suggestionByCategory, indentLevel, childrenByParent) {
     const budget = budgetByCategory[category.id];
     const suggestion = suggestionByCategory[category.id];
     const hasBudget = !!budget;
+    const hasChildren = childrenByParent && childrenByParent[category.id] && childrenByParent[category.id].length > 0;
     const indent = indentLevel * 24;
 
     const budgetAmount = hasBudget ? budget.annual_amount : 0;
     const monthlyAmount = budgetAmount / 12;
     const notes = hasBudget ? (budget.notes || '') : '';
 
-    // Style differently if no budget set
+    // Style differently if no budget set or if it's a parent category
     const rowClass = hasBudget ? '' : 'no-budget-row';
     const amountClass = hasBudget ? '' : 'no-budget';
+    const parentClass = hasChildren ? 'parent-category-row' : '';
 
     return `
-        <tr class="${rowClass}" data-category-id="${category.id}">
+        <tr class="${rowClass} ${parentClass}" data-category-id="${category.id}">
             <td style="padding-left: ${indent + 12}px;">
                 <span class="category-icon">${category.icon || '📁'}</span>
-                <span class="category-name">${escapeHtml(category.name)}</span>
+                <span class="category-name ${hasChildren ? 'parent-category-name' : ''}">${escapeHtml(category.name)}</span>
                 ${suggestion && !hasBudget ? `
                     <span class="suggestion-hint" title="Suggested: ${formatCurrency(suggestion.suggested_amount)} based on last year">
                         💡

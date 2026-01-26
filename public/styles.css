@@ -1757,3 +1757,16 @@ body {
 .budgets-table tbody tr.no-budget-row:hover {
     background: #f3f4f6;
 }
+
+/* Parent category styling */
+.parent-category-row {
+    background: #f8fafc;
+}
+
+.parent-category-row:hover {
+    background: #f1f5f9;
+}
+
+.parent-category-name {
+    font-weight: 600;
+}
