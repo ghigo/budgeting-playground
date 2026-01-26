@@ -6,21 +6,44 @@ import Table from 'cli-table3';
 import * as sheets from './sheets.js';
 import * as sync from './sync.js';
 import * as plaid from './plaid.js';
+import * as database from './database.js';
+import { registerBudgetCommands } from './cli/budgetCommands.js';
+import { registerIncomeCommands } from './cli/incomeCommands.js';
+import { registerReportCommands } from './cli/reportCommands.js';
+import { registerDashboardCommands } from './cli/dashboardCommands.js';
 
 const program = new Command();
 
 program
   .name('expense-tracker')
-  .description('Expense tracker with Plaid + Google Sheets')
+  .description('Expense tracker with Plaid + Google Sheets + Budgeting')
   .version('1.0.0')
-  .hook('preAction', async () => {
-    // Initialize sheets before any command
+  .hook('preAction', async (thisCommand, actionCommand) => {
+    // Initialize database for all commands
     try {
-      await sheets.initializeSheets();
+      database.initializeDatabase();
     } catch (error) {
-      console.error(chalk.red('\n❌ Failed to connect to Google Sheets'));
-      console.error(chalk.yellow('Run "npm run setup" to configure Google Sheets\n'));
+      console.error(chalk.red('\n❌ Failed to initialize database'));
+      console.error(chalk.yellow(error.message));
       process.exit(1);
+    }
+
+    // Skip Google Sheets initialization for budget/income/report commands that don't need it
+    // actionCommand is the actual subcommand being executed
+    const commandName = actionCommand.name();
+
+    // Check if this is a local-only command (by prefix or exact match)
+    const localOnlyPrefixes = ['budget:', 'income:', 'report:', 'scenario:'];
+    const isLocalCommand = localOnlyPrefixes.some(prefix => commandName.startsWith(prefix));
+
+    if (!isLocalCommand) {
+      try {
+        await sheets.initializeSheets(database);
+      } catch (error) {
+        console.error(chalk.red('\n❌ Failed to connect to Google Sheets'));
+        console.error(chalk.yellow('Run "npm run setup" to configure Google Sheets\n'));
+        process.exit(1);
+      }
     }
   });
 
@@ -292,6 +315,18 @@ program
       process.exit(1);
     }
   });
+
+// Register budget commands
+registerBudgetCommands(program);
+
+// Register income commands
+registerIncomeCommands(program);
+
+// Register report commands
+registerReportCommands(program);
+
+// Register dashboard commands
+registerDashboardCommands(program);
 
 // Default action - show help
 program.action(() => {

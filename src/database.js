@@ -159,6 +159,57 @@ function createTables() {
       FOREIGN KEY (order_id) REFERENCES amazon_orders(order_id) ON DELETE CASCADE
     );
 
+    -- Budgets (annual budget per category)
+    CREATE TABLE IF NOT EXISTS budgets (
+      id TEXT PRIMARY KEY,
+      category_id INTEGER NOT NULL,
+      year INTEGER NOT NULL,
+      annual_amount REAL NOT NULL,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      last_modified TEXT NOT NULL,
+      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE,
+      UNIQUE(category_id, year)
+    );
+
+    -- Budget Adjustments (audit trail for budget changes)
+    CREATE TABLE IF NOT EXISTS budget_adjustments (
+      id TEXT PRIMARY KEY,
+      budget_id TEXT NOT NULL,
+      adjustment_date TEXT NOT NULL,
+      old_amount REAL NOT NULL,
+      new_amount REAL NOT NULL,
+      reason TEXT,
+      FOREIGN KEY (budget_id) REFERENCES budgets(id) ON DELETE CASCADE
+    );
+
+    -- Income Transactions (actual income received)
+    CREATE TABLE IF NOT EXISTS income_transactions (
+      id TEXT PRIMARY KEY,
+      date TEXT NOT NULL,
+      amount REAL NOT NULL,
+      source TEXT NOT NULL,
+      type TEXT NOT NULL,
+      description TEXT,
+      account_id TEXT,
+      plaid_transaction_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    -- Income Budgets (expected annual income by source)
+    CREATE TABLE IF NOT EXISTS income_budgets (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      type TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      annual_expected REAL NOT NULL,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      last_modified TEXT NOT NULL,
+      UNIQUE(source, type, year)
+    );
+
     -- Indexes for performance
     CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
     CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category);
@@ -181,6 +232,14 @@ function createTables() {
     -- Compound index for common transaction queries
     CREATE INDEX IF NOT EXISTS idx_transactions_date_desc ON transactions(date DESC);
     CREATE INDEX IF NOT EXISTS idx_accounts_name_lookup ON accounts(name);
+    -- Budget indexes
+    CREATE INDEX IF NOT EXISTS idx_budgets_year ON budgets(year);
+    CREATE INDEX IF NOT EXISTS idx_budgets_category_year ON budgets(category_id, year);
+    CREATE INDEX IF NOT EXISTS idx_budget_adjustments_budget ON budget_adjustments(budget_id);
+    CREATE INDEX IF NOT EXISTS idx_income_transactions_date ON income_transactions(date);
+    CREATE INDEX IF NOT EXISTS idx_income_transactions_year ON income_transactions(date);
+    CREATE INDEX IF NOT EXISTS idx_income_transactions_type ON income_transactions(type);
+    CREATE INDEX IF NOT EXISTS idx_income_budgets_year ON income_budgets(year);
   `);
 
   // Run migrations to add new columns to existing tables
@@ -4443,4 +4502,530 @@ export function getTransactionsByIds(transactionIds) {
   }
   const placeholders = transactionIds.map(() => '?').join(',');
   return db.prepare(`SELECT * FROM transactions WHERE transaction_id IN (${placeholders})`).all(...transactionIds);
+}
+
+// ============================================================================
+// BUDGETING SYSTEM CRUD OPERATIONS
+// ============================================================================
+
+/**
+ * Generate a UUID for budget records
+ */
+function generateBudgetId() {
+  return 'budget_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+}
+
+/**
+ * Create a new budget for a category and year
+ */
+export function createBudget(categoryId, year, annualAmount, notes = null) {
+  const id = generateBudgetId();
+  const now = new Date().toISOString();
+
+  try {
+    db.prepare(`
+      INSERT INTO budgets (id, category_id, year, annual_amount, notes, created_at, last_modified)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, categoryId, year, annualAmount, notes, now, now);
+
+    return { id, category_id: categoryId, year, annual_amount: annualAmount, notes, created_at: now, last_modified: now };
+  } catch (error) {
+    if (error.message.includes('UNIQUE constraint failed')) {
+      throw new Error(`Budget already exists for category ID ${categoryId} in year ${year}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get all budgets for a specific year
+ */
+export function getBudgetsByYear(year) {
+  return db.prepare(`
+    SELECT b.*, c.name as category_name, c.icon as category_icon, c.color as category_color
+    FROM budgets b
+    JOIN categories c ON b.category_id = c.id
+    WHERE b.year = ?
+    ORDER BY c.name
+  `).all(year);
+}
+
+/**
+ * Get budget for a specific category and year
+ */
+export function getBudget(categoryId, year) {
+  return db.prepare(`
+    SELECT b.*, c.name as category_name
+    FROM budgets b
+    JOIN categories c ON b.category_id = c.id
+    WHERE b.category_id = ? AND b.year = ?
+  `).get(categoryId, year);
+}
+
+/**
+ * Get budget by ID
+ */
+export function getBudgetById(budgetId) {
+  return db.prepare(`
+    SELECT b.*, c.name as category_name
+    FROM budgets b
+    JOIN categories c ON b.category_id = c.id
+    WHERE b.id = ?
+  `).get(budgetId);
+}
+
+/**
+ * Update a budget amount with audit trail
+ */
+export function updateBudget(budgetId, newAmount, reason = null) {
+  const budget = getBudgetById(budgetId);
+  if (!budget) {
+    throw new Error(`Budget not found: ${budgetId}`);
+  }
+
+  const now = new Date().toISOString();
+  const adjustmentId = 'adj_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+
+  // Create adjustment record
+  db.prepare(`
+    INSERT INTO budget_adjustments (id, budget_id, adjustment_date, old_amount, new_amount, reason)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(adjustmentId, budgetId, now, budget.annual_amount, newAmount, reason);
+
+  // Update budget
+  db.prepare(`
+    UPDATE budgets SET annual_amount = ?, last_modified = ? WHERE id = ?
+  `).run(newAmount, now, budgetId);
+
+  return { ...budget, annual_amount: newAmount, last_modified: now };
+}
+
+/**
+ * Update budget notes
+ */
+export function updateBudgetNotes(budgetId, notes) {
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE budgets SET notes = ?, last_modified = ? WHERE id = ?
+  `).run(notes, now, budgetId);
+}
+
+/**
+ * Delete a budget
+ */
+export function deleteBudget(budgetId) {
+  const result = db.prepare('DELETE FROM budgets WHERE id = ?').run(budgetId);
+  return result.changes > 0;
+}
+
+/**
+ * Clone budgets from one year to another
+ */
+export function cloneBudgets(fromYear, toYear, inflationRate = 0) {
+  const sourceBudgets = getBudgetsByYear(fromYear);
+  const now = new Date().toISOString();
+  const multiplier = 1 + (inflationRate / 100);
+  const clonedBudgets = [];
+
+  for (const budget of sourceBudgets) {
+    const newAmount = Math.round(budget.annual_amount * multiplier * 100) / 100;
+    const id = generateBudgetId();
+
+    try {
+      db.prepare(`
+        INSERT INTO budgets (id, category_id, year, annual_amount, notes, created_at, last_modified)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, budget.category_id, toYear, newAmount, `Cloned from ${fromYear}`, now, now);
+
+      clonedBudgets.push({
+        id,
+        category_id: budget.category_id,
+        category_name: budget.category_name,
+        year: toYear,
+        annual_amount: newAmount,
+        original_amount: budget.annual_amount
+      });
+    } catch (error) {
+      // Skip if budget already exists for this category/year
+      if (!error.message.includes('UNIQUE constraint failed')) {
+        throw error;
+      }
+    }
+  }
+
+  return clonedBudgets;
+}
+
+/**
+ * Get budget adjustments history for a budget
+ */
+export function getBudgetAdjustments(budgetId) {
+  return db.prepare(`
+    SELECT * FROM budget_adjustments
+    WHERE budget_id = ?
+    ORDER BY adjustment_date DESC
+  `).all(budgetId);
+}
+
+/**
+ * Get all budget adjustments for a year
+ */
+export function getBudgetAdjustmentsByYear(year) {
+  return db.prepare(`
+    SELECT ba.*, b.category_id, c.name as category_name
+    FROM budget_adjustments ba
+    JOIN budgets b ON ba.budget_id = b.id
+    JOIN categories c ON b.category_id = c.id
+    WHERE b.year = ?
+    ORDER BY ba.adjustment_date DESC
+  `).all(year);
+}
+
+/**
+ * Get total budgeted amount for a year
+ */
+export function getTotalBudgetedAmount(year) {
+  const result = db.prepare(`
+    SELECT COALESCE(SUM(annual_amount), 0) as total
+    FROM budgets
+    WHERE year = ?
+  `).get(year);
+  return result.total;
+}
+
+// ============================================================================
+// INCOME TRACKING CRUD OPERATIONS
+// ============================================================================
+
+/**
+ * Generate ID for income records
+ */
+function generateIncomeId(prefix = 'inc') {
+  return prefix + '_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+}
+
+/**
+ * Add an income transaction
+ */
+export function addIncomeTransaction(date, amount, source, type, description = null, accountId = null, plaidTransactionId = null) {
+  const id = generateIncomeId('inc_txn');
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO income_transactions (id, date, amount, source, type, description, account_id, plaid_transaction_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, date, amount, source, type, description, accountId, plaidTransactionId, now, now);
+
+  return { id, date, amount, source, type, description, account_id: accountId, plaid_transaction_id: plaidTransactionId, created_at: now };
+}
+
+/**
+ * Get income transactions for a year
+ */
+export function getIncomeTransactions(year, month = null) {
+  let query = `
+    SELECT * FROM income_transactions
+    WHERE strftime('%Y', date) = ?
+  `;
+  const params = [String(year)];
+
+  if (month !== null) {
+    query += ` AND strftime('%m', date) = ?`;
+    params.push(String(month).padStart(2, '0'));
+  }
+
+  query += ' ORDER BY date DESC';
+  return db.prepare(query).all(...params);
+}
+
+/**
+ * Get income transaction by ID
+ */
+export function getIncomeTransactionById(id) {
+  return db.prepare('SELECT * FROM income_transactions WHERE id = ?').get(id);
+}
+
+/**
+ * Update an income transaction
+ */
+export function updateIncomeTransaction(id, updates) {
+  const now = new Date().toISOString();
+  const allowedFields = ['date', 'amount', 'source', 'type', 'description', 'account_id'];
+  const setClause = [];
+  const values = [];
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (allowedFields.includes(key)) {
+      setClause.push(`${key} = ?`);
+      values.push(value);
+    }
+  }
+
+  if (setClause.length === 0) return false;
+
+  setClause.push('updated_at = ?');
+  values.push(now, id);
+
+  const result = db.prepare(`
+    UPDATE income_transactions SET ${setClause.join(', ')} WHERE id = ?
+  `).run(...values);
+
+  return result.changes > 0;
+}
+
+/**
+ * Delete an income transaction
+ */
+export function deleteIncomeTransaction(id) {
+  const result = db.prepare('DELETE FROM income_transactions WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+/**
+ * Get income summary for a year
+ */
+export function getIncomeSummary(year) {
+  // Get actual income by type
+  const byType = db.prepare(`
+    SELECT type, source, SUM(amount) as total, COUNT(*) as count
+    FROM income_transactions
+    WHERE strftime('%Y', date) = ?
+    GROUP BY type, source
+    ORDER BY total DESC
+  `).all(String(year));
+
+  // Get monthly breakdown
+  const monthly = db.prepare(`
+    SELECT strftime('%m', date) as month, SUM(amount) as total
+    FROM income_transactions
+    WHERE strftime('%Y', date) = ?
+    GROUP BY strftime('%m', date)
+    ORDER BY month
+  `).all(String(year));
+
+  // Get total income
+  const totalResult = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total
+    FROM income_transactions
+    WHERE strftime('%Y', date) = ?
+  `).get(String(year));
+
+  return {
+    total: totalResult.total,
+    byType,
+    monthly
+  };
+}
+
+/**
+ * Create or update expected income budget
+ */
+export function setIncomeBudget(source, type, year, annualExpected, notes = null) {
+  const now = new Date().toISOString();
+
+  // Check if exists
+  const existing = db.prepare(`
+    SELECT id FROM income_budgets WHERE source = ? AND type = ? AND year = ?
+  `).get(source, type, year);
+
+  if (existing) {
+    db.prepare(`
+      UPDATE income_budgets
+      SET annual_expected = ?, notes = ?, last_modified = ?
+      WHERE id = ?
+    `).run(annualExpected, notes, now, existing.id);
+    return { id: existing.id, source, type, year, annual_expected: annualExpected, notes, updated: true };
+  } else {
+    const id = generateIncomeId('inc_bud');
+    db.prepare(`
+      INSERT INTO income_budgets (id, source, type, year, annual_expected, notes, created_at, last_modified)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, source, type, year, annualExpected, notes, now, now);
+    return { id, source, type, year, annual_expected: annualExpected, notes, updated: false };
+  }
+}
+
+/**
+ * Get all income budgets for a year
+ */
+export function getIncomeBudgets(year) {
+  return db.prepare(`
+    SELECT * FROM income_budgets WHERE year = ? ORDER BY type, source
+  `).all(year);
+}
+
+/**
+ * Get total expected income for a year
+ */
+export function getTotalExpectedIncome(year) {
+  const result = db.prepare(`
+    SELECT COALESCE(SUM(annual_expected), 0) as total
+    FROM income_budgets
+    WHERE year = ?
+  `).get(year);
+  return result.total;
+}
+
+/**
+ * Delete an income budget
+ */
+export function deleteIncomeBudget(id) {
+  const result = db.prepare('DELETE FROM income_budgets WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+/**
+ * Get income vs budget comparison
+ */
+export function getIncomeVsBudget(year) {
+  const budgets = getIncomeBudgets(year);
+  const actualSummary = getIncomeSummary(year);
+
+  // Build comparison by source and type
+  const comparison = [];
+  const actualBySourceType = {};
+
+  // Index actual income
+  for (const item of actualSummary.byType) {
+    const key = `${item.source}|${item.type}`;
+    actualBySourceType[key] = item.total;
+  }
+
+  // Build comparison
+  for (const budget of budgets) {
+    const key = `${budget.source}|${budget.type}`;
+    const actual = actualBySourceType[key] || 0;
+    delete actualBySourceType[key];
+
+    comparison.push({
+      source: budget.source,
+      type: budget.type,
+      expected: budget.annual_expected,
+      actual,
+      variance: actual - budget.annual_expected,
+      variance_pct: budget.annual_expected > 0 ? ((actual - budget.annual_expected) / budget.annual_expected * 100) : 0
+    });
+  }
+
+  // Add unbudgeted income
+  for (const [key, actual] of Object.entries(actualBySourceType)) {
+    const [source, type] = key.split('|');
+    comparison.push({
+      source,
+      type,
+      expected: 0,
+      actual,
+      variance: actual,
+      variance_pct: 100,
+      unbudgeted: true
+    });
+  }
+
+  return {
+    comparison,
+    totalExpected: budgets.reduce((sum, b) => sum + b.annual_expected, 0),
+    totalActual: actualSummary.total,
+    totalVariance: actualSummary.total - budgets.reduce((sum, b) => sum + b.annual_expected, 0)
+  };
+}
+
+/**
+ * Detect potential income transactions from regular transactions
+ * (negative amounts from known income sources)
+ */
+export function detectPotentialIncome(year, knownIncomeSources = []) {
+  // Default income source patterns
+  const incomePatterns = [
+    { pattern: 'payroll|paycheck|salary|direct dep', type: 'Salary' },
+    { pattern: 'dividend|interest', type: 'Investment' },
+    { pattern: 'refund|return|rebate', type: 'Other' },
+    { pattern: 'venmo|zelle|paypal.*from', type: 'Other' },
+    ...knownIncomeSources
+  ];
+
+  // Get all negative transactions (credits) for the year
+  const potentialIncome = db.prepare(`
+    SELECT * FROM transactions
+    WHERE strftime('%Y', date) = ?
+    AND amount < 0
+    AND category != 'Transfer'
+    ORDER BY date DESC
+  `).all(String(year));
+
+  // Categorize potential income
+  const categorized = potentialIncome.map(txn => {
+    const desc = (txn.description + ' ' + (txn.merchant_name || '')).toLowerCase();
+    let matchedType = 'Other';
+
+    for (const { pattern, type } of incomePatterns) {
+      if (new RegExp(pattern, 'i').test(desc)) {
+        matchedType = type;
+        break;
+      }
+    }
+
+    return {
+      ...txn,
+      income_type: matchedType,
+      amount: Math.abs(txn.amount)
+    };
+  });
+
+  return categorized;
+}
+
+/**
+ * Get budget years available
+ */
+export function getBudgetYears() {
+  const result = db.prepare(`
+    SELECT DISTINCT year FROM budgets ORDER BY year DESC
+  `).all();
+  return result.map(r => r.year);
+}
+
+/**
+ * Get spending by category for budget comparison
+ */
+export function getSpendingByCategory(year, categoryId = null) {
+  let query = `
+    SELECT
+      t.category_id,
+      c.name as category_name,
+      strftime('%m', t.date) as month,
+      SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) as spent
+    FROM transactions t
+    LEFT JOIN categories c ON t.category_id = c.id
+    WHERE strftime('%Y', t.date) = ?
+    AND t.amount > 0
+  `;
+  const params = [String(year)];
+
+  if (categoryId) {
+    query += ' AND t.category_id = ?';
+    params.push(categoryId);
+  }
+
+  query += ' GROUP BY t.category_id, strftime("%m", t.date) ORDER BY c.name, month';
+
+  return db.prepare(query).all(...params);
+}
+
+/**
+ * Get year-to-date spending by category
+ */
+export function getYTDSpendingByCategory(year) {
+  return db.prepare(`
+    SELECT
+      t.category_id,
+      c.name as category_name,
+      SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) as ytd_spent,
+      COUNT(*) as transaction_count
+    FROM transactions t
+    LEFT JOIN categories c ON t.category_id = c.id
+    WHERE strftime('%Y', t.date) = ?
+    AND t.amount > 0
+    GROUP BY t.category_id
+    ORDER BY ytd_spent DESC
+  `).all(String(year));
 }
