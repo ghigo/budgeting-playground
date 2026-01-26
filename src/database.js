@@ -5006,7 +5006,7 @@ export function getSpendingByCategory(year, categoryId = null) {
     params.push(categoryId);
   }
 
-  query += ' GROUP BY t.category_id, strftime("%m", t.date) ORDER BY c.name, month';
+  query += " GROUP BY t.category_id, strftime('%m', t.date) ORDER BY c.name, month";
 
   return db.prepare(query).all(...params);
 }
