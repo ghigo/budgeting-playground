@@ -3,7 +3,7 @@
  * Handles budget management, income tracking, compliance monitoring, and projections
  */
 
-import { formatCurrency, formatDate, escapeHtml } from '../utils/formatters.js';
+import { formatCurrency, formatDate, escapeHtml, renderCategoryBadge } from '../utils/formatters.js';
 import { showToast } from '../services/toast.js';
 import { withLoadingState } from '../utils/helpers.js';
 
@@ -361,114 +361,132 @@ function populateCloneYearSelector() {
 
 /**
  * Display all categories with their budgets (or empty slots for unbudgeted)
+ * Uses same structure as CategoriesPage for consistent look and feel
  */
 function displayAllCategoriesWithBudgets(categories, budgets, suggestions) {
     const container = document.getElementById('budgetsList');
     if (!container) return;
 
-    // Create a map of category_id -> budget
+    // Create maps for quick lookup
     const budgetByCategory = {};
     for (const budget of budgets) {
         budgetByCategory[budget.category_id] = budget;
     }
 
-    // Create a map of category_id -> suggestion
     const suggestionByCategory = {};
     for (const suggestion of suggestions) {
         suggestionByCategory[suggestion.category_id] = suggestion;
     }
 
-    // Group children by parent for recursive rendering
-    const childrenByParent = {};
-    for (const category of categories) {
-        const parentId = category.parent_id || 'root';
-        if (!childrenByParent[parentId]) {
-            childrenByParent[parentId] = [];
-        }
-        childrenByParent[parentId].push(category);
-    }
-
-    // Recursive function to render category and all its descendants
-    function renderCategoryTree(categoryId, indentLevel) {
-        const children = childrenByParent[categoryId] || [];
-        return children.map(category => {
-            return renderCategoryRow(category, budgetByCategory, suggestionByCategory, indentLevel, childrenByParent) +
-                   renderCategoryTree(category.id, indentLevel + 1);
-        }).join('');
-    }
+    // Group categories by parent (using parent_category name like CategoriesPage)
+    const topLevel = categories.filter(cat => !cat.parent_category);
+    const children = categories.filter(cat => cat.parent_category);
 
     // Calculate totals
     const totalBudgeted = budgets.reduce((sum, b) => sum + b.annual_amount, 0);
     const categoriesWithBudget = budgets.length;
     const categoriesWithoutBudget = categories.length - budgets.length;
 
-    // Get root level categories
-    const rootCategories = childrenByParent['root'] || [];
-
-    container.innerHTML = `
+    let html = `
         <div class="budget-summary-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding: 1rem; background: var(--bg-primary); border-radius: 8px;">
             <div>
                 <strong>Total Annual Budget:</strong> ${formatCurrency(totalBudgeted)}
                 <span class="text-muted" style="margin-left: 1rem;">(${formatCurrency(totalBudgeted / 12)}/month)</span>
             </div>
             <div class="text-muted">
-                ${categoriesWithBudget} categories budgeted, ${categoriesWithoutBudget} unbudgeted
+                ${categoriesWithBudget} budgeted, ${categoriesWithoutBudget} unbudgeted
             </div>
         </div>
-
-        <table class="budgets-table">
-            <thead>
-                <tr>
-                    <th style="width: 30%;">Category</th>
-                    <th style="width: 20%;">Annual Budget</th>
-                    <th style="width: 15%;">Monthly</th>
-                    <th style="width: 25%;">Notes</th>
-                    <th style="width: 10%;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${rootCategories.map(category => {
-                    return renderCategoryRow(category, budgetByCategory, suggestionByCategory, 0, childrenByParent) +
-                           renderCategoryTree(category.id, 1);
-                }).join('')}
-            </tbody>
-        </table>
+        <div class="categories-tree">
     `;
+
+    // Render top-level categories with their children
+    topLevel.forEach(cat => {
+        const childCats = children.filter(c => c.parent_category === cat.name);
+        const hasChildren = childCats.length > 0;
+
+        html += `
+            <div class="category-item ${hasChildren ? 'has-children' : ''}">
+                ${renderBudgetCategoryRow(cat, budgetByCategory, suggestionByCategory, false)}
+        `;
+
+        if (hasChildren) {
+            html += '<div class="category-children">';
+            childCats.forEach(child => {
+                // Check for grandchildren
+                const grandchildren = children.filter(c => c.parent_category === child.name);
+                const childHasChildren = grandchildren.length > 0;
+
+                html += `
+                    <div class="category-item child ${childHasChildren ? 'has-children' : ''}">
+                        ${renderBudgetCategoryRow(child, budgetByCategory, suggestionByCategory, true)}
+                `;
+
+                if (childHasChildren) {
+                    html += '<div class="category-children">';
+                    grandchildren.forEach(grandchild => {
+                        html += `
+                            <div class="category-item child grandchild">
+                                ${renderBudgetCategoryRow(grandchild, budgetByCategory, suggestionByCategory, true, true)}
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                }
+
+                html += '</div>';
+            });
+            html += '</div>';
+        }
+
+        html += '</div>';
+    });
+
+    // Handle orphaned categories (whose parent doesn't exist)
+    const orphans = children.filter(c => !topLevel.some(p => p.name === c.parent_category) && !children.some(p => p.name === c.parent_category));
+    if (orphans.length > 0) {
+        orphans.forEach(orphan => {
+            html += `
+                <div class="category-item">
+                    ${renderBudgetCategoryRow(orphan, budgetByCategory, suggestionByCategory, false)}
+                </div>
+            `;
+        });
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
 }
 
 /**
- * Render a single category row
+ * Render a single budget category row (matching CategoriesPage style)
  */
-function renderCategoryRow(category, budgetByCategory, suggestionByCategory, indentLevel, childrenByParent) {
+function renderBudgetCategoryRow(category, budgetByCategory, suggestionByCategory, isChild, isGrandchild = false) {
     const budget = budgetByCategory[category.id];
     const suggestion = suggestionByCategory[category.id];
     const hasBudget = !!budget;
-    const hasChildren = childrenByParent && childrenByParent[category.id] && childrenByParent[category.id].length > 0;
-    const indent = indentLevel * 24;
 
     const budgetAmount = hasBudget ? budget.annual_amount : 0;
     const monthlyAmount = budgetAmount / 12;
     const notes = hasBudget ? (budget.notes || '') : '';
-
-    // Style differently if no budget set or if it's a parent category
-    const rowClass = hasBudget ? '' : 'no-budget-row';
-    const amountClass = hasBudget ? '' : 'no-budget';
-    const parentClass = hasChildren ? 'parent-category-row' : '';
+    const rowClass = hasBudget ? '' : 'no-budget';
 
     return `
-        <tr class="${rowClass} ${parentClass}" data-category-id="${category.id}">
-            <td style="padding-left: ${indent + 12}px;">
-                <span class="category-icon">${category.icon || '📁'}</span>
-                <span class="category-name ${hasChildren ? 'parent-category-name' : ''}">${escapeHtml(category.name)}</span>
-                ${suggestion && !hasBudget ? `
-                    <span class="suggestion-hint" title="Suggested: ${formatCurrency(suggestion.suggested_amount)} based on last year">
-                        💡
-                    </span>
-                ` : ''}
-            </td>
-            <td>
-                <div class="budget-input-wrapper ${amountClass}">
-                    <span class="currency-symbol">$</span>
+        <div class="category-row budget-row ${rowClass}">
+            <div class="category-info" style="flex: 1;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    ${isChild ? `<span style="color: var(--text-secondary); margin-right: -0.5rem;">${isGrandchild ? '↳↳' : '↳'}</span>` : ''}
+                    ${renderCategoryBadge(category, { inline: true })}
+                    ${suggestion && !hasBudget ? `
+                        <span class="suggestion-hint" title="Suggested: ${formatCurrency(suggestion.suggested_amount)} based on last year" style="opacity: 0.6; font-size: 0.85rem;">
+                            💡 ${formatCurrency(suggestion.suggested_amount)}
+                        </span>
+                    ` : ''}
+                </div>
+            </div>
+            <div class="budget-fields" style="display: flex; align-items: center; gap: 1rem;">
+                <div class="budget-input-wrapper" style="display: flex; align-items: center;">
+                    <span style="color: var(--text-secondary); margin-right: 2px;">$</span>
                     <input type="number"
                            class="budget-amount-input"
                            value="${budgetAmount || ''}"
@@ -478,40 +496,40 @@ function renderCategoryRow(category, budgetByCategory, suggestionByCategory, ind
                            data-original="${budgetAmount}"
                            data-has-budget="${hasBudget}"
                            onchange="handleCategoryBudgetChange(this)"
-                           onfocus="this.select()">
+                           onfocus="this.select()"
+                           style="width: 100px;">
+                    <span class="monthly-amount text-muted" style="margin-left: 0.5rem; font-size: 0.85rem; min-width: 70px;">
+                        ${budgetAmount > 0 ? formatCurrency(monthlyAmount) + '/mo' : ''}
+                    </span>
                 </div>
-            </td>
-            <td class="text-muted monthly-amount">
-                ${budgetAmount > 0 ? formatCurrency(monthlyAmount) + '/mo' : '-'}
-            </td>
-            <td>
                 <input type="text"
                        class="budget-notes-input"
                        value="${escapeHtml(notes)}"
-                       placeholder="${hasBudget ? 'Add notes...' : ''}"
+                       placeholder="${hasBudget ? 'Notes...' : ''}"
                        data-category-id="${category.id}"
                        data-budget-id="${hasBudget ? budget.id : ''}"
                        data-has-budget="${hasBudget}"
                        ${!hasBudget ? 'disabled' : ''}
-                       onchange="handleBudgetNotesChange(this)">
-            </td>
-            <td class="actions-cell">
-                ${hasBudget ? `
-                    <button class="btn btn-small btn-icon" onclick="showBudgetHistory('${budget.id}')" title="View history">
-                        📜
-                    </button>
-                    <button class="btn btn-small btn-icon btn-danger-icon" onclick="clearCategoryBudget('${budget.id}', '${escapeHtml(category.name)}')" title="Clear budget">
-                        ✕
-                    </button>
-                ` : `
-                    ${suggestion ? `
-                        <button class="btn btn-small btn-icon" onclick="applySuggestion(${category.id}, ${suggestion.suggested_amount})" title="Apply suggestion: ${formatCurrency(suggestion.suggested_amount)}">
-                            💡
+                       onchange="handleBudgetNotesChange(this)"
+                       style="width: 150px; ${!hasBudget ? 'opacity: 0.3;' : ''}">
+                <div class="budget-actions" style="display: flex; gap: 0.25rem; min-width: 60px;">
+                    ${hasBudget ? `
+                        <button class="btn btn-small btn-icon" onclick="showBudgetHistory('${budget.id}')" title="View history">
+                            📜
                         </button>
-                    ` : ''}
-                `}
-            </td>
-        </tr>
+                        <button class="btn btn-small btn-icon btn-danger-icon" onclick="clearCategoryBudget('${budget.id}', '${escapeHtml(category.name)}')" title="Clear budget">
+                            ✕
+                        </button>
+                    ` : `
+                        ${suggestion ? `
+                            <button class="btn btn-small btn-icon" onclick="applySuggestion(${category.id}, ${suggestion.suggested_amount})" title="Apply suggestion: ${formatCurrency(suggestion.suggested_amount)}">
+                                💡
+                            </button>
+                        ` : ''}
+                    `}
+                </div>
+            </div>
+        </div>
     `;
 }
 

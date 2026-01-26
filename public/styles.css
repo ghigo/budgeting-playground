@@ -1770,3 +1770,66 @@ body {
 .parent-category-name {
     font-weight: 600;
 }
+
+/* Budget rows within categories tree */
+.budget-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.budget-row .category-info {
+    min-width: 200px;
+}
+
+.budget-row.no-budget {
+    opacity: 0.7;
+}
+
+.budget-row.no-budget:hover {
+    opacity: 1;
+}
+
+.budget-fields {
+    flex-shrink: 0;
+}
+
+.budget-row .budget-amount-input {
+    text-align: right;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    font-size: 0.95rem;
+}
+
+.budget-row .budget-amount-input:hover,
+.budget-row .budget-amount-input:focus {
+    border-color: var(--border);
+    background: white;
+}
+
+.budget-row .budget-amount-input:focus {
+    border-color: var(--primary);
+    outline: none;
+}
+
+.budget-row .budget-notes-input {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    font-size: 0.85rem;
+}
+
+.budget-row .budget-notes-input:hover:not(:disabled),
+.budget-row .budget-notes-input:focus {
+    border-color: var(--border);
+    background: white;
+}
+
+.budget-row .budget-notes-input:focus {
+    border-color: var(--primary);
+    outline: none;
+}
